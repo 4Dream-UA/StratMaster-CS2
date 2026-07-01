@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir poetry && \
 
 # Copy source
 COPY backend/ ./backend/
-COPY alembic.ini ./alembic.ini 2>/dev/null || true
+COPY alembic.in[i] ./alembic.ini
 
 ENV PYTHONPATH=/app
 ENV PYTHONDONTWRITEBYTECODE=1
