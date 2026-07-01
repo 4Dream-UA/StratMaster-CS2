@@ -3,6 +3,7 @@ import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
 
 from backend.app.core.config import settings
 from backend.app.bot.handlers import start
@@ -12,7 +13,11 @@ logger = logging.getLogger(__name__)
 
 
 async def main():
-    bot = Bot(token=settings.bot_token, parse_mode=ParseMode.HTML)
+    bot = Bot(
+        token=settings.bot_token,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    )
+
     dp = Dispatcher()
 
     dp.include_router(start.router)
