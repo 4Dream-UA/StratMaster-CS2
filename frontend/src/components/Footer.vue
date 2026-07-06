@@ -2,7 +2,9 @@
   <footer class="footer">
     <div class="wrap footer-body">
       <div class="footer-brand">
-        <img src="../assets/logo.png" alt="StratMaster CS2" class="footer-logo" />
+        <router-link to="/" aria-label="Go to home page">
+          <img src="../assets/logo.png" alt="StratMaster CS2" class="footer-logo" />
+        </router-link>
         <p>Premium CS2 strategies and tactics<br>from esports professionals.</p>
       </div>
 
@@ -53,10 +55,10 @@
   padding: 64px 20px 48px;
 }
 .footer-logo {
-  height: 32px;
+  height: 44px;
   width: auto;
   object-fit: contain;
-  margin-bottom: 16px;
+  margin-bottom: 4px;
   display: block;
 }
 .footer-brand p {
