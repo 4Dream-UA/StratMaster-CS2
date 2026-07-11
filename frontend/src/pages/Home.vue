@@ -127,16 +127,25 @@
             v-for="map in filteredMaps"
             :key="map.id"
             class="map-card"
+            @click="router.push('/map/' + map.id)"
           >
+            <div class="map-card-glow"></div>
+
             <div class="map-thumb">
-              <span class="map-thumb-name">{{ map.name }}</span>
+              <img
+                v-if="map.cover_image_url"
+                :src="map.cover_image_url"
+                :alt="map.name"
+                class="map-thumb-img"
+              />
+              <span v-else class="map-thumb-name">{{ map.name }}</span>
               <div class="map-thumb-overlay"></div>
             </div>
+
             <div class="map-card-body">
               <h3>{{ map.name }}</h3>
-              <p class="map-card-link">View tactics &amp; lineups →</p>
+              <p class="map-card-link">Browse strategies →</p>
             </div>
-            <div class="map-card-glow"></div>
           </div>
         </div>
       </div>
@@ -205,20 +214,33 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import { strategiesAPI } from '../api/strategies'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
 
-// ── Stub data (replace with API calls in Stage 3) ──────────────
-const allMaps = [
-  { id: 1, name: 'Mirage' },
-  { id: 2, name: 'Inferno' },
-  { id: 3, name: 'Dust2' },
-  { id: 4, name: 'Nuke' },
-  { id: 5, name: 'Ancient' },
-  { id: 6, name: 'Anubis' },
-]
-const maps        = ref([...allMaps])
-const isLoading   = ref(false)
+const router = useRouter()
+const route  = useRoute()
+
+// Scroll to the section matching the URL hash (e.g. "#strategies" when
+// coming back from the strategies list), otherwise land at the top.
+// Runs after the DOM has updated so the target section actually exists.
+function scrollToHashOrTop() {
+  nextTick(() => {
+    if (route.hash) {
+      const el = document.querySelector(route.hash)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        return
+      }
+    }
+    window.scrollTo({ top: 0, behavior: 'auto' })
+  })
+}
+
+// ── Data ──────────────
+const maps        = ref([])
+const isLoading   = ref(true)
 const searchQuery = ref('')
 const gridRef     = ref(null)
 
@@ -228,12 +250,31 @@ const strategiesCount = computed(() => maps.value.length * 15)
 // ── Search — case-insensitive, trims whitespace ────────────────
 const filteredMaps = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return allMaps
-  return allMaps.filter(m => m.name.toLowerCase().includes(q))
+  if (!q) return maps.value
+  return maps.value.filter(m => m.name.toLowerCase().includes(q))
 })
 
 function onSearch() { /* v-model handles reactivity */ }
 function clearSearch() { searchQuery.value = '' }
+
+// ── Fetch maps on mount ────────────────
+onMounted(async () => {
+  try {
+    maps.value = await strategiesAPI.getMaps()
+  } catch (error) {
+    console.error('Failed to fetch maps:', error)
+  } finally {
+    isLoading.value = false
+    // Wait until the maps grid has rendered before trying to scroll to
+    // it — otherwise "#strategies" navigation can miss its target or
+    // land on the wrong offset while the page is still short/loading.
+    scrollToHashOrTop()
+  }
+})
+
+// If the user is already on Home and a hash link is clicked again
+// (e.g. Header nav → "#strategies"), react to the hash changing too.
+watch(() => route.hash, () => scrollToHashOrTop())
 
 // ── Why items — no emojis, clean copy ─────────────────────────
 const whyItems = [
@@ -558,6 +599,9 @@ h1 {
   cursor: pointer;
   position: relative;
   transition: border-color 0.25s, transform 0.25s;
+  text-decoration: none;
+  color: inherit;
+  display: block;
 }
 .map-card:hover {
   border-color: rgba(255,154,0,0.4);
@@ -582,6 +626,13 @@ h1 {
   );
   display: flex; align-items: center; justify-content: center;
   position: relative;
+}
+.map-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  position: absolute;
+  inset: 0;
 }
 .map-thumb-name {
   font-size: 26px; font-weight: 900;
