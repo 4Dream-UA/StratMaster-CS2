@@ -52,15 +52,15 @@
 │       ├── test_api/             # E2E tests for routers (including fake webhook simulation)
 │       └── test_services/        # Unit tests for core logic
 │
-└── frontend/                     # Telegram Mini App (React / Vue / Vite)
+└── frontend/                     # Telegram Mini App (Vue 3 + Vite)
     ├── package.json              # Node.js dependencies
-    ├── vite.config.js            # Bundler configuration
+    ├── vite.config.js            # Bundler configuration (Vite)
     ├── public/                   # Static assets (Favicon, robots.txt)
     └── src/
         ├── assets/               # Images, fonts, global CSS/SCSS
         ├── components/           # Reusable UI elements (StrategyCard, GrenadeRow, PaymentModal)
         ├── pages/                # Main views (Home, StrategyDetail, AdminPanel)
         ├── api/                  # Axios clients mapped to FastAPI endpoints
-        ├── store/                # Global state management (Zustand/Redux/Pinia)
-        ├── App.jsx               # Root Component
-        └── main.jsx              # React DOM render entry
+        ├── store/                # Global state management (Pinia)
+        ├── App.vue               # Root component (Vue 3 format)
+        └── main.js               # Application rendering entry point (JS/TS)
