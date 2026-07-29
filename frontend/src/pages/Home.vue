@@ -50,7 +50,7 @@
         </div>
 
         <div class="cta-row fade-up delay-4">
-          <button class="btn-primary">Get Premium Access</button>
+          <button class="btn-primary" @click="router.push('/pricing')">Get Premium Access</button>
           <button class="btn-secondary" @click="scrollToMaps">Browse Strategies ↓</button>
         </div>
 
@@ -166,8 +166,8 @@
                 used by top-ranked teams worldwide.
               </p>
               <div class="cta-actions">
-                <button class="btn-primary cta-btn-main">Get Premium Now</button>
-                <button class="btn-secondary" id="referral">Share &amp; Earn Coins</button>
+                <button class="btn-primary cta-btn-main" @click="router.push('/pricing')">Get Premium Now</button>
+                <button class="btn-secondary" id="referral" @click="router.push('/user')">Share &amp; Earn Coins</button>
               </div>
             </div>
 

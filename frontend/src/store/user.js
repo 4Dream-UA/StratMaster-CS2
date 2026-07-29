@@ -9,22 +9,33 @@ export const useUserStore = defineStore('user', () => {
   const error = ref(null)
 
   // Called on app mount — handles both Telegram WebApp and browser dev mode
-  async function initSession(refCode = null) {
+  async function initSession(refWalletId = null) {
     isLoading.value = true
     error.value = null
 
     try {
       const initData = window.Telegram?.WebApp?.initData
 
-      // In browser (dev mode) skip auth, set mock user
       if (!initData) {
-        console.warn('[Auth] No Telegram initData — running in dev/browser mode')
-        user.value = { id: 'dev', username: 'dev_user', is_admin: true }
-        wallet.value = { wallet_id: 'DEV000001', balance_coins: 0, subscription_expires_at: null }
+        // Dev-only escape hatch — never active in a production build, so a
+        // visitor opening the deployed URL outside Telegram can't get a
+        // mock authenticated/admin session.
+        if (import.meta.env.DEV) {
+          console.warn('[Auth] No Telegram initData — running in dev/browser mode')
+          user.value = { id: 'dev', username: 'dev_user', is_admin: true }
+          wallet.value = {
+            wallet_id: 'DEV000001',
+            balance_coins: 120,
+            subscription_expires_at: null,
+            ref_discount_expires_at: null,
+          }
+          return
+        }
+        error.value = 'Please open StratMaster from the Telegram bot.'
         return
       }
 
-      const data = await authAPI.authenticate(initData)
+      const data = await authAPI.authenticate(initData, refWalletId)
       user.value = data
       wallet.value = data.wallet
     } catch (err) {

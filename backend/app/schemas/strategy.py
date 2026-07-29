@@ -73,6 +73,11 @@ class GrenadeCreate(BaseModel):
     order: int = Field(0, ge=0)
 
 
+class ImageCreate(BaseModel):
+    image_url: str = Field(..., max_length=512)
+    order: int = Field(0, ge=0)
+
+
 class StrategyCreate(BaseModel):
     map_id: int
     title: str = Field(..., min_length=1, max_length=128)
@@ -87,3 +92,42 @@ class StrategyCreate(BaseModel):
     timings_description: str | None = None
     buy_tag_ids: list[int] = []
     grenades: list[GrenadeCreate] = []
+    images: list[ImageCreate] = []
+
+
+# StrategyCreate covers full replace-on-edit too — the admin UI always
+# submits the complete strategy (incl. grenades/images), so update reuses
+# the same shape instead of a separate partial-patch schema.
+StrategyUpdate = StrategyCreate
+
+
+class MapCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=64)
+    cover_image_url: str | None = Field(None, max_length=512)
+    is_active: bool = True
+
+
+class MapUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=64)
+    cover_image_url: str | None = Field(None, max_length=512)
+    is_active: bool | None = None
+
+
+class PromoCodeCreate(BaseModel):
+    code: str | None = Field(None, min_length=4, max_length=32, description="Leave empty to auto-generate")
+    coin_reward: int = Field(..., gt=0)
+    activations_limit: int = Field(100, gt=0)
+
+
+class PromoCodeToggle(BaseModel):
+    is_active: bool
+
+
+class PromoCodeOut(BaseModel):
+    id: uuid.UUID
+    code: str
+    coin_reward: int
+    is_active: bool
+    activations_limit: int
+    used_count: int
+    model_config = {"from_attributes": True}

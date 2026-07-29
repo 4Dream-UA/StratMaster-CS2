@@ -1,12 +1,21 @@
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Resolved from this file's location (repo_root/backend/app/core/config.py),
+# not the process's working directory — env_file="../.env" used to break
+# depending on where the app/tests were launched from.
+REPO_ROOT_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file="../.env",
+        env_file=REPO_ROOT_ENV_FILE,
         env_file_encoding="utf-8",
         case_sensitive=False,
+        # .env carries a couple of infra-only keys (e.g. NGROK_*) that
+        # docker-compose needs but the app itself never reads — don't
+        # crash Settings() over those.
+        extra="ignore",
     )
 
     # Database

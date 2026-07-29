@@ -13,6 +13,7 @@ from sqlalchemy import (
     Table,
     Text,
     Column,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -106,6 +107,21 @@ class WalletModel(Base):
     subscription_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ref_discount_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # True once the lifetime plan has been purchased — distinguishes "paid
+    # once, forever" from an ordinary (very long) premium subscription so the
+    # shop and reminder job can treat it as never expiring.
+    is_lifetime: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Duration (in months) of the last premium purchase — reused by the
+    # "renew" action so it charges the same plan the user already had.
+    last_plan_months: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Opt-in: auto-charge MasterCoins to renew when the subscription is
+    # about to expire (the bot reminder still always fires 24h out).
+    auto_renew: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # The subscription_expires_at value the 24h-expiry reminder was last
+    # sent for — compared against the current value so each renewal cycle
+    # gets its own reminder instead of firing once, ever.
+    reminder_sent_for_expiry: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     # Relationship
     user: Mapped["UserModel"] = relationship("UserModel", back_populates="wallet")
 
@@ -134,6 +150,25 @@ class PromoCodeModel(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     activations_limit: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     used_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
+class PromoRedemptionModel(Base):
+    """Tracks which user redeemed which promo code — enforces one redemption per user per code."""
+    __tablename__ = "promo_redemptions"
+    __table_args__ = (
+        UniqueConstraint("user_id", "promo_code_id", name="uq_promo_redemption_user_code"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    promo_code_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("promo_codes.id", ondelete="CASCADE"), nullable=False
+    )
+    redeemed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 # ─────────────────────────────────────────────

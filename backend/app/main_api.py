@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.core.config import settings
-from backend.app.api.routers import users, strategies, webhooks
+from backend.app.api.routers import users, strategies, webhooks, referral, promo, admin, subscription
 
 
 @asynccontextmanager
@@ -23,10 +23,19 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow Telegram WebApp origin
+# CORS — only the deployed Mini App origin (+ localhost while developing).
+# Wildcard "*" is intentionally not used: it's invalid alongside
+# allow_credentials=True per the CORS spec, and browsers reject it anyway.
+allowed_origins = [origin for origin in [settings.webapp_url] if origin]
+if settings.debug:
+    allowed_origins += [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Tighten in production to your domain
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -36,6 +45,10 @@ app.add_middleware(
 app.include_router(users.router, prefix="/api", tags=["users"])
 app.include_router(strategies.router, prefix="/api", tags=["strategies"])
 app.include_router(webhooks.router, prefix="/api", tags=["webhooks"])
+app.include_router(referral.router, prefix="/api", tags=["referral"])
+app.include_router(promo.router, prefix="/api", tags=["promo"])
+app.include_router(admin.router, prefix="/api", tags=["admin"])
+app.include_router(subscription.router, prefix="/api", tags=["subscription"])
 
 
 @app.get("/healthcheck", tags=["system"])

@@ -7,6 +7,25 @@
       <p>Loading strategy...</p>
     </div>
 
+    <div v-else-if="lockReason" class="wrap locked-wrap">
+      <section class="locked-card">
+        <span class="locked-icon">
+          <svg viewBox="0 0 24 24" fill="none" width="28" height="28">
+            <rect x="5" y="11" width="14" height="9" rx="2" stroke="currentColor" stroke-width="1.6"/>
+            <path d="M8 11V8a4 4 0 018 0v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <h1>{{ lockReason === 'auth' ? 'Sign in to view this strategy' : 'Premium strategy' }}</h1>
+        <p>
+          {{ lockReason === 'auth'
+            ? 'Open StratMaster inside Telegram to sign in and continue.'
+            : 'This strategy is part of the premium library. Unlock it — along with every map, lineup and timing — with a subscription.' }}
+        </p>
+        <router-link v-if="lockReason !== 'auth'" to="/pricing" class="btn-primary locked-cta">Unlock Premium</router-link>
+        <button class="back-btn locked-back" @click="router.push('/')">Back to Maps</button>
+      </section>
+    </div>
+
     <div v-else-if="!strategy" class="loading">
       <p>Strategy not found.</p>
     </div>
@@ -69,6 +88,24 @@
             {{ strategy.is_free ? 'Free' : 'Premium' }}
           </span>
         </div>
+
+        <div class="header-actions-row">
+          <nav v-if="quickNavItems.length" class="quick-nav">
+            <a
+              v-for="item in quickNavItems" :key="item.id"
+              :href="'#' + item.id"
+              class="quick-nav-item"
+              @click.prevent="scrollToSection(item.id)"
+            >{{ item.label }}</a>
+          </nav>
+          <button class="share-btn" @click="copyLink">
+            <svg viewBox="0 0 20 20" fill="none" width="14" height="14">
+              <path d="M7 10a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM7 10a2.5 2.5 0 110 5 2.5 2.5 0 010-5zM13 12.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5zM13 7.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+              <path d="M9.2 8.6l3.6-2.2M9.2 11.4l3.6 2.2" stroke="currentColor" stroke-width="1.4"/>
+            </svg>
+            {{ linkCopied ? 'Link copied' : 'Copy link' }}
+          </button>
+        </div>
       </section>
 
       <!-- ═══ MAIN IMAGE (images[0]) ══════════════ -->
@@ -83,7 +120,7 @@
            "00:10 — Rush mid\n00:50 — Plant A\n01:20 — Second contact"
            Each timing at index N links to images[N+1]
       ════════════════════════════════════════════ -->
-      <section v-if="timings.length" class="timings-section">
+      <section v-if="timings.length" id="timings" class="timings-section">
         <h2 class="section-title">Timings</h2>
 
         <div class="timings-list">
@@ -109,16 +146,18 @@
                 <span class="spoiler-arrow">{{ openSpoilers[i] ? '▼' : '▶' }}</span>
                 {{ openSpoilers[i] ? 'Hide screenshot' : 'Show screenshot' }}
               </button>
-              <div v-show="openSpoilers[i]" class="spoiler-content">
-                <img :src="timingImages[i].image_url" :alt="`Timing ${i + 1}`" class="spoiler-img" />
-              </div>
+              <transition name="expand">
+                <div v-show="openSpoilers[i]" class="spoiler-content">
+                  <img :src="timingImages[i].image_url" :alt="`Timing ${i + 1}`" class="spoiler-img" />
+                </div>
+              </transition>
             </div>
           </div>
         </div>
       </section>
 
       <!-- ═══ GRENADES ════════════════════════════ -->
-      <section v-if="strategy.grenades && strategy.grenades.length" class="grenades-section">
+      <section v-if="strategy.grenades && strategy.grenades.length" id="grenades" class="grenades-section">
         <h2 class="section-title">Grenades</h2>
 
         <div class="grenades-list">
@@ -132,14 +171,15 @@
               @click="toggleGrenade(i)"
               :aria-expanded="openGrenades[i]"
             >
-              <span class="grenade-type-icon">{{ grenadeIcon(g.grenade_type) }}</span>
+              <span class="grenade-type-icon" v-html="grenadeIcon(g.grenade_type)"></span>
               <span class="grenade-type-label">{{ g.grenade_type }}</span>
               <span class="grenade-target">→ {{ g.target }}</span>
               <span class="grenade-timing">{{ g.timing }}</span>
               <span class="spoiler-arrow ml-auto">{{ openGrenades[i] ? '▼' : '▶' }}</span>
             </button>
 
-            <div v-show="openGrenades[i]" class="spoiler-content grenade-content">
+            <transition name="expand">
+              <div v-show="openGrenades[i]" class="spoiler-content grenade-content">
               <video
                 v-if="g.video_url && isVideo(g.video_url)"
                 :src="g.video_url"
@@ -153,13 +193,14 @@
                 class="grenade-media"
               />
               <p v-else class="grenade-no-media">No lineup video available yet.</p>
-            </div>
+              </div>
+            </transition>
           </div>
         </div>
       </section>
 
       <!-- ═══ ROLES / NOTES ════════════════════════ -->
-      <section v-if="strategy.roles_description" class="roles-section">
+      <section v-if="strategy.roles_description" id="roles" class="roles-section">
         <h2 class="section-title">Roles & Notes</h2>
         <p class="roles-text">{{ strategy.roles_description }}</p>
       </section>
@@ -183,6 +224,7 @@ const router = useRouter()
 const strategy   = ref(null)
 const mapName    = ref('')
 const isLoading  = ref(true)
+const lockReason = ref(null) // null | 'auth' | 'subscription'
 const openSpoilers = ref({})
 const openGrenades = ref({})
 
@@ -230,6 +272,26 @@ const sideLabel = computed(() => {
   return strategy.value.side === 'T_side' ? 'Terrorist' : 'Counter-Terrorist'
 })
 
+// ── Quick nav ──────────────────────────────────────────────────
+const quickNavItems = computed(() => {
+  const items = []
+  if (timings.value.length) items.push({ id: 'timings', label: 'Timings' })
+  if (strategy.value?.grenades?.length) items.push({ id: 'grenades', label: 'Grenades' })
+  if (strategy.value?.roles_description) items.push({ id: 'roles', label: 'Roles' })
+  return items
+})
+function scrollToSection(id) {
+  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+// ── Share ──────────────────────────────────────────────────────
+const linkCopied = ref(false)
+function copyLink() {
+  navigator.clipboard?.writeText(window.location.href)
+  linkCopied.value = true
+  setTimeout(() => { linkCopied.value = false }, 1800)
+}
+
 // ── Spoiler toggles ────────────────────────────────────────────
 function toggleSpoiler(i) {
   openSpoilers.value[i] = !openSpoilers.value[i]
@@ -239,11 +301,18 @@ function toggleGrenade(i) {
 }
 
 // ── Grenade helpers ────────────────────────────────────────────
+// Simple stroke-based SVGs matching the rest of the site's icon style —
+// emoji rendered inconsistently across OS/browsers (blank on some Android/Linux fonts).
 const grenadeIcons = {
-  smoke: '💨', flash: '⚡', molotov: '🔥', he: '💣', decoy: '📢',
+  smoke: '<svg viewBox="0 0 20 20" fill="none" width="16" height="16"><circle cx="7" cy="12" r="3.2" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="9" r="4" stroke="currentColor" stroke-width="1.5"/><circle cx="14.5" cy="13.5" r="2.2" stroke="currentColor" stroke-width="1.5"/></svg>',
+  flash: '<svg viewBox="0 0 20 20" fill="none" width="16" height="16"><path d="M11 2L4 12h5l-1 6 8-11h-5l1-5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>',
+  molotov: '<svg viewBox="0 0 20 20" fill="none" width="16" height="16"><path d="M8 8c-2 2-3 4-3 6a5 5 0 0010 0c0-2-1-4-3-6l-2-4-2 4z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M9 3.5h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
+  he: '<svg viewBox="0 0 20 20" fill="none" width="16" height="16"><circle cx="10" cy="11" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M10 5V2M13 3l1.5-1.5M7 3L5.5 1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
+  decoy: '<svg viewBox="0 0 20 20" fill="none" width="16" height="16"><path d="M4 8v4l3 1v-6l-3 1z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M7 7l7-3v12l-7-3" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M15.5 8.5a2 2 0 010 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
 }
+const defaultGrenadeIcon = '<svg viewBox="0 0 20 20" fill="none" width="16" height="16"><circle cx="10" cy="11" r="6" stroke="currentColor" stroke-width="1.5"/></svg>'
 function grenadeIcon(type) {
-  return grenadeIcons[type] ?? '🟠'
+  return grenadeIcons[type] ?? defaultGrenadeIcon
 }
 function isVideo(url) {
   return /\.(mp4|webm|mov|gif)(\?|$)/i.test(url)
@@ -267,7 +336,10 @@ onMounted(async () => {
     strategy.value = strategyRes
     mapName.value = maps.find(m => m.id === strategyRes.map_id)?.name ?? 'Map'
   } catch (err) {
-    console.error('Failed to load strategy:', err)
+    const status = err.response?.status
+    if (status === 401) lockReason.value = 'auth'
+    else if (status === 403) lockReason.value = 'subscription'
+    else console.error('Failed to load strategy:', err)
   } finally {
     isLoading.value = false
   }
@@ -298,6 +370,38 @@ onMounted(async () => {
   animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Locked / paywall state ───────────────────── */
+.locked-wrap {
+  min-height: 60vh;
+  display: flex; align-items: center; justify-content: center;
+  padding: 36px 20px;
+}
+.locked-card {
+  max-width: 420px;
+  text-align: center;
+  background: var(--bg-elevated);
+  border: 1px solid rgba(255,154,0,0.3);
+  border-radius: var(--radius-lg, 16px);
+  padding: 44px 32px;
+}
+.locked-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 56px; height: 56px; margin: 0 auto 20px;
+  border-radius: 50%;
+  background: rgba(255,154,0,0.12);
+  color: var(--accent);
+}
+.locked-card h1 {
+  font-size: 21px; font-weight: 800; color: var(--text);
+  margin-bottom: 10px; letter-spacing: -0.01em;
+}
+.locked-card p {
+  font-size: 14px; color: var(--text-dim); line-height: 1.6;
+  margin-bottom: 26px;
+}
+.locked-cta { width: 100%; justify-content: center; margin-bottom: 12px; }
+.locked-back { width: 100%; justify-content: center; }
 
 .strategy-content {
   padding: 36px 20px 110px;
@@ -332,7 +436,9 @@ onMounted(async () => {
   cursor: pointer;
   transition: border-color 0.2s, color 0.2s;
 }
-.back-btn:hover { border-color: var(--accent); color: var(--accent); }
+@media (hover: hover) and (pointer: fine) {
+  .back-btn:hover { border-color: var(--accent); color: var(--accent); }
+}
 
 /* ── Header ───────────────────────────────── */
 .strategy-header { margin-bottom: 40px; }
@@ -437,6 +543,36 @@ onMounted(async () => {
   color: var(--accent);
 }
 
+/* ── Quick nav + share ────────────────────── */
+.header-actions-row {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 12px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.quick-nav { display: flex; gap: 8px; flex-wrap: wrap; }
+.quick-nav-item {
+  padding: 6px 14px; border-radius: 99px;
+  background: var(--bg-elevated); border: 1px solid var(--line);
+  color: var(--text-dim); font-size: 12px; font-weight: 600;
+  text-decoration: none; transition: border-color .2s, color .2s;
+}
+@media (hover: hover) and (pointer: fine) {
+  .quick-nav-item:hover { border-color: var(--accent); color: var(--accent); }
+}
+.share-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: transparent; border: 1px solid var(--line);
+  color: var(--text-dim); padding: 7px 14px; border-radius: 8px;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  transition: border-color .2s, color .2s;
+  flex-shrink: 0;
+}
+@media (hover: hover) and (pointer: fine) {
+  .share-btn:hover { border-color: var(--accent); color: var(--accent); }
+}
+
 /* ── Main image ───────────────────────────── */
 .main-image-section { margin-bottom: 56px; }
 .image-container {
@@ -471,7 +607,9 @@ onMounted(async () => {
   padding: 18px 20px;
   transition: border-color 0.2s;
 }
-.timing-item:hover { border-color: rgba(255,154,0,0.25); }
+@media (hover: hover) and (pointer: fine) {
+  .timing-item:hover { border-color: rgba(255,154,0,0.25); }
+}
 
 .timing-header {
   display: flex;
@@ -517,7 +655,9 @@ onMounted(async () => {
   text-align: left;
   transition: border-color 0.2s, color 0.2s;
 }
-.spoiler-toggle:hover { border-color: var(--accent); color: var(--accent); }
+@media (hover: hover) and (pointer: fine) {
+  .spoiler-toggle:hover { border-color: var(--accent); color: var(--accent); }
+}
 .spoiler-arrow { font-size: 10px; }
 .ml-auto { margin-left: auto; }
 
@@ -548,7 +688,7 @@ onMounted(async () => {
   background: var(--bg-elevated) !important;
 }
 
-.grenade-type-icon { font-size: 16px; }
+.grenade-type-icon { display: inline-flex; color: var(--accent); flex-shrink: 0; }
 .grenade-type-label {
   font-size: 13px;
   font-weight: 600;
@@ -565,6 +705,15 @@ onMounted(async () => {
   font-size: 12px;
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
+}
+
+/* Smooth expand/collapse for spoilers */
+.expand-enter-active, .expand-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.expand-enter-from, .expand-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 
 .grenade-content {

@@ -5,13 +5,14 @@ from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
-from backend.app.api.deps import DBSession
+from backend.app.api.deps import DBSession, OptionalUser
 from backend.app.db.models import (
     BuyTagModel, StrategyModel, MapModel, SideEnum, SpeedEnum, PlantEnum
 )
 from backend.app.schemas.strategy import (
     MapResponse, StrategyDetailResponse, StrategiesListResponse, StrategyPreviewResponse, ImageOut, GrenadeOut
 )
+from backend.app.services.strategy import has_active_subscription
 
 router = APIRouter()
 
@@ -72,7 +73,7 @@ async def get_strategies_list(
 
 
 @router.get("/strategies/{strategy_id}", response_model=StrategyDetailResponse)
-async def get_strategy_detail(strategy_id: uuid.UUID, db: DBSession):
+async def get_strategy_detail(strategy_id: uuid.UUID, db: DBSession, current_user: OptionalUser):
     result = await db.execute(
         select(StrategyModel)
         .options(
@@ -86,6 +87,18 @@ async def get_strategy_detail(strategy_id: uuid.UUID, db: DBSession):
 
     if not strategy:
         raise HTTPException(status_code=404, detail="Strategy not found")
+
+    if not strategy.is_free:
+        if current_user is None:
+            raise HTTPException(
+                status_code=401,
+                detail="Sign in to view this strategy",
+            )
+        if not has_active_subscription(current_user):
+            raise HTTPException(
+                status_code=403,
+                detail="An active subscription is required to view this strategy",
+            )
 
     sorted_images = sorted(strategy.images, key=lambda i: i.order)
     detail = StrategyDetailResponse.model_validate(strategy)

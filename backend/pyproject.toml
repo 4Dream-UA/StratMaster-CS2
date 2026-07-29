@@ -32,4 +32,10 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# All async tests/fixtures share one event loop for the whole session —
+# required because the test DB engine (a single connection pool) is created
+# once at import time; per-test loops would hand its connections to a
+# different loop than the one that opened them.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]

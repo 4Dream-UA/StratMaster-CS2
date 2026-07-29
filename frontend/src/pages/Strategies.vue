@@ -392,7 +392,10 @@ onMounted(async () => {
   font-size: 12px; font-weight: 600; color: var(--text-dim);
   cursor: pointer; transition: all .18s; white-space: nowrap;
 }
-.chip:hover { border-color: var(--accent); color: var(--accent); }
+@media (hover: hover) and (pointer: fine) {
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+}
+.chip:active { border-color: var(--accent); color: var(--accent); }
 .chip.active {
   background: rgba(255,154,0,.12);
   border-color: var(--accent);
@@ -447,10 +450,12 @@ onMounted(async () => {
   border-radius: 16px; overflow: hidden; cursor: pointer;
   transition: border-color .25s, transform .25s, box-shadow .25s;
 }
-.strategy-card:hover {
-  border-color: rgba(255,154,0,.5);
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(255,154,0,.12);
+@media (hover: hover) and (pointer: fine) {
+  .strategy-card:hover {
+    border-color: rgba(255,154,0,.5);
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(255,154,0,.12);
+  }
 }
 
 .card-thumb {

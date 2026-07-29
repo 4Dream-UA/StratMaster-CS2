@@ -1,8 +1,11 @@
 import apiClient from './client'
 
 export const authAPI = {
-  async authenticate(initData) {
-    const response = await apiClient.post('/api/auth', { init_data: initData })
+  async authenticate(initData, refWalletId = null) {
+    const response = await apiClient.post('/api/auth', {
+      init_data: initData,
+      ref_wallet_id: refWalletId,
+    })
     return response.data
   },
 

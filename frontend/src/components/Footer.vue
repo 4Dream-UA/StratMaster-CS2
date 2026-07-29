@@ -45,7 +45,7 @@
 
 <style scoped>
 .footer {
-  margin-top: 100px;
+  margin-top: 10px;
   border-top: 1px solid var(--line);
 }
 .footer-body {
