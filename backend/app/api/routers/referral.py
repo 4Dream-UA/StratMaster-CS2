@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from backend.app.api.deps import CurrentUser, DBSession
+from backend.app.core.rate_limit import rate_limit
 from backend.app.db.models import TransactionModel, UserModel, WalletModel
 
 router = APIRouter()
@@ -52,7 +53,10 @@ async def get_referral_stats(db: DBSession, current_user: CurrentUser) -> dict:
     }
 
 
-@router.post("/referral/apply")
+@router.post(
+    "/referral/apply",
+    dependencies=[Depends(rate_limit("referral_apply", max_requests=15, window_seconds=60))],
+)
 async def apply_referral_code(
     request: ReferralApplyRequest,
     db: DBSession,
