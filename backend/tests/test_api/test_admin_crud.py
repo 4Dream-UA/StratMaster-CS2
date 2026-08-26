@@ -111,3 +111,41 @@ async def test_admin_lists_transactions_filtered_by_type_and_wallet(client, db_s
         t["sender_wallet_id"] == sender.wallet.wallet_id or t["receiver_wallet_id"] == sender.wallet.wallet_id
         for t in by_wallet.json()["transactions"]
     )
+
+
+async def test_stats_counts_active_subscriptions_only(client, db_session, auth_as):
+    admin = await make_user(db_session, is_admin=True)
+    await make_user(db_session, subscribed=True)  # active premium
+    await make_user(db_session)  # never subscribed
+
+    auth_as(admin)
+    lifetime_user = await make_user(db_session, balance=10000)
+    auth_as(lifetime_user)
+    await client.post("/api/subscription/purchase", json={"plan": "lifetime", "months": None})
+
+    auth_as(admin)
+    resp = await client.get("/api/admin/stats")
+    assert resp.status_code == 200
+    assert resp.json()["active_subscriptions_count"] == 2  # the premium one + the lifetime one
+
+
+async def test_creating_strategy_notifies_favorited_map_users(client, db_session, auth_as, monkeypatch):
+    sent = []
+
+    async def _fake_notify(db, map_id, map_name, title):
+        sent.append((map_id, map_name, title))
+
+    monkeypatch.setattr("backend.app.api.routers.admin.notify_favorited_map_users", _fake_notify)
+
+    admin = await make_user(db_session, is_admin=True)
+    map_ = await make_map(db_session, name="Anubis")
+    auth_as(admin)
+
+    payload = {
+        "map_id": map_.id, "title": "B Default Execute", "side": "T_side", "plant": "B", "speed": "medium",
+        "difficulty_stars": 4, "success_rate": 70, "is_free": False,
+        "buy_tag_ids": [], "images": [], "grenades": [],
+    }
+    resp = await client.post("/api/admin/strategies", json=payload)
+    assert resp.status_code == 201
+    assert sent == [(map_.id, "Anubis", "B Default Execute")]
