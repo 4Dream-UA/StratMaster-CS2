@@ -1,4 +1,6 @@
+import logging
 import uuid
+from datetime import datetime, timezone
 from typing import List
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -30,8 +32,10 @@ from backend.app.schemas.strategy import (
 )
 from backend.app.schemas.user import SetAdminRequest, UserAdminOut, UsersListResponse
 from backend.app.schemas.wallet import TransactionsListResponse
+from backend.app.services.notifications import notify_favorited_map_users
 from backend.app.services.referral import generate_promo_code
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -43,11 +47,21 @@ async def get_admin_stats(db: DBSession, admin_user: AdminUser) -> dict:
     maps_count = (await db.execute(select(func.count()).select_from(MapModel))).scalar() or 0
     transactions_count = (await db.execute(select(func.count()).select_from(TransactionModel))).scalar() or 0
 
+    now = datetime.now(timezone.utc)
+    active_subscriptions_count = (
+        await db.execute(
+            select(func.count()).select_from(WalletModel).where(
+                or_(WalletModel.is_lifetime.is_(True), WalletModel.subscription_expires_at > now)
+            )
+        )
+    ).scalar() or 0
+
     return {
         "users_count": users_count,
         "strategies_count": strategies_count,
         "maps_count": maps_count,
         "transactions_count": transactions_count,
+        "active_subscriptions_count": active_subscriptions_count,
     }
 
 
@@ -161,6 +175,11 @@ async def admin_create_strategy(payload: StrategyCreate, db: DBSession, admin_us
     )
     db.add(strategy)
     await db.commit()
+
+    try:
+        await notify_favorited_map_users(db, map_.id, map_.name, strategy.title)
+    except Exception:
+        logger.exception("Failed to notify favorited-map users for strategy_id=%s", strategy.id)
 
     result = await db.execute(_strategy_detail_query().where(StrategyModel.id == strategy.id))
     return _hydrate_preview(result.scalar_one())
