@@ -170,6 +170,18 @@ poetry.toml
 # LSP config files
 pyrightconfig.json
 
+### Node ###
+# The Vue template above references this but it was never actually
+# included — node_modules ended up committed as a result.
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+dist/
+dist-ssr/
+*.local
+
 ### Vue ###
 # gitignore template for Vue.js projects
 #
