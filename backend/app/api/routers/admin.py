@@ -29,6 +29,7 @@ from backend.app.schemas.strategy import (
     StrategyUpdate,
 )
 from backend.app.schemas.user import SetAdminRequest, UserAdminOut, UsersListResponse
+from backend.app.schemas.wallet import TransactionsListResponse
 from backend.app.services.referral import generate_promo_code
 
 router = APIRouter()
@@ -304,3 +305,35 @@ async def admin_set_user_admin(user_id: uuid.UUID, payload: SetAdminRequest, db:
     await db.commit()
     await db.refresh(user)
     return user
+
+
+# ─────────────────────────────────────────────
+#  Transactions (P2P monitoring, MasterCoins stats)
+# ─────────────────────────────────────────────
+
+@router.get("/admin/transactions", response_model=TransactionsListResponse)
+async def admin_list_transactions(
+    db: DBSession,
+    admin_user: AdminUser,
+    transaction_type: str | None = Query(None, description="Filter by type, e.g. p2p_transfer"),
+    wallet_id: str | None = Query(None, description="Matches either side of the transfer"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    query = select(TransactionModel).order_by(TransactionModel.created_at.desc())
+    count_query = select(func.count()).select_from(TransactionModel)
+
+    if transaction_type:
+        query = query.where(TransactionModel.transaction_type == transaction_type)
+        count_query = count_query.where(TransactionModel.transaction_type == transaction_type)
+    if wallet_id:
+        wid = wallet_id.strip().upper()
+        condition = or_(TransactionModel.sender_wallet_id == wid, TransactionModel.receiver_wallet_id == wid)
+        query = query.where(condition)
+        count_query = count_query.where(condition)
+
+    total = (await db.execute(count_query)).scalar() or 0
+    result = await db.execute(query.limit(limit).offset(offset))
+    transactions = result.scalars().all()
+
+    return TransactionsListResponse(total=total, transactions=transactions)
