@@ -13,6 +13,7 @@ from backend.app.db.models import (
     GrenadeModel,
     ImageModel,
     MapModel,
+    PlayerPathModel,
     PromoCodeModel,
     StrategyModel,
     TransactionModel,
@@ -121,6 +122,7 @@ def _strategy_detail_query():
         selectinload(StrategyModel.buy_tags),
         selectinload(StrategyModel.images),
         selectinload(StrategyModel.grenades),
+        selectinload(StrategyModel.player_paths),
     )
 
 
@@ -172,6 +174,7 @@ async def admin_create_strategy(payload: StrategyCreate, db: DBSession, admin_us
         buy_tags=buy_tags,
         grenades=[GrenadeModel(**g.model_dump()) for g in payload.grenades],
         images=[ImageModel(**i.model_dump()) for i in payload.images],
+        player_paths=[PlayerPathModel(**p.model_dump()) for p in payload.player_paths],
     )
     db.add(strategy)
     await db.commit()
@@ -214,6 +217,7 @@ async def admin_update_strategy(strategy_id: uuid.UUID, payload: StrategyUpdate,
     # that dropped out, and inserts the new ones — a full replace per submit.
     strategy.grenades = [GrenadeModel(**g.model_dump()) for g in payload.grenades]
     strategy.images = [ImageModel(**i.model_dump()) for i in payload.images]
+    strategy.player_paths = [PlayerPathModel(**p.model_dump()) for p in payload.player_paths]
 
     await db.commit()
 
