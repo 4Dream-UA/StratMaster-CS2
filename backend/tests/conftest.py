@@ -1,14 +1,20 @@
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from redis.asyncio import from_url as redis_from_url
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import selectinload
 
 from backend.app.api import deps
+from backend.app.core.redis import get_redis
 from backend.app.db.database import Base, get_db
 from backend.app.db.models import UserModel
 from backend.app.main_api import app
+
+# DB 15 — isolated from whatever the app itself uses (DB 0), so rate-limit
+# counters from a test run never bleed into (or get confused by) real data.
+TEST_REDIS_URL = "redis://localhost:6379/15"
 
 # A dedicated role + database on the same Postgres instance as dev
 # (docker-compose publishes it on localhost:5433) — deliberately NOT the
@@ -48,6 +54,16 @@ async def _clean_tables():
         await conn.execute(text(f"TRUNCATE TABLE {', '.join(ALL_TABLES)} RESTART IDENTITY CASCADE"))
 
 
+@pytest_asyncio.fixture(autouse=True)
+async def _clean_redis():
+    """Flushes the isolated test Redis DB after each test so rate-limit
+    counters from one test never affect the next."""
+    yield
+    redis = redis_from_url(TEST_REDIS_URL, decode_responses=True)
+    await redis.flushdb()
+    await redis.aclose()
+
+
 @pytest_asyncio.fixture
 async def db_session():
     async with TestSessionLocal() as session:
@@ -59,13 +75,25 @@ async def _override_get_db():
         yield session
 
 
+_test_redis_client = None
+
+
+def _override_get_redis():
+    global _test_redis_client
+    if _test_redis_client is None:
+        _test_redis_client = redis_from_url(TEST_REDIS_URL, decode_responses=True)
+    return _test_redis_client
+
+
 @pytest_asyncio.fixture
 async def client():
     app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_redis] = _override_get_redis
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
     app.dependency_overrides.pop(get_db, None)
+    app.dependency_overrides.pop(get_redis, None)
 
 
 @pytest.fixture
