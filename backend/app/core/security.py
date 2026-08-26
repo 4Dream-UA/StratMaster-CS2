@@ -53,11 +53,14 @@ def validate_telegram_init_data(init_data: str) -> dict | None:
 
 def validate_cryptopay_webhook(payload: bytes, signature: str) -> bool:
     """
-    Validate incoming CryptoPay webhook signature.
+    Validate an incoming CryptoPay webhook's `crypto-pay-api-signature` header.
+
+    Per CryptoPay's documented scheme, the HMAC key is SHA256(api_token) —
+    not a separately configured secret. (CRYPTOPAY_WEBHOOK_SECRET in .env
+    holds the callback URL, not a signing secret, so it's unused here.)
     """
-    expected = hmac.new(
-        settings.cryptopay_webhook_secret.encode(),
-        payload,
-        hashlib.sha256,
-    ).hexdigest()
+    if not signature:
+        return False
+    secret_key = hashlib.sha256(settings.cryptopay_token.encode()).digest()
+    expected = hmac.new(secret_key, payload, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature)
