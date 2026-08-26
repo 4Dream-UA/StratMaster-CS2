@@ -32,6 +32,10 @@
           <span class="stat-label">Maps</span>
         </div>
         <div class="stat-box">
+          <span class="stat-value">{{ stats?.active_subscriptions_count ?? '—' }}</span>
+          <span class="stat-label">Active Subs</span>
+        </div>
+        <div class="stat-box">
           <span class="stat-value">{{ stats?.transactions_count ?? '—' }}</span>
           <span class="stat-label">Transactions</span>
         </div>
