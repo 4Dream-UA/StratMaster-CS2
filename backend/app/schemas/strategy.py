@@ -32,6 +32,25 @@ class GrenadeOut(BaseModel):
     timing: str
     video_url: str | None = None
     order: int
+    from_x: float | None = None
+    from_y: float | None = None
+    to_x: float | None = None
+    to_y: float | None = None
+    model_config = {"from_attributes": True}
+
+
+class Waypoint(BaseModel):
+    x: float = Field(..., ge=0, le=100)
+    y: float = Field(..., ge=0, le=100)
+    t: float = Field(..., ge=0, description="Seconds from round start")
+
+
+class PlayerPathOut(BaseModel):
+    id: uuid.UUID
+    label: str
+    color: str
+    waypoints: list[Waypoint]
+    order: int
     model_config = {"from_attributes": True}
 
 
@@ -56,6 +75,7 @@ class StrategyDetailResponse(StrategyPreviewResponse):
     timings_description: str | None = None
     images: list[ImageOut] = []
     grenades: list[GrenadeOut] = []
+    player_paths: list[PlayerPathOut] = []
     created_at: datetime
 
 
@@ -71,10 +91,21 @@ class GrenadeCreate(BaseModel):
     timing: str = Field(..., max_length=16)
     video_url: str | None = Field(None, max_length=512)
     order: int = Field(0, ge=0)
+    from_x: float | None = Field(None, ge=0, le=100)
+    from_y: float | None = Field(None, ge=0, le=100)
+    to_x: float | None = Field(None, ge=0, le=100)
+    to_y: float | None = Field(None, ge=0, le=100)
 
 
 class ImageCreate(BaseModel):
     image_url: str = Field(..., max_length=512)
+    order: int = Field(0, ge=0)
+
+
+class PlayerPathCreate(BaseModel):
+    label: str = Field(..., min_length=1, max_length=32)
+    color: str = Field("#ff9a00", max_length=16)
+    waypoints: list[Waypoint] = Field(..., min_length=2)
     order: int = Field(0, ge=0)
 
 
@@ -93,6 +124,7 @@ class StrategyCreate(BaseModel):
     buy_tag_ids: list[int] = []
     grenades: list[GrenadeCreate] = []
     images: list[ImageCreate] = []
+    player_paths: list[PlayerPathCreate] = []
 
 
 # StrategyCreate covers full replace-on-edit too — the admin UI always
