@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from backend.app.api.deps import CurrentUser, DBSession
+from backend.app.core.rate_limit import rate_limit
 from backend.app.db.models import TransactionModel
 from backend.app.schemas.wallet import (
     CoinTransferRequest,
@@ -14,7 +15,11 @@ from backend.app.services.wallet import assert_transferable, get_wallet_by_id
 router = APIRouter()
 
 
-@router.post("/wallet/transfer", response_model=CoinTransferResponse)
+@router.post(
+    "/wallet/transfer",
+    response_model=CoinTransferResponse,
+    dependencies=[Depends(rate_limit("wallet_transfer", max_requests=20, window_seconds=60))],
+)
 async def transfer_coins(
     request: CoinTransferRequest,
     db: DBSession,
@@ -54,7 +59,11 @@ async def transfer_coins(
     )
 
 
-@router.post("/wallet/gift-subscription", response_model=GiftSubscriptionResponse)
+@router.post(
+    "/wallet/gift-subscription",
+    response_model=GiftSubscriptionResponse,
+    dependencies=[Depends(rate_limit("wallet_gift", max_requests=15, window_seconds=60))],
+)
 async def gift_subscription(
     request: GiftSubscriptionRequest,
     db: DBSession,
