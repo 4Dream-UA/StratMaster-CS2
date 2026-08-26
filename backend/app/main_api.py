@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.core.config import settings
-from backend.app.api.routers import users, strategies, webhooks, referral, promo, admin, subscription, wallet, payments
+from backend.app.api.routers import users, strategies, webhooks, referral, promo, admin, subscription, wallet, payments, favorites
 
 
 @asynccontextmanager
@@ -51,6 +51,7 @@ app.include_router(admin.router, prefix="/api", tags=["admin"])
 app.include_router(subscription.router, prefix="/api", tags=["subscription"])
 app.include_router(wallet.router, prefix="/api", tags=["wallet"])
 app.include_router(payments.router, prefix="/api", tags=["payments"])
+app.include_router(favorites.router, prefix="/api", tags=["favorites"])
 
 
 @app.get("/healthcheck", tags=["system"])
