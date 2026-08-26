@@ -202,6 +202,26 @@ class PromoRedemptionModel(Base):
     )
 
 
+class FavoriteMapModel(Base):
+    """A user's pinned map — powers the "Favorite Maps" panel and, later,
+    bot notifications for new strategies on a followed map."""
+    __tablename__ = "favorite_maps"
+    __table_args__ = (
+        UniqueConstraint("user_id", "map_id", name="uq_favorite_user_map"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    map_id: Mapped[int] = mapped_column(Integer, ForeignKey("maps.id", ondelete="CASCADE"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    map: Mapped["MapModel"] = relationship("MapModel")
+
+
 # ─────────────────────────────────────────────
 #  Strategy App Models
 # ─────────────────────────────────────────────
