@@ -8,6 +8,16 @@ LIFETIME_YEARS = 100  # "lifetime" is modeled as a far-future subscription expir
 
 REFERRAL_DISCOUNT_PERCENT = 25
 
+# Fixed peg (ТЗ 5.1: "1 MasterCoin = $0.01") — every crypto payment converts
+# to coins at this rate, which is also what the existing MC price table
+# already implies (e.g. 99 MC premium-month == $0.99).
+COIN_USD_RATE = 0.01
+MIN_COIN_PURCHASE = 10  # ТЗ 5.1: "Минимальная покупка: 10 коинов"
+
+
+def usd_for_coins(coins: int) -> float:
+    return round(coins * COIN_USD_RATE, 2)
+
 
 def price_for(plan: str, months: int | None) -> int:
     """Base MasterCoins price for a plan, before any discount. Raises ValueError if invalid."""
