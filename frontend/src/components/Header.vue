@@ -20,7 +20,7 @@
           </svg>
           <span v-if="isAdmin" class="admin-dot"></span>
         </router-link>
-        <router-link to="/pricing" class="btn-primary header-cta">Get Access</router-link>
+        <router-link v-if="!hasActiveAccess" to="/pricing" class="btn-primary header-cta">Get Access</router-link>
       </div>
 
       <!-- ═══ MOBILE ══════════════════════════════ -->
@@ -83,8 +83,14 @@ const router = useRouter()
 const route = useRoute()
 
 const userStore = useUserStore()
-const { user } = storeToRefs(userStore)
+const { user, wallet } = storeToRefs(userStore)
 const isAdmin = computed(() => !!user.value?.is_admin)
+
+const hasActiveAccess = computed(() => {
+  if (wallet.value?.is_lifetime) return true
+  const exp = wallet.value?.subscription_expires_at
+  return !!(exp && new Date(exp) > new Date())
+})
 
 function scrollToSection(id, retries = 15) {
   const el = document.getElementById(id)
