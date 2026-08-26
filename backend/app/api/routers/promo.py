@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from backend.app.api.deps import CurrentUser, DBSession
+from backend.app.core.rate_limit import rate_limit
 from backend.app.db.models import PromoCodeModel, PromoRedemptionModel, TransactionModel, WalletModel
 
 router = APIRouter()
@@ -12,7 +13,10 @@ class PromoRedeemRequest(BaseModel):
     code: str
 
 
-@router.post("/promo/redeem")
+@router.post(
+    "/promo/redeem",
+    dependencies=[Depends(rate_limit("promo_redeem", max_requests=15, window_seconds=60))],
+)
 async def redeem_promo_code(
     request: PromoRedeemRequest,
     db: DBSession,
