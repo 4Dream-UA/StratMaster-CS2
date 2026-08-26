@@ -45,6 +45,11 @@ async def _schema():
         await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
 
+    global _test_redis_client
+    if _test_redis_client is not None:
+        await _test_redis_client.aclose()
+        _test_redis_client = None
+
 
 @pytest_asyncio.fixture(autouse=True)
 async def _clean_tables():
