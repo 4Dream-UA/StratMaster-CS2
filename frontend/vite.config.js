@@ -6,6 +6,11 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
+    // Mirrors nginx.conf's /api/ proxy so `npm run dev` talks to the local
+    // backend without needing VITE_API_URL set.
+    proxy: {
+      '/api': 'http://localhost:8001',
+    },
   },
   build: {
     outDir: 'dist',

@@ -157,9 +157,11 @@ const speed = ref(1)
 let rafId = null
 let lastTs = null
 
+const MAX_FRAME_DELTA = 0.1 // seconds — caps the jump after the tab was backgrounded/suspended
+
 function tick(ts) {
   if (lastTs == null) lastTs = ts
-  const dt = (ts - lastTs) / 1000
+  const dt = Math.min((ts - lastTs) / 1000, MAX_FRAME_DELTA)
   lastTs = ts
   currentTime.value = Math.min(totalDuration.value, currentTime.value + dt * speed.value)
   if (currentTime.value >= totalDuration.value) {
