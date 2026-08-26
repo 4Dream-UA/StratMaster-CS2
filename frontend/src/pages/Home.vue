@@ -258,16 +258,6 @@ const gridRef     = ref(null)
 const mapsCount       = computed(() => maps.value.length)
 const strategiesCount = computed(() => maps.value.length * 15)
 
-// ── Search — case-insensitive, trims whitespace ────────────────
-const filteredMaps = computed(() => {
-  const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return maps.value
-  return maps.value.filter(m => m.name.toLowerCase().includes(q))
-})
-
-function onSearch() { /* v-model handles reactivity */ }
-function clearSearch() { searchQuery.value = '' }
-
 // ── Favorite maps ──────────────
 const favoriteIds = ref(new Set())
 
@@ -291,6 +281,21 @@ async function toggleFavorite(map) {
     await loadFavoriteIds() // out of sync — resync from the server
   }
 }
+
+// ── Search — case-insensitive, trims whitespace. Favorited maps float to
+// the top so pinning one actually saves a scroll, not just decoration. ──
+const filteredMaps = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  const base = q ? maps.value.filter(m => m.name.toLowerCase().includes(q)) : maps.value
+  return [...base].sort((a, b) => {
+    const favA = favoriteIds.value.has(a.id) ? 1 : 0
+    const favB = favoriteIds.value.has(b.id) ? 1 : 0
+    return favB - favA
+  })
+})
+
+function onSearch() { /* v-model handles reactivity */ }
+function clearSearch() { searchQuery.value = '' }
 
 // ── Fetch maps on mount ────────────────
 onMounted(async () => {
