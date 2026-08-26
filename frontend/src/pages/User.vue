@@ -189,10 +189,26 @@
           <div class="panel-header">
             <span class="panel-icon" v-html="ICONS.favorites"></span>
             <h3>Favorite Maps</h3>
-            <span class="soon-badge">Coming soon</span>
           </div>
           <p class="panel-desc">Pin your go-to maps for quicker access to their strategies.</p>
-          <div class="favorites-placeholder">No favorites yet</div>
+
+          <div v-if="favoritesLoading" class="favorites-placeholder">Loading…</div>
+          <div v-else-if="!favoriteMaps.length" class="favorites-placeholder">
+            No favorites yet — tap the star on a map's card to pin it here.
+          </div>
+          <div v-else class="favorites-list">
+            <router-link
+              v-for="m in favoriteMaps" :key="m.id"
+              :to="'/map/' + m.id" class="favorite-row"
+            >
+              <span class="favorite-row-name">{{ m.name }}</span>
+              <button
+                type="button" class="favorite-row-remove"
+                @click.prevent="unfavoriteMap(m.id)"
+                aria-label="Remove from favorites"
+              >✕</button>
+            </router-link>
+          </div>
         </section>
 
         <p v-else key="hint" class="hotbar-hint">Tap an option above to get started.</p>
@@ -213,6 +229,7 @@ import { promoAPI } from '../api/promo'
 import { subscriptionAPI } from '../api/subscription'
 import { walletAPI } from '../api/wallet'
 import { paymentsAPI } from '../api/payments'
+import { favoritesAPI } from '../api/favorites'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
 import ReferralSection from '../components/ReferralSection.vue'
@@ -232,6 +249,33 @@ const promoSuccess = ref(false)
 const activeTab = ref('referral')
 function toggleTab(key) {
   activeTab.value = activeTab.value === key ? null : key
+  if (activeTab.value === 'favorites' && !favoritesLoaded.value) loadFavorites()
+}
+
+// ── Favorite maps ──────────────────────────────────────────────
+const favoriteMaps = ref([])
+const favoritesLoading = ref(false)
+const favoritesLoaded = ref(false)
+
+async function loadFavorites() {
+  favoritesLoading.value = true
+  try {
+    favoriteMaps.value = await favoritesAPI.list()
+    favoritesLoaded.value = true
+  } catch (e) {
+    console.warn('[User] could not load favorites:', e.response?.data?.detail)
+  } finally {
+    favoritesLoading.value = false
+  }
+}
+
+async function unfavoriteMap(mapId) {
+  favoriteMaps.value = favoriteMaps.value.filter(m => m.id !== mapId)
+  try {
+    await favoritesAPI.remove(mapId)
+  } catch (e) {
+    await loadFavorites() // out of sync — reload to recover the true state
+  }
 }
 
 const initials = computed(() => {
@@ -777,6 +821,21 @@ const TABS = [
   font-size: 12px; color: var(--text-dim);
   border: 1px dashed var(--line); border-radius: 10px;
 }
+
+.favorites-list { display: flex; flex-direction: column; gap: 8px; }
+.favorite-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+  text-decoration: none; transition: border-color .15s;
+}
+.favorite-row:hover { border-color: var(--accent); }
+.favorite-row-name { font-size: 13.5px; font-weight: 700; color: var(--text); }
+.favorite-row-remove {
+  background: none; border: none; color: var(--text-dim); cursor: pointer;
+  font-size: 13px; padding: 4px 6px; transition: color .15s;
+}
+.favorite-row-remove:hover { color: var(--danger); }
 
 .hotbar-hint {
   text-align: center; font-size: 13px; color: var(--text-dim);
