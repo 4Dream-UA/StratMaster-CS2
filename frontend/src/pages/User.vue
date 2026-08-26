@@ -64,8 +64,24 @@
           <div class="wallet-balance-row">
             <span class="balance-num">{{ wallet?.balance_coins ?? 0 }}</span>
             <span class="coin-unit">MasterCoins</span>
+            <button type="button" class="topup-toggle" @click="topupOpen = !topupOpen">
+              {{ topupOpen ? 'Cancel' : '+ Top up' }}
+            </button>
           </div>
         </div>
+
+        <div v-if="topupOpen" class="topup-form">
+          <input
+            v-model.number="topupCoins" type="number" min="10" placeholder="Amount (min 10)"
+            class="topup-input" :disabled="topupBusy || topupPolling"
+          />
+          <span class="topup-usd">≈ ${{ ((topupCoins || 0) * 0.01).toFixed(2) }}</span>
+          <button
+            class="btn-primary topup-submit" :disabled="topupBusy || topupPolling || !topupCoins || topupCoins < 10"
+            @click="buyCoins"
+          >{{ topupPolling ? 'Waiting…' : topupBusy ? '...' : 'Pay with Crypto' }}</button>
+        </div>
+        <p v-if="topupMessage" class="panel-message" :class="topupSuccess ? 'success' : 'error'">{{ topupMessage }}</p>
 
         <div class="wallet-bottom">
           <div class="wallet-id-chip" @click="copy(wallet?.wallet_id, 'wallet')">
@@ -189,13 +205,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '../store/user'
 import { promoAPI } from '../api/promo'
 import { subscriptionAPI } from '../api/subscription'
 import { walletAPI } from '../api/wallet'
+import { paymentsAPI } from '../api/payments'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
 import ReferralSection from '../components/ReferralSection.vue'
@@ -282,6 +299,61 @@ async function toggleAutoRenew(enabled) {
     console.warn('[User] could not update auto-renew:', e.response?.data?.detail)
   }
 }
+
+// ── Top up MasterCoins with crypto ────────────────────────────────
+const topupOpen = ref(false)
+const topupCoins = ref(100)
+const topupBusy = ref(false)
+const topupPolling = ref(false)
+const topupMessage = ref('')
+const topupSuccess = ref(false)
+let topupPollTimer = null
+
+function stopTopupPolling() {
+  if (topupPollTimer) { clearInterval(topupPollTimer); topupPollTimer = null }
+  topupPolling.value = false
+}
+
+function openInvoiceLink(url) {
+  if (window.Telegram?.WebApp?.openTelegramLink && url.includes('t.me/')) {
+    window.Telegram.WebApp.openTelegramLink(url)
+  } else if (window.Telegram?.WebApp?.openLink) {
+    window.Telegram.WebApp.openLink(url)
+  } else {
+    window.open(url, '_blank', 'noopener')
+  }
+}
+
+async function buyCoins() {
+  if (topupBusy.value || topupPolling.value || !topupCoins.value || topupCoins.value < 10) return
+  topupBusy.value = true
+  topupMessage.value = ''
+  try {
+    const invoice = await paymentsAPI.createCryptoInvoice({ coins: topupCoins.value })
+    openInvoiceLink(invoice.pay_url)
+    topupMessage.value = 'Complete the payment in the window that just opened — this updates automatically.'
+    topupSuccess.value = false
+    topupPolling.value = true
+    topupPollTimer = setInterval(async () => {
+      try {
+        const res = await paymentsAPI.getCryptoInvoiceStatus(invoice.invoice_id)
+        if (res.status === 'paid') {
+          stopTopupPolling()
+          topupSuccess.value = true
+          topupMessage.value = `+${invoice.coins} MasterCoins added!`
+          await userStore.fetchMe()
+        }
+      } catch (e) { /* transient — keep polling */ }
+    }, 3000)
+  } catch (e) {
+    topupSuccess.value = false
+    topupMessage.value = e.response?.data?.detail || 'Could not start checkout — please try again.'
+  } finally {
+    topupBusy.value = false
+  }
+}
+
+onUnmounted(stopTopupPolling)
 
 // ── P2P: send coins / gift subscription ──────────────────────────
 const p2pMode = ref('coins') // 'coins' | 'gift'
@@ -538,6 +610,28 @@ const TABS = [
   letter-spacing: -.02em; font-variant-numeric: tabular-nums;
 }
 .coin-unit { font-size: 12px; color: var(--text-dim); font-weight: 600; }
+
+.topup-toggle {
+  margin-left: auto;
+  background: none; border: 1px solid var(--line); color: var(--accent);
+  font-size: 11.5px; font-weight: 700; padding: 5px 11px; border-radius: 99px;
+  cursor: pointer; transition: border-color .15s, background .15s;
+}
+.topup-toggle:hover { border-color: var(--accent); background: rgba(255,154,0,.08); }
+
+.topup-form {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line);
+}
+.topup-input {
+  flex: 1; min-width: 110px;
+  padding: 10px 12px; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 9px; color: var(--text); font-size: 13px;
+}
+.topup-input:focus { outline: none; border-color: var(--accent); }
+.topup-usd { font-size: 12px; color: var(--text-dim); flex-shrink: 0; }
+.topup-submit { font-size: 12.5px; padding: 10px 16px; flex-shrink: 0; white-space: nowrap; }
+.topup-submit:disabled { opacity: .5; cursor: not-allowed; }
 
 .wallet-bottom {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
