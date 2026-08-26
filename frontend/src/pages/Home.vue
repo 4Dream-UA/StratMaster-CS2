@@ -140,6 +140,16 @@
               />
               <span v-else class="map-thumb-name">{{ map.name }}</span>
               <div class="map-thumb-overlay"></div>
+              <button
+                type="button" class="map-fav-btn"
+                :class="{ active: favoriteIds.has(map.id) }"
+                @click.stop="toggleFavorite(map)"
+                :aria-label="favoriteIds.has(map.id) ? 'Remove from favorites' : 'Add to favorites'"
+              >
+                <svg viewBox="0 0 20 20" :fill="favoriteIds.has(map.id) ? 'currentColor' : 'none'" width="16" height="16">
+                  <path d="M10 2.5l2.35 4.76 5.25.76-3.8 3.7.9 5.23L10 14.5l-4.7 2.45.9-5.23-3.8-3.7 5.25-.76z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+                </svg>
+              </button>
             </div>
 
             <div class="map-card-body">
@@ -216,6 +226,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { strategiesAPI } from '../api/strategies'
+import { favoritesAPI } from '../api/favorites'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
 
@@ -257,10 +268,35 @@ const filteredMaps = computed(() => {
 function onSearch() { /* v-model handles reactivity */ }
 function clearSearch() { searchQuery.value = '' }
 
+// ── Favorite maps ──────────────
+const favoriteIds = ref(new Set())
+
+async function loadFavoriteIds() {
+  try {
+    const favs = await favoritesAPI.list()
+    favoriteIds.value = new Set(favs.map(m => m.id))
+  } catch (e) {
+    // Not critical to the page — just leave every star unfilled.
+  }
+}
+
+async function toggleFavorite(map) {
+  const isFav = favoriteIds.value.has(map.id)
+  const next = new Set(favoriteIds.value)
+  isFav ? next.delete(map.id) : next.add(map.id)
+  favoriteIds.value = next
+  try {
+    isFav ? await favoritesAPI.remove(map.id) : await favoritesAPI.add(map.id)
+  } catch (e) {
+    await loadFavoriteIds() // out of sync — resync from the server
+  }
+}
+
 // ── Fetch maps on mount ────────────────
 onMounted(async () => {
   try {
     maps.value = await strategiesAPI.getMaps()
+    loadFavoriteIds()
   } catch (error) {
     console.error('Failed to fetch maps:', error)
   } finally {
@@ -644,6 +680,16 @@ h1 {
   background: linear-gradient(to top, var(--bg-elevated) 0%, transparent 60%);
   z-index: 1;
 }
+.map-fav-btn {
+  position: absolute; top: 10px; right: 10px; z-index: 3;
+  width: 30px; height: 30px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+  border: 1px solid rgba(255,255,255,0.15); color: #fff;
+  cursor: pointer; transition: color .15s, border-color .15s, background .15s;
+}
+.map-fav-btn:hover { border-color: var(--accent); }
+.map-fav-btn.active { color: var(--accent); background: rgba(255,154,0,0.18); border-color: rgba(255,154,0,0.4); }
 .map-card-body { padding: 20px 22px 24px; position: relative; z-index: 1; }
 .map-card-body h3 {
   font-size: 20px; font-weight: 700;
