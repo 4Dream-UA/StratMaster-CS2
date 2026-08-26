@@ -86,3 +86,28 @@ async def test_admin_can_promote_another_user(client, db_session, auth_as):
     resp = await client.patch(f"/api/admin/users/{other.id}/admin", json={"is_admin": True})
     assert resp.status_code == 200
     assert resp.json()["is_admin"] is True
+
+
+async def test_admin_lists_transactions_filtered_by_type_and_wallet(client, db_session, auth_as):
+    admin = await make_user(db_session, is_admin=True)
+    sender = await make_user(db_session, balance=100)
+    receiver = await make_user(db_session, balance=0)
+
+    auth_as(sender)
+    await client.post("/api/wallet/transfer", json={
+        "receiver_wallet_id": receiver.wallet.wallet_id, "amount": 25,
+    })
+
+    auth_as(admin)
+    all_tx = await client.get("/api/admin/transactions")
+    assert all_tx.status_code == 200
+    assert all_tx.json()["total"] >= 1
+
+    p2p_only = await client.get("/api/admin/transactions", params={"transaction_type": "p2p_transfer"})
+    assert all(t["transaction_type"] == "p2p_transfer" for t in p2p_only.json()["transactions"])
+
+    by_wallet = await client.get("/api/admin/transactions", params={"wallet_id": sender.wallet.wallet_id})
+    assert all(
+        t["sender_wallet_id"] == sender.wallet.wallet_id or t["receiver_wallet_id"] == sender.wallet.wallet_id
+        for t in by_wallet.json()["transactions"]
+    )
