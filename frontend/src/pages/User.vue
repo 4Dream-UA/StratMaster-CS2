@@ -136,13 +136,37 @@
           <div class="panel-header">
             <span class="panel-icon" v-html="ICONS.p2p"></span>
             <h3>P2P Transfers</h3>
-            <span class="soon-badge">Coming soon</span>
           </div>
-          <p class="panel-desc">Send or request MasterCoins directly to another player's Wallet ID.</p>
-          <div class="p2p-actions">
-            <button class="btn-secondary p2p-btn" disabled>Send Coins</button>
-            <button class="btn-secondary p2p-btn" disabled>Gift Subscription</button>
+          <p class="panel-desc">Send MasterCoins or gift a subscription directly to another player's Wallet ID.</p>
+
+          <div class="p2p-mode-toggle">
+            <button type="button" class="p2p-mode-btn" :class="{ active: p2pMode === 'coins' }" @click="switchP2pMode('coins')">Send Coins</button>
+            <button type="button" class="p2p-mode-btn" :class="{ active: p2pMode === 'gift' }" @click="switchP2pMode('gift')">Gift Subscription</button>
           </div>
+
+          <form v-if="p2pMode === 'coins'" class="p2p-form" @submit.prevent="sendCoins">
+            <input v-model="p2pWalletId" type="text" placeholder="Recipient Wallet ID" class="p2p-input" autocomplete="off" spellcheck="false" :disabled="p2pLoading" />
+            <input v-model.number="p2pAmount" type="number" min="1" placeholder="Amount" class="p2p-input p2p-input-amount" :disabled="p2pLoading" />
+            <button type="submit" class="btn-primary p2p-submit" :disabled="p2pLoading || !p2pWalletId || !p2pAmount">
+              {{ p2pLoading ? '...' : 'Send' }}
+            </button>
+          </form>
+
+          <form v-else class="p2p-form p2p-form-gift" @submit.prevent="sendGift">
+            <input v-model="p2pWalletId" type="text" placeholder="Recipient Wallet ID" class="p2p-input" autocomplete="off" spellcheck="false" :disabled="p2pLoading" />
+            <select v-model="giftPlan" class="p2p-input p2p-select" :disabled="p2pLoading">
+              <option value="premium-1">Premium — 1 Month (99 MC)</option>
+              <option value="premium-3">Premium — 3 Months (255 MC)</option>
+              <option value="premium-6">Premium — 6 Months (499 MC)</option>
+              <option value="premium-12">Premium — 12 Months (999 MC)</option>
+              <option value="lifetime">Lifetime (4999 MC)</option>
+            </select>
+            <button type="submit" class="btn-primary p2p-submit" :disabled="p2pLoading || !p2pWalletId">
+              {{ p2pLoading ? '...' : 'Gift' }}
+            </button>
+          </form>
+
+          <p v-if="p2pMessage" class="panel-message" :class="p2pSuccess ? 'success' : 'error'">{{ p2pMessage }}</p>
         </section>
 
         <section v-else-if="activeTab === 'favorites'" key="favorites" class="panel-wrap panel-card">
@@ -171,6 +195,7 @@ import { storeToRefs } from 'pinia'
 import { useUserStore } from '../store/user'
 import { promoAPI } from '../api/promo'
 import { subscriptionAPI } from '../api/subscription'
+import { walletAPI } from '../api/wallet'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
 import ReferralSection from '../components/ReferralSection.vue'
@@ -255,6 +280,60 @@ async function toggleAutoRenew(enabled) {
     if (wallet.value) wallet.value.auto_renew = res.auto_renew
   } catch (e) {
     console.warn('[User] could not update auto-renew:', e.response?.data?.detail)
+  }
+}
+
+// ── P2P: send coins / gift subscription ──────────────────────────
+const p2pMode = ref('coins') // 'coins' | 'gift'
+const p2pWalletId = ref('')
+const p2pAmount = ref(null)
+const giftPlan = ref('premium-1')
+const p2pLoading = ref(false)
+const p2pMessage = ref('')
+const p2pSuccess = ref(false)
+
+function switchP2pMode(mode) {
+  p2pMode.value = mode
+  p2pMessage.value = ''
+}
+
+async function sendCoins() {
+  if (!p2pWalletId.value || !p2pAmount.value || p2pLoading.value) return
+  p2pLoading.value = true
+  p2pMessage.value = ''
+  try {
+    const res = await walletAPI.transfer(p2pWalletId.value.trim(), p2pAmount.value)
+    p2pSuccess.value = true
+    p2pMessage.value = `Sent ${res.amount} MC to ${res.receiver_wallet_id}.`
+    if (wallet.value) wallet.value.balance_coins = res.new_balance
+    p2pWalletId.value = ''
+    p2pAmount.value = null
+  } catch (e) {
+    p2pSuccess.value = false
+    p2pMessage.value = e.response?.data?.detail || 'Transfer failed.'
+  } finally {
+    p2pLoading.value = false
+  }
+}
+
+async function sendGift() {
+  if (!p2pWalletId.value || p2pLoading.value) return
+  p2pLoading.value = true
+  p2pMessage.value = ''
+  try {
+    const isLifetimePlan = giftPlan.value === 'lifetime'
+    const plan = isLifetimePlan ? 'lifetime' : 'premium'
+    const months = isLifetimePlan ? null : Number(giftPlan.value.split('-')[1])
+    const res = await walletAPI.giftSubscription(p2pWalletId.value.trim(), plan, months)
+    p2pSuccess.value = true
+    p2pMessage.value = `Gifted ${plan} to ${res.receiver_wallet_id} — ${res.coins_spent} MC spent.`
+    if (wallet.value) wallet.value.balance_coins = res.new_balance
+    p2pWalletId.value = ''
+  } catch (e) {
+    p2pSuccess.value = false
+    p2pMessage.value = e.response?.data?.detail || 'Gift failed.'
+  } finally {
+    p2pLoading.value = false
   }
 }
 
@@ -572,13 +651,32 @@ const TABS = [
 .panel-message.success { color: var(--success); }
 .panel-message.error { color: var(--danger); }
 
-.p2p-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-.p2p-btn {
-  font-size: 13px; padding: 10px 18px;
-  background: var(--bg-elevated-2);
-  color: var(--text-dim);
-  opacity: .65; cursor: not-allowed;
+.p2p-mode-toggle {
+  display: flex; gap: 6px;
+  background: var(--bg); border: 1px solid var(--line);
+  border-radius: 10px; padding: 4px; margin-bottom: 14px;
 }
+.p2p-mode-btn {
+  flex: 1; padding: 8px 10px; border-radius: 7px;
+  background: none; border: none; cursor: pointer;
+  font-size: 12.5px; font-weight: 700; color: var(--text-dim);
+  transition: background .15s, color .15s;
+}
+.p2p-mode-btn.active { background: var(--bg-elevated-2); color: var(--accent); }
+
+.p2p-form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.p2p-input {
+  flex: 1; min-width: 140px;
+  padding: 11px 12px;
+  background: var(--bg); border: 1px solid var(--line);
+  border-radius: 10px; color: var(--text);
+  font-size: 13px; font-family: inherit;
+}
+.p2p-input:focus { outline: none; border-color: var(--accent); }
+.p2p-input-amount { flex: 0 1 110px; min-width: 90px; }
+.p2p-select { flex-basis: 220px; }
+.p2p-submit { font-size: 13px; padding: 11px 18px; flex-shrink: 0; }
+.p2p-submit:disabled { opacity: .5; cursor: not-allowed; }
 
 .favorites-placeholder {
   padding: 20px 0; text-align: center;
