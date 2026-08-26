@@ -7,6 +7,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -16,7 +17,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.app.db.database import Base
@@ -280,6 +281,9 @@ class StrategyModel(Base):
     grenades: Mapped[list["GrenadeModel"]] = relationship(
         "GrenadeModel", back_populates="strategy", cascade="all, delete-orphan", order_by="GrenadeModel.order"
     )
+    player_paths: Mapped[list["PlayerPathModel"]] = relationship(
+        "PlayerPathModel", back_populates="strategy", cascade="all, delete-orphan", order_by="PlayerPathModel.order"
+    )
 
 
 class ImageModel(Base):
@@ -309,5 +313,32 @@ class GrenadeModel(Base):
     video_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
+    # Throw → landing spot, as a % of the main map image's width/height
+    # (0-100) so the tactics player can position it regardless of the
+    # image's actual pixel size. Null on either end = no animated
+    # trajectory for this grenade (falls back to the plain text card).
+    from_x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    from_y: Mapped[float | None] = mapped_column(Float, nullable=True)
+    to_x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    to_y: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     # Relationship
     strategy: Mapped["StrategyModel"] = relationship("StrategyModel", back_populates="grenades")
+
+
+class PlayerPathModel(Base):
+    """A single player's movement — a sequence of {x, y, t} waypoints
+    (percent-of-image coordinates, seconds-from-round-start) that the
+    tactics player animates a colored dot along."""
+    __tablename__ = "player_paths"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    strategy_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("strategies.id", ondelete="CASCADE"), nullable=False
+    )
+    label: Mapped[str] = mapped_column(String(32), nullable=False)  # e.g. "Entry", "AWP"
+    color: Mapped[str] = mapped_column(String(16), nullable=False, default="#ff9a00")
+    waypoints: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)  # [{"x":.., "y":.., "t":..}, ...]
+    order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    strategy: Mapped["StrategyModel"] = relationship("StrategyModel", back_populates="player_paths")
