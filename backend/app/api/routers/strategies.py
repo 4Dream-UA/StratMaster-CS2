@@ -10,7 +10,8 @@ from backend.app.db.models import (
     BuyTagModel, StrategyModel, MapModel, SideEnum, SpeedEnum, PlantEnum
 )
 from backend.app.schemas.strategy import (
-    MapResponse, StrategyDetailResponse, StrategiesListResponse, StrategyPreviewResponse, ImageOut, GrenadeOut
+    MapResponse, StrategyDetailResponse, StrategiesListResponse, StrategyPreviewResponse,
+    ImageOut, GrenadeOut, PlayerPathOut,
 )
 from backend.app.services.strategy import has_active_subscription
 
@@ -80,6 +81,7 @@ async def get_strategy_detail(strategy_id: uuid.UUID, db: DBSession, current_use
             selectinload(StrategyModel.buy_tags),
             selectinload(StrategyModel.images),
             selectinload(StrategyModel.grenades),
+            selectinload(StrategyModel.player_paths),
         )
         .where(StrategyModel.id == strategy_id)
     )
@@ -105,5 +107,6 @@ async def get_strategy_detail(strategy_id: uuid.UUID, db: DBSession, current_use
     detail.main_image_url = sorted_images[0].image_url if sorted_images else None
     detail.images = [ImageOut.model_validate(i) for i in sorted_images]
     detail.grenades = [GrenadeOut.model_validate(g) for g in sorted(strategy.grenades, key=lambda g: g.order)]
+    detail.player_paths = [PlayerPathOut.model_validate(p) for p in sorted(strategy.player_paths, key=lambda p: p.order)]
 
     return detail
