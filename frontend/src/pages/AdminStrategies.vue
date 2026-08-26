@@ -155,8 +155,14 @@
                 <button type="button" class="row-remove" @click="form.grenades.splice(i, 1)">✕</button>
               </div>
             </div>
-            <button type="button" class="mini-btn" @click="form.grenades.push({ grenade_type: 'Smoke', target: '', timing: '', video_url: '', order: form.grenades.length })">+ Add grenade</button>
+            <button type="button" class="mini-btn" @click="form.grenades.push({ grenade_type: 'Smoke', target: '', timing: '', video_url: '', order: form.grenades.length, from_x: null, from_y: null, to_x: null, to_y: null })">+ Add grenade</button>
           </div>
+
+          <TacticsEditor
+            :image-url="form.images[0]?.image_url || null"
+            :grenades="form.grenades"
+            :player-paths="form.player_paths"
+          />
 
           <div class="form-actions">
             <button class="btn-primary" :disabled="!canSave || saving" @click="save">
@@ -182,6 +188,7 @@ import { adminAPI } from '../api/admin'
 import { strategiesAPI } from '../api/strategies'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
+import TacticsEditor from '../components/TacticsEditor.vue'
 
 const router = useRouter()
 const { user } = storeToRefs(useUserStore())
@@ -214,9 +221,11 @@ function blankForm() {
     buy_tag_ids: [],
     images: [],
     grenades: [],
+    player_paths: [],
   }
 }
 const form = reactive(blankForm())
+let pathKeySeq = 0
 
 function mapName(id) {
   return maps.value.find(m => m.id === id)?.name ?? '—'
@@ -269,6 +278,12 @@ function openEdit(strategy) {
     grenades: (strategy.grenades || []).map(g => ({
       grenade_type: g.grenade_type, target: g.target, timing: g.timing,
       video_url: g.video_url || '', order: g.order,
+      from_x: g.from_x ?? null, from_y: g.from_y ?? null, to_x: g.to_x ?? null, to_y: g.to_y ?? null,
+    })),
+    player_paths: (strategy.player_paths || []).map(p => ({
+      _key: ++pathKeySeq, label: p.label, color: p.color,
+      waypoints: p.waypoints.map(w => ({ x: w.x, y: w.y, t: w.t })),
+      order: p.order,
     })),
   })
   editingId.value = strategy.id
@@ -288,6 +303,9 @@ async function save() {
       timings_description: form.timings_description?.trim() || null,
       images: form.images.filter(i => i.image_url?.trim()),
       grenades: form.grenades.filter(g => g.target?.trim()),
+      player_paths: form.player_paths
+        .filter(p => p.label?.trim() && p.waypoints.length >= 2)
+        .map(({ _key, ...p }) => p),
     }
     if (editingId.value) {
       await adminAPI.updateStrategy(editingId.value, payload)
