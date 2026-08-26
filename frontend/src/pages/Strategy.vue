@@ -108,9 +108,15 @@
         </div>
       </section>
 
-      <!-- ═══ MAIN IMAGE (images[0]) ══════════════ -->
+      <!-- ═══ MAIN IMAGE (images[0]) — animated replay if we have one ══ -->
       <section v-if="mainImage" class="main-image-section">
-        <div class="image-container">
+        <TacticsPlayer
+          v-if="hasTacticsAnimation"
+          :image-url="mainImage.image_url"
+          :grenades="strategy.grenades || []"
+          :player-paths="strategy.player_paths || []"
+        />
+        <div v-else class="image-container">
           <img :src="mainImage.image_url" alt="Strategy map" class="main-image" />
         </div>
       </section>
@@ -217,6 +223,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { strategiesAPI } from '../api/strategies'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
+import TacticsPlayer from '../components/TacticsPlayer.vue'
 
 const route  = useRoute()
 const router = useRouter()
@@ -255,6 +262,15 @@ const mainImage = computed(() => {
   const imgs = strategy.value?.images
   if (!imgs?.length) return null
   return imgs.find(img => img.order === 0) ?? imgs[0]
+})
+
+// Only swap in the animated player when there's actually something to
+// animate — a strategy with no paths/trajectories keeps the plain image.
+const hasTacticsAnimation = computed(() => {
+  const paths = strategy.value?.player_paths || []
+  const grenades = strategy.value?.grenades || []
+  return paths.some(p => p.waypoints?.length >= 2) ||
+    grenades.some(g => g.from_x != null && g.to_x != null)
 })
 
 const timingImages = computed(() => {
