@@ -141,6 +141,37 @@ class TransactionModel(Base):
     )
 
 
+class CryptoInvoiceModel(Base):
+    """A CryptoPay invoice we created, tracked so the signed webhook can be
+    matched back to who's paying for what — and so a retried webhook can be
+    recognized as already-processed instead of double-crediting the wallet.
+    """
+    __tablename__ = "crypto_invoices"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    invoice_id: Mapped[int] = mapped_column(Integer, unique=True, index=True, nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    # MasterCoins this invoice will credit once paid — every crypto payment
+    # tops up coins at the fixed $0.01/coin rate first, matching the ТЗ
+    # requirement that MasterCoins themselves be purchasable via crypto.
+    coins: Mapped[int] = mapped_column(Integer, nullable=False)
+    # If set, the credited coins are immediately spent on this plan once
+    # paid (a "pay with crypto" checkout) — a null plan means a plain
+    # coin top-up with no auto-purchase.
+    plan: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    months: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    amount_usd: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)  # active | paid | expired
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    user: Mapped["UserModel"] = relationship("UserModel")
+
+
 class PromoCodeModel(Base):
     __tablename__ = "promo_codes"
 
