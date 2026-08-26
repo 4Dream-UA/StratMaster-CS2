@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from backend.app.api.deps import CurrentUser, DBSession, TelegramUser
+from backend.app.core.rate_limit import rate_limit
 from backend.app.db.models import TransactionModel, UserModel, WalletModel
 from backend.app.schemas.user import AuthRequest, UserResponse
 from backend.app.services.referral import generate_wallet_id
@@ -15,7 +16,11 @@ REFERRAL_BONUS_COINS = 10
 REFERRAL_DISCOUNT_HOURS = 24
 
 
-@router.post("/auth", response_model=UserResponse)
+@router.post(
+    "/auth",
+    response_model=UserResponse,
+    dependencies=[Depends(rate_limit("auth", max_requests=20, window_seconds=60, identity_source="ip"))],
+)
 async def auth(
         request: AuthRequest,
         db: DBSession,
