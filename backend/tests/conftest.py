@@ -1,11 +1,13 @@
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import selectinload
 
 from backend.app.api import deps
 from backend.app.db.database import Base, get_db
+from backend.app.db.models import UserModel
 from backend.app.main_api import app
 
 # A dedicated role + database on the same Postgres instance as dev
@@ -68,10 +70,31 @@ async def client():
 
 @pytest.fixture
 def auth_as():
-    """Bypass Telegram initData signing — impersonate a given UserModel for the request's lifetime."""
+    """Bypass Telegram initData signing — impersonate a given UserModel for
+    the request's lifetime.
+
+    Re-queries the user by id on every call (via the request's own `db`
+    dependency) instead of returning the original object from the test's
+    `db_session` fixture. That object lives in a different, long-lived
+    session — mutating it inside an endpoint (e.g. deducting a balance)
+    would never actually flush to the database, and a *different* request
+    right after would silently read stale state back out. Matching the
+    app's own session per request is what makes multi-request test
+    scenarios (buy, then check balance in a follow-up call) trustworthy.
+    """
     def _apply(user):
-        app.dependency_overrides[deps.get_current_user] = lambda: user
-        app.dependency_overrides[deps.get_optional_user] = lambda: user
+        user_id = user.id
+
+        async def _override(db: deps.DBSession):
+            result = await db.execute(
+                select(UserModel)
+                .options(selectinload(UserModel.wallet))
+                .where(UserModel.id == user_id)
+            )
+            return result.scalar_one()
+
+        app.dependency_overrides[deps.get_current_user] = _override
+        app.dependency_overrides[deps.get_optional_user] = _override
         return user
 
     yield _apply
