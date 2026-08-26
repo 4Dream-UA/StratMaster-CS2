@@ -203,7 +203,7 @@
                 <span class="payment-name">Crypto</span>
                 <span class="payment-sub">USDT / BTC / TON</span>
               </span>
-              <span class="status-tag ready">Almost ready</span>
+              <span class="status-tag ready">Ready</span>
             </button>
 
             <button class="payment-option disabled" disabled>
@@ -242,8 +242,8 @@
           <!-- Pay button appears once a real method is chosen -->
           <transition name="fade" mode="out-in">
             <div v-if="selectedMethod" key="pay" class="pay-block">
-              <button class="btn-primary pay-btn" :disabled="purchasing || paySuccess" @click="handlePayClick">
-                {{ purchasing ? 'Processing…' : paySuccess ? 'Unlocked' : `Pay ${formattedPrice(true)}` }}
+              <button class="btn-primary pay-btn" :disabled="purchasing || paySuccess || cryptoPolling" @click="handlePayClick">
+                {{ cryptoPolling ? 'Waiting for payment…' : purchasing ? 'Processing…' : paySuccess ? 'Unlocked' : `Pay ${formattedPrice(true)}` }}
               </button>
               <p v-if="payMessage" class="pay-message" :class="{ success: paySuccess }">{{ payMessage }}</p>
             </div>
@@ -256,11 +256,12 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, h } from 'vue'
+import { ref, computed, watch, onUnmounted, h } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '../store/user'
 import { subscriptionAPI } from '../api/subscription'
+import { paymentsAPI } from '../api/payments'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
 
@@ -316,6 +317,43 @@ const payMessage = ref('')
 const paySuccess = ref(false)
 const purchasing = ref(false)
 
+const cryptoPolling = ref(false)
+let cryptoPollTimer = null
+
+function stopCryptoPolling() {
+  if (cryptoPollTimer) { clearInterval(cryptoPollTimer); cryptoPollTimer = null }
+  cryptoPolling.value = false
+}
+
+function openInvoiceLink(url) {
+  if (window.Telegram?.WebApp?.openTelegramLink && url.includes('t.me/')) {
+    window.Telegram.WebApp.openTelegramLink(url)
+  } else if (window.Telegram?.WebApp?.openLink) {
+    window.Telegram.WebApp.openLink(url)
+  } else {
+    window.open(url, '_blank', 'noopener')
+  }
+}
+
+function startCryptoPolling(invoiceId) {
+  cryptoPolling.value = true
+  cryptoPollTimer = setInterval(async () => {
+    try {
+      const res = await paymentsAPI.getCryptoInvoiceStatus(invoiceId)
+      if (res.status === 'paid') {
+        stopCryptoPolling()
+        paySuccess.value = true
+        payMessage.value = 'Payment received — enjoy your access!'
+        await userStore.fetchMe()
+      }
+    } catch (e) {
+      // transient network hiccup — keep polling, the interval will retry
+    }
+  }, 3000)
+}
+
+onUnmounted(stopCryptoPolling)
+
 function durationPriceLabel(d) {
   if (selectedMethod.value === 'mastercoins') {
     const mc = hasActiveDiscount.value ? discountedMc(d.mc) : d.mc
@@ -343,11 +381,13 @@ function formattedPrice(showFinal) {
 }
 
 function selectMethod(method) {
+  stopCryptoPolling()
   selectedMethod.value = method
   payMessage.value = ''
 }
 
 function openPayment(planKey) {
+  stopCryptoPolling()
   selectedPlanKey.value = planKey
   selectedDurationIdx.value = 0
   selectedMethod.value = 'mastercoins' // default to the only live checkout path
@@ -356,13 +396,26 @@ function openPayment(planKey) {
   popupOpen.value = true
 }
 function closePayment() {
+  stopCryptoPolling()
   popupOpen.value = false
 }
 
 async function handlePayClick() {
-  if (selectedMethod.value !== 'mastercoins') {
-    payMessage.value = "Crypto checkout is almost ready — we'll notify you the moment it's live."
-    paySuccess.value = false
+  if (selectedMethod.value === 'crypto') {
+    if (purchasing.value || cryptoPolling.value) return
+    purchasing.value = true
+    payMessage.value = ''
+    try {
+      const months = selectedPlanKey.value === 'premium' ? PREMIUM_DURATIONS[selectedDurationIdx.value].months : null
+      const invoice = await paymentsAPI.createCryptoInvoice({ plan: selectedPlanKey.value, months })
+      openInvoiceLink(invoice.pay_url)
+      startCryptoPolling(invoice.invoice_id)
+      payMessage.value = 'Complete the payment in the window that just opened — this page updates automatically once it clears.'
+    } catch (e) {
+      payMessage.value = e.response?.data?.detail || 'Could not start checkout — please try again.'
+    } finally {
+      purchasing.value = false
+    }
     return
   }
 
@@ -387,7 +440,7 @@ async function handlePayClick() {
 }
 
 // Reset the pay message whenever duration/method changes
-watch(selectedDurationIdx, () => { payMessage.value = ''; paySuccess.value = false })
+watch(selectedDurationIdx, () => { stopCryptoPolling(); payMessage.value = ''; paySuccess.value = false })
 
 const COMPARE_ROWS = [
   { label: 'Free strategies',              free: true,  premium: true,  lifetime: true },
