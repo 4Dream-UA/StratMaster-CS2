@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 
 from backend.app.api.deps import CurrentUser, DBSession
+from backend.app.core.rate_limit import rate_limit
 from backend.app.db.models import CryptoInvoiceModel
 from backend.app.schemas.payment import (
     CryptoInvoiceRequest,
@@ -20,7 +21,11 @@ from backend.app.services.subscription import (
 router = APIRouter()
 
 
-@router.post("/payments/crypto/invoice", response_model=CryptoInvoiceResponse)
+@router.post(
+    "/payments/crypto/invoice",
+    response_model=CryptoInvoiceResponse,
+    dependencies=[Depends(rate_limit("crypto_invoice", max_requests=10, window_seconds=60))],
+)
 async def create_crypto_invoice(
     request: CryptoInvoiceRequest,
     db: DBSession,
