@@ -13,6 +13,8 @@
         <button type="button" class="te-mode-btn" :class="{ active: mode === 'grenades' }" @click="setMode('grenades')">Grenade Trajectories</button>
       </div>
 
+      <p class="te-hint-drag">Drag a point to move it. Click a point (without dragging) to delete it.</p>
+
       <div class="te-canvas-wrap">
         <img :src="imageUrl" alt="" class="te-image" @click="onImageClick" ref="imgRef" />
         <svg class="te-overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
@@ -24,7 +26,14 @@
               :stroke="i === activeGrenadeIdx ? '#ffcc44' : 'rgba(255,154,0,0.8)'" stroke-width="0.6"
               marker-end="url(#te-arrow)"
             />
-            <circle v-if="hasTrajectory(g)" :cx="g.from_x" :cy="g.from_y" r="1.1" fill="#ff9a00" />
+            <circle
+              v-if="hasTrajectory(g)" :cx="g.from_x" :cy="g.from_y" r="1.3" fill="#ff9a00"
+              class="te-handle" @pointerdown="startGrenadeDrag($event, g, 'from')"
+            />
+            <circle
+              v-if="hasTrajectory(g)" :cx="g.to_x" :cy="g.to_y" r="1.1" fill="none" stroke="#ff9a00" stroke-width="0.5"
+              class="te-handle" @pointerdown="startGrenadeDrag($event, g, 'to')"
+            />
           </g>
           <!-- pending grenade placement -->
           <circle v-if="pendingFrom" :cx="pendingFrom.x" :cy="pendingFrom.y" r="1.3" fill="#ffcc44" />
@@ -35,10 +44,13 @@
               :points="pointsAttr(p.waypoints)"
               fill="none" :stroke="p.color" stroke-width="0.6" stroke-dasharray="1.6,1"
             />
-            <circle
-              v-for="(w, wi) in p.waypoints" :key="wi"
-              :cx="w.x" :cy="w.y" r="1" :fill="p.color"
-            />
+            <g v-for="(w, wi) in p.waypoints" :key="wi">
+              <circle
+                :cx="w.x" :cy="w.y" r="1.6" :fill="p.color"
+                class="te-handle" @pointerdown="startWaypointDrag($event, p, wi)"
+              />
+              <text :x="w.x" :y="w.y" class="te-point-num" text-anchor="middle" dominant-baseline="central">{{ wi + 1 }}</text>
+            </g>
           </g>
 
           <defs>
@@ -92,7 +104,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onBeforeUnmount } from 'vue'
 import { grenadeTypeLabel } from '../utils/grenadeLabels'
 
 const props = defineProps({
@@ -147,13 +159,88 @@ function pointsAttr(waypoints) {
   return waypoints.map(w => `${w.x},${w.y}`).join(' ')
 }
 
-// ── Shared click handler ─────────────────────────────
-function onImageClick(event) {
+// ── Shared coordinate helper ──────────────────────────
+// Returns null while the image hasn't actually rendered yet (e.g. a broken
+// URL) — its rect collapses to 0×0, which would otherwise divide-by-zero
+// into NaN waypoints.
+function coordsFromEvent(event) {
   const rect = imgRef.value.getBoundingClientRect()
+  if (!rect.width || !rect.height) return null
   const x = Math.round(((event.clientX - rect.left) / rect.width) * 1000) / 10
   const y = Math.round(((event.clientY - rect.top) / rect.height) * 1000) / 10
-  const clampedX = Math.min(100, Math.max(0, x))
-  const clampedY = Math.min(100, Math.max(0, y))
+  return { x: Math.min(100, Math.max(0, x)), y: Math.min(100, Math.max(0, y)) }
+}
+
+// ── Drag-to-reposition / click-to-delete on existing points ──────────
+const drag = ref(null) // { kind: 'waypoint', path, index } | { kind: 'grenade', grenade, end }
+let dragMoved = false
+let dragStartClient = null
+
+function startWaypointDrag(event, path, index) {
+  event.stopPropagation()
+  drag.value = { kind: 'waypoint', path, index }
+  dragMoved = false
+  dragStartClient = { x: event.clientX, y: event.clientY }
+  window.addEventListener('pointermove', onDragMove)
+  window.addEventListener('pointerup', onDragEnd)
+}
+
+function startGrenadeDrag(event, grenade, end) {
+  event.stopPropagation()
+  drag.value = { kind: 'grenade', grenade, end }
+  dragMoved = false
+  dragStartClient = { x: event.clientX, y: event.clientY }
+  window.addEventListener('pointermove', onDragMove)
+  window.addEventListener('pointerup', onDragEnd)
+}
+
+function onDragMove(event) {
+  if (!drag.value) return
+  if (!dragMoved) {
+    const dx = event.clientX - dragStartClient.x
+    const dy = event.clientY - dragStartClient.y
+    if (Math.hypot(dx, dy) > 3) dragMoved = true
+  }
+  if (!dragMoved) return
+
+  const coords = coordsFromEvent(event)
+  if (!coords) return
+  const { x, y } = coords
+  if (drag.value.kind === 'waypoint') {
+    const wp = drag.value.path.waypoints[drag.value.index]
+    wp.x = x
+    wp.y = y
+  } else {
+    const g = drag.value.grenade
+    if (drag.value.end === 'from') { g.from_x = x; g.from_y = y }
+    else { g.to_x = x; g.to_y = y }
+  }
+}
+
+function onDragEnd() {
+  window.removeEventListener('pointermove', onDragMove)
+  window.removeEventListener('pointerup', onDragEnd)
+  const d = drag.value
+  drag.value = null
+  if (!d) return
+
+  if (!dragMoved) {
+    // A plain click (no drag) on an existing point — delete it.
+    if (d.kind === 'waypoint') d.path.waypoints.splice(d.index, 1)
+    else clearTrajectory(d.grenade)
+  }
+}
+
+onBeforeUnmount(() => {
+  window.removeEventListener('pointermove', onDragMove)
+  window.removeEventListener('pointerup', onDragEnd)
+})
+
+// ── Click on the image itself: add a new point ────────────────────────
+function onImageClick(event) {
+  const coords = coordsFromEvent(event)
+  if (!coords) return
+  const { x: clampedX, y: clampedY } = coords
 
   if (mode.value === 'grenades' && activeGrenadeIdx.value !== -1) {
     const g = props.grenades[activeGrenadeIdx.value]
@@ -197,9 +284,17 @@ function onImageClick(event) {
 }
 .te-mode-btn.active { background: rgba(255,154,0,.12); border-color: var(--accent); color: var(--accent); }
 
+.te-hint-drag { font-size: 11.5px; color: var(--text-dim); margin: -6px 0 10px; }
+
 .te-canvas-wrap { position: relative; border-radius: 10px; overflow: hidden; margin-bottom: 14px; line-height: 0; }
 .te-image { width: 100%; height: auto; display: block; cursor: crosshair; }
 .te-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.te-handle { pointer-events: all; cursor: grab; }
+.te-handle:active { cursor: grabbing; }
+.te-point-num {
+  pointer-events: none; font-size: 2.1px; font-weight: 700; fill: #14140f;
+  font-family: inherit; user-select: none;
+}
 
 .te-panel { display: flex; flex-direction: column; gap: 10px; }
 .te-hint { font-size: 12px; color: var(--text-dim); }
