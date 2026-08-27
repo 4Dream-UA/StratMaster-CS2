@@ -10,6 +10,7 @@ export default defineConfig({
     // backend without needing VITE_API_URL set.
     proxy: {
       '/api': 'http://localhost:8001',
+      '/uploads': 'http://localhost:8001',
     },
   },
   build: {
