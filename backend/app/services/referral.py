@@ -1,5 +1,15 @@
 import random
+import secrets
 import string
+
+
+def generate_share_token() -> str:
+    """
+    Generate a URL-safe token for a public board share link — uses `secrets`
+    (not `random`) since, unlike a wallet ID or promo code that a person
+    types in by hand, this is pasted/clicked and needs to resist guessing.
+    """
+    return secrets.token_urlsafe(12)
 
 
 def generate_wallet_id() -> str:

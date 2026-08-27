@@ -62,3 +62,24 @@ class PersonalBoardDetail(PersonalBoardPreview):
 class PersonalBoardsListResponse(BaseModel):
     total: int
     boards: list[PersonalBoardPreview]
+
+
+class CollaboratorOut(BaseModel):
+    id: uuid.UUID
+    username: str | None = None
+    model_config = {"from_attributes": True}
+
+
+class AddCollaboratorRequest(BaseModel):
+    wallet_id: str = Field(..., min_length=1, max_length=16)
+
+
+class ShareTokenResponse(BaseModel):
+    share_token: str
+
+
+class SharedBoardResponse(PersonalBoardDetail):
+    """Same shape as a normal board detail, plus the map name — the public
+    viewer has no other way to fetch the map (it's unauthenticated, so it
+    can't hit the admin-gated lookups the owner's UI uses)."""
+    map_name: str = ""  # filled in by the router after model_validate(board)

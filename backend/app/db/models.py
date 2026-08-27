@@ -344,12 +344,21 @@ class PlayerPathModel(Base):
     strategy: Mapped["StrategyModel"] = relationship("StrategyModel", back_populates="player_paths")
 
 
+personal_board_collaborator_link = Table(
+    "personal_board_collaborator_link",
+    Base.metadata,
+    Column("board_id", UUID(as_uuid=True), ForeignKey("personal_boards.id", ondelete="CASCADE"), primary_key=True),
+    Column("user_id", UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
 class PersonalBoardModel(Base):
     """A premium user's private tactics board — the same player-paths +
     grenade-trajectories building blocks as an admin-authored strategy, but
-    owned by one user, never published, and editable only by them. Lets a
-    subscriber sketch their own executes on any map, separate from the
-    official strategy catalog."""
+    owned by one user, never published, and editable only by them (plus
+    whoever they've explicitly added as a collaborator). Lets a subscriber
+    sketch their own executes on any map, separate from the official
+    strategy catalog."""
     __tablename__ = "personal_boards"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -358,6 +367,9 @@ class PersonalBoardModel(Base):
     )
     map_id: Mapped[int] = mapped_column(Integer, ForeignKey("maps.id", ondelete="CASCADE"), nullable=False)
     title: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Set only once the owner taps "Copy public link" — null means no public
+    # link has ever been generated (or it was revoked by clearing this).
+    share_token: Mapped[str | None] = mapped_column(String(24), unique=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -369,6 +381,9 @@ class PersonalBoardModel(Base):
     )
     grenades: Mapped[list["PersonalBoardGrenadeModel"]] = relationship(
         "PersonalBoardGrenadeModel", back_populates="board", cascade="all, delete-orphan", order_by="PersonalBoardGrenadeModel.order"
+    )
+    collaborators: Mapped[list["UserModel"]] = relationship(
+        "UserModel", secondary=personal_board_collaborator_link
     )
 
 
