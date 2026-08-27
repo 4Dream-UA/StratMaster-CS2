@@ -55,6 +55,7 @@ class PersonalBoardPreview(BaseModel):
 
 class PersonalBoardDetail(PersonalBoardPreview):
     created_at: datetime
+    share_token: str | None = None
     paths: list[BoardPathOut] = []
     grenades: list[BoardGrenadeOut] = []
 
@@ -79,7 +80,8 @@ class ShareTokenResponse(BaseModel):
 
 
 class SharedBoardResponse(PersonalBoardDetail):
-    """Same shape as a normal board detail, plus the map name — the public
-    viewer has no other way to fetch the map (it's unauthenticated, so it
-    can't hit the admin-gated lookups the owner's UI uses)."""
-    map_name: str = ""  # filled in by the router after model_validate(board)
+    """Same shape as a normal board detail, plus the map's name and cover
+    image — the public viewer is unauthenticated and has no other way to
+    look those up."""
+    map_name: str = ""              # filled in by the router after model_validate(board)
+    map_cover_image_url: str | None = None

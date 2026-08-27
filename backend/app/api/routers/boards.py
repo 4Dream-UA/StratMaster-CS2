@@ -109,6 +109,7 @@ async def get_shared_board(share_token: str, db: DBSession):
     map_ = await db.get(MapModel, board.map_id)
     detail = SharedBoardResponse.model_validate(board)
     detail.map_name = map_.name if map_ else "Unknown map"
+    detail.map_cover_image_url = map_.cover_image_url if map_ else None
     return detail
 
 
