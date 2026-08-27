@@ -95,15 +95,21 @@
 
       <!-- ── HOTBAR ───────────────────────────────────── -->
       <nav class="hotbar">
-        <button
-          v-for="tab in TABS" :key="tab.key"
-          class="hotbar-btn"
-          :class="{ active: activeTab === tab.key }"
-          @click="toggleTab(tab.key)"
-        >
-          <span class="hotbar-icon" v-html="tab.icon"></span>
-          <span class="hotbar-label">{{ tab.label }}</span>
-        </button>
+        <template v-for="tab in TABS" :key="tab.key">
+          <router-link v-if="tab.to" :to="tab.to" class="hotbar-btn">
+            <span class="hotbar-icon" v-html="tab.icon"></span>
+            <span class="hotbar-label">{{ tab.label }}</span>
+          </router-link>
+          <button
+            v-else
+            class="hotbar-btn"
+            :class="{ active: activeTab === tab.key }"
+            @click="toggleTab(tab.key)"
+          >
+            <span class="hotbar-icon" v-html="tab.icon"></span>
+            <span class="hotbar-label">{{ tab.label }}</span>
+          </button>
+        </template>
 
         <router-link v-if="user?.is_admin" to="/admin" class="hotbar-btn admin-hotbar-btn">
           <span class="hotbar-icon" v-html="ICONS.admin"></span>
@@ -566,6 +572,10 @@ const ICONS = {
     <path d="M14.7 6.3a4 4 0 00-5.4 4.6L4 16.2V20h3.8l5.3-5.3a4 4 0 004.6-5.4l-2.6 2.6-2-2 2.6-2.6z"
           stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
   </svg>`,
+  board: `<svg viewBox="0 0 24 24" fill="none" width="20" height="20">
+    <rect x="3.5" y="4.5" width="17" height="13" rx="1.5" stroke="currentColor" stroke-width="1.6"/>
+    <path d="M7 15l3.5-4 2.5 2.5L17 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`,
 }
 
 const TABS = [
@@ -574,6 +584,7 @@ const TABS = [
   { key: 'p2p',        label: 'P2P',        icon: ICONS.p2p },
   { key: 'favorites',  label: 'Maps',       icon: ICONS.favorites },
   { key: 'strategies', label: 'Strategies', icon: ICONS.strategies },
+  { key: 'board',      label: 'My Board',   icon: ICONS.board, to: '/boards' },
 ]
 </script>
 
