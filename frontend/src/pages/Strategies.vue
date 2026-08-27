@@ -117,8 +117,8 @@
       <p class="results-count">
         <template v-if="loadingFiltered">Searching…</template>
         <template v-else>
-          <strong>{{ strategies.length }}</strong>
-          {{ strategies.length === 1 ? 'strategy' : 'strategies' }} found
+          <strong>{{ total }}</strong>
+          {{ total === 1 ? 'strategy' : 'strategies' }} found
         </template>
       </p>
 
@@ -183,6 +183,8 @@
         </div>
       </div>
 
+      <Pagination :total="total" :page="page" :page-size="PAGE_SIZE" @update:page="onPageChange" />
+
     </div>
 
     <Footer />
@@ -196,6 +198,7 @@ import { strategiesAPI } from '../api/strategies'
 import { favoritesAPI } from '../api/favorites'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
+import Pagination from '../components/Pagination.vue'
 
 const route  = useRoute()
 const router = useRouter()
@@ -206,6 +209,10 @@ const strategies      = ref([])
 const isLoading       = ref(true)      // page-level: hides whole page
 const loadingFiltered = ref(false)     // filter-level: shows spinner in grid
 const search          = ref('')
+
+const PAGE_SIZE = 5
+const page  = ref(1)
+const total = ref(0)
 
 const filters = reactive({
   side:     null,
@@ -259,7 +266,7 @@ function resetFilters() {
 async function fetchStrategies() {
   loadingFiltered.value = true
   try {
-    const params = { map_id: mapId }
+    const params = { map_id: mapId, limit: PAGE_SIZE, offset: (page.value - 1) * PAGE_SIZE }
 
     // Single-select filters — wrap in array for API
     if (filters.side)           params.side     = [filters.side]
@@ -273,26 +280,34 @@ async function fetchStrategies() {
 
     // API returns { total, strategies } — handle both just in case
     strategies.value = Array.isArray(res) ? res : (res.strategies ?? [])
+    total.value = Array.isArray(res) ? strategies.value.length : (res.total ?? 0)
   } catch (e) {
     console.error('[Strategies] fetch error:', e)
     strategies.value = []
+    total.value = 0
   } finally {
     loadingFiltered.value = false
   }
 }
 
-// Debounce search
+function onPageChange(p) {
+  page.value = p
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+  fetchStrategies()
+}
+
+// Debounce search — any new search/filter starts back at page 1.
 let searchTimer = null
 watch(search, () => {
   clearTimeout(searchTimer)
-  searchTimer = setTimeout(fetchStrategies, 350)
+  searchTimer = setTimeout(() => { page.value = 1; fetchStrategies() }, 350)
 })
 
 // Watch filters — but only after mount (initialized flag prevents premature calls)
 let initialized = false
 watch(
   () => ({ ...filters }),
-  () => { if (initialized) fetchStrategies() },
+  () => { if (initialized) { page.value = 1; fetchStrategies() } },
   { deep: true }
 )
 
@@ -327,7 +342,7 @@ onMounted(async () => {
   window.scrollTo({ top: 0, behavior: 'auto' })
 
   try {
-    const maps = await strategiesAPI.getMaps()
+    const { maps } = await strategiesAPI.getMaps({ limit: 100 })
     mapName.value = maps.find(m => m.id === mapId)?.name ?? ''
     await fetchStrategies()
     loadFavoriteIds()
