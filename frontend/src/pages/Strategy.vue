@@ -98,13 +98,24 @@
               @click.prevent="scrollToSection(item.id)"
             >{{ item.label }}</a>
           </nav>
-          <button class="share-btn" @click="copyLink">
-            <svg viewBox="0 0 20 20" fill="none" width="14" height="14">
-              <path d="M7 10a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM7 10a2.5 2.5 0 110 5 2.5 2.5 0 010-5zM13 12.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5zM13 7.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
-              <path d="M9.2 8.6l3.6-2.2M9.2 11.4l3.6 2.2" stroke="currentColor" stroke-width="1.4"/>
-            </svg>
-            {{ linkCopied ? 'Link copied' : 'Copy link' }}
-          </button>
+          <div class="header-actions-buttons">
+            <button
+              class="share-btn fav-btn" :class="{ active: isFavorited }"
+              @click="toggleFavoriteStrategy"
+            >
+              <svg viewBox="0 0 20 20" :fill="isFavorited ? 'currentColor' : 'none'" width="14" height="14">
+                <path d="M10 2.5l2.35 4.76 5.25.76-3.8 3.7.9 5.23L10 14.5l-4.7 2.45.9-5.23-3.8-3.7 5.25-.76z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+              </svg>
+              {{ isFavorited ? 'Favorited' : 'Favorite' }}
+            </button>
+            <button class="share-btn" @click="copyLink">
+              <svg viewBox="0 0 20 20" fill="none" width="14" height="14">
+                <path d="M7 10a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM7 10a2.5 2.5 0 110 5 2.5 2.5 0 010-5zM13 12.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5zM13 7.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+                <path d="M9.2 8.6l3.6-2.2M9.2 11.4l3.6 2.2" stroke="currentColor" stroke-width="1.4"/>
+              </svg>
+              {{ linkCopied ? 'Link copied' : 'Copy link' }}
+            </button>
+          </div>
         </div>
       </section>
 
@@ -221,6 +232,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { strategiesAPI } from '../api/strategies'
+import { favoritesAPI } from '../api/favorites'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
 import TacticsPlayer from '../components/TacticsPlayer.vue'
@@ -235,6 +247,7 @@ const isLoading  = ref(true)
 const lockReason = ref(null) // null | 'auth' | 'subscription'
 const openSpoilers = ref({})
 const openGrenades = ref({})
+const isFavorited = ref(false)
 
 // ── Parsing helpers ────────────────────────────────────────────
 
@@ -309,6 +322,26 @@ function copyLink() {
   setTimeout(() => { linkCopied.value = false }, 1800)
 }
 
+// ── Favorite ───────────────────────────────────────────────────
+async function loadFavoriteStatus() {
+  try {
+    const favs = await favoritesAPI.listStrategies()
+    isFavorited.value = favs.some(s => s.id === strategy.value?.id)
+  } catch (e) {
+    // Not critical — leave the star unfilled rather than block the page.
+  }
+}
+
+async function toggleFavoriteStrategy() {
+  const next = !isFavorited.value
+  isFavorited.value = next
+  try {
+    next ? await favoritesAPI.addStrategy(strategy.value.id) : await favoritesAPI.removeStrategy(strategy.value.id)
+  } catch (e) {
+    isFavorited.value = !next // revert on failure
+  }
+}
+
 // ── Spoiler toggles ────────────────────────────────────────────
 function toggleSpoiler(i) {
   openSpoilers.value[i] = !openSpoilers.value[i]
@@ -352,6 +385,7 @@ onMounted(async () => {
     ])
     strategy.value = strategyRes
     mapName.value = maps.find(m => m.id === strategyRes.map_id)?.name ?? 'Map'
+    loadFavoriteStatus()
   } catch (err) {
     const status = err.response?.status
     if (status === 401) lockReason.value = 'auth'
@@ -589,6 +623,8 @@ onMounted(async () => {
 @media (hover: hover) and (pointer: fine) {
   .share-btn:hover { border-color: var(--accent); color: var(--accent); }
 }
+.header-actions-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.fav-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(255,154,0,.08); }
 
 /* ── Main image ───────────────────────────── */
 .main-image-section { margin-bottom: 56px; }
