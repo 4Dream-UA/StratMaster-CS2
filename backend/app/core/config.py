@@ -6,6 +6,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # depending on where the app/tests were launched from.
 REPO_ROOT_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 
+# Where admin-uploaded images (map covers, strategy screenshots) land —
+# bind-mounted into the backend container by docker-compose, so files
+# written here persist on the host too.
+UPLOAD_DIR = Path(__file__).resolve().parents[2] / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(

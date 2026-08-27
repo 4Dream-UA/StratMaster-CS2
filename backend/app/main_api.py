@@ -2,9 +2,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
-from backend.app.core.config import settings
-from backend.app.api.routers import users, strategies, webhooks, referral, promo, admin, subscription, wallet, payments, favorites
+from backend.app.core.config import UPLOAD_DIR, settings
+from backend.app.api.routers import users, strategies, webhooks, referral, promo, admin, subscription, wallet, payments, favorites, uploads
 
 
 @asynccontextmanager
@@ -52,6 +53,10 @@ app.include_router(subscription.router, prefix="/api", tags=["subscription"])
 app.include_router(wallet.router, prefix="/api", tags=["wallet"])
 app.include_router(payments.router, prefix="/api", tags=["payments"])
 app.include_router(favorites.router, prefix="/api", tags=["favorites"])
+app.include_router(uploads.router, prefix="/api", tags=["uploads"])
+
+# Serves admin-uploaded images back out at the URL the upload endpoint returns.
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 
 @app.get("/healthcheck", tags=["system"])
