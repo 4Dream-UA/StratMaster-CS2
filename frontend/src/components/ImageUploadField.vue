@@ -7,8 +7,8 @@
       :placeholder="placeholder"
       class="url-input"
     />
-    <label class="upload-btn" :class="{ busy: uploading }">
-      {{ uploading ? '…' : 'Upload' }}
+    <label class="upload-btn" :class="{ busy: uploading, done: justUploaded }">
+      {{ uploading ? '…' : justUploaded ? 'Uploaded ✓' : 'Upload' }}
       <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden @change="onFileChange" />
     </label>
     <p v-if="error" class="upload-err">{{ error }}</p>
@@ -27,6 +27,7 @@ const emit = defineEmits(['update:modelValue'])
 
 const uploading = ref(false)
 const error = ref('')
+const justUploaded = ref(false)
 
 async function onFileChange(e) {
   const file = e.target.files[0]
@@ -35,11 +36,14 @@ async function onFileChange(e) {
 
   uploading.value = true
   error.value = ''
+  justUploaded.value = false
   try {
     const res = await uploadsAPI.uploadImage(file)
     emit('update:modelValue', res.url)
+    justUploaded.value = true
+    setTimeout(() => { justUploaded.value = false }, 2500)
   } catch (err) {
-    error.value = err.response?.data?.detail || 'Upload failed.'
+    error.value = err.response?.data?.detail || err.message || 'Upload failed — check your connection and try again.'
   } finally {
     uploading.value = false
   }
@@ -67,6 +71,7 @@ async function onFileChange(e) {
 }
 .upload-btn:hover { border-color: var(--accent); color: var(--accent); }
 .upload-btn.busy { opacity: .6; cursor: wait; }
+.upload-btn.done { border-color: var(--success); color: var(--success); }
 
 .upload-err {
   position: absolute; top: 100%; left: 0; margin-top: 4px;
