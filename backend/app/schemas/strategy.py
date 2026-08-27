@@ -12,6 +12,11 @@ class MapResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class MapsListResponse(BaseModel):
+    total: int
+    maps: list[MapResponse]
+
+
 class BuyTagOut(BaseModel):
     id: int
     name: str
@@ -82,6 +87,11 @@ class StrategyDetailResponse(StrategyPreviewResponse):
 class StrategiesListResponse(BaseModel):
     total: int
     strategies: list[StrategyPreviewResponse]
+
+
+class AdminStrategiesListResponse(BaseModel):
+    total: int
+    strategies: list[StrategyDetailResponse]
 
 
 # ── Admin / Create schemas ─────────────────────────────────────
@@ -162,4 +172,10 @@ class PromoCodeOut(BaseModel):
     is_active: bool
     activations_limit: int
     used_count: int
+    model_config = {"from_attributes": True}
+
+
+class PromoCodesListResponse(BaseModel):
+    total: int
+    promo_codes: list[PromoCodeOut]
     model_config = {"from_attributes": True}

@@ -10,7 +10,7 @@ from backend.app.db.models import (
     BuyTagModel, StrategyModel, MapModel, SideEnum, SpeedEnum, PlantEnum
 )
 from backend.app.schemas.strategy import (
-    MapResponse, StrategyDetailResponse, StrategiesListResponse, StrategyPreviewResponse,
+    MapResponse, MapsListResponse, StrategyDetailResponse, StrategiesListResponse, StrategyPreviewResponse,
     ImageOut, GrenadeOut, PlayerPathOut,
 )
 from backend.app.services.strategy import has_active_subscription
@@ -18,10 +18,23 @@ from backend.app.services.strategy import has_active_subscription
 router = APIRouter()
 
 
-@router.get("/maps", response_model=List[MapResponse])
-async def get_maps(db: DBSession):
-    result = await db.execute(select(MapModel).where(MapModel.is_active == True).order_by(MapModel.id))
-    return result.scalars().all()
+@router.get("/maps", response_model=MapsListResponse)
+async def get_maps(
+        db: DBSession,
+        search: str | None = Query(None),
+        limit: int = Query(5, ge=1, le=100),
+        offset: int = Query(0, ge=0),
+):
+    query = select(MapModel).where(MapModel.is_active == True)
+    count_query = select(func.count()).select_from(MapModel).where(MapModel.is_active == True)
+
+    if search:
+        query = query.where(MapModel.name.ilike(f"%{search}%"))
+        count_query = count_query.where(MapModel.name.ilike(f"%{search}%"))
+
+    total = (await db.execute(count_query)).scalar() or 0
+    result = await db.execute(query.order_by(MapModel.id).limit(limit).offset(offset))
+    return MapsListResponse(total=total, maps=result.scalars().all())
 
 
 @router.get("/strategies/count")
@@ -40,6 +53,8 @@ async def get_strategies_list(
         buy_tags: List[str] = Query(default=[]),
         is_free: bool | None = Query(None),
         search: str | None = Query(None),
+        limit: int = Query(5, ge=1, le=100),
+        offset: int = Query(0, ge=0),
 ):
     query = (
         select(StrategyModel)
@@ -49,18 +64,33 @@ async def get_strategies_list(
         )
         .order_by(StrategyModel.created_at.desc())
     )
+    count_query = select(func.count(func.distinct(StrategyModel.id))).select_from(StrategyModel)
 
-    if map_id is not None: query = query.where(StrategyModel.map_id == map_id)
-    if side: query = query.where(StrategyModel.side.in_(side))
-    if plant: query = query.where(StrategyModel.plant.in_(plant))
-    if speed: query = query.where(StrategyModel.speed.in_(speed))
-    if is_free is not None: query = query.where(StrategyModel.is_free == is_free)
-    if search: query = query.where(StrategyModel.title.ilike(f"%{search}%"))
+    if map_id is not None:
+        query = query.where(StrategyModel.map_id == map_id)
+        count_query = count_query.where(StrategyModel.map_id == map_id)
+    if side:
+        query = query.where(StrategyModel.side.in_(side))
+        count_query = count_query.where(StrategyModel.side.in_(side))
+    if plant:
+        query = query.where(StrategyModel.plant.in_(plant))
+        count_query = count_query.where(StrategyModel.plant.in_(plant))
+    if speed:
+        query = query.where(StrategyModel.speed.in_(speed))
+        count_query = count_query.where(StrategyModel.speed.in_(speed))
+    if is_free is not None:
+        query = query.where(StrategyModel.is_free == is_free)
+        count_query = count_query.where(StrategyModel.is_free == is_free)
+    if search:
+        query = query.where(StrategyModel.title.ilike(f"%{search}%"))
+        count_query = count_query.where(StrategyModel.title.ilike(f"%{search}%"))
 
     if buy_tags:
         query = query.join(StrategyModel.buy_tags).where(BuyTagModel.name.in_(buy_tags))
+        count_query = count_query.join(StrategyModel.buy_tags).where(BuyTagModel.name.in_(buy_tags))
 
-    result = await db.execute(query)
+    total = (await db.execute(count_query)).scalar() or 0
+    result = await db.execute(query.limit(limit).offset(offset))
     strategies = result.scalars().unique().all()
 
     out = []
@@ -70,7 +100,7 @@ async def get_strategies_list(
         preview.main_image_url = sorted_images[0].image_url if sorted_images else None
         out.append(preview)
 
-    return StrategiesListResponse(total=len(out), strategies=out)
+    return StrategiesListResponse(total=total, strategies=out)
 
 
 @router.get("/strategies/{strategy_id}", response_model=StrategyDetailResponse)

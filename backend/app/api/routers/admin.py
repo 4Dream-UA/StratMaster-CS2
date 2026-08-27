@@ -21,11 +21,14 @@ from backend.app.db.models import (
     WalletModel,
 )
 from backend.app.schemas.strategy import (
+    AdminStrategiesListResponse,
     MapCreate,
     MapResponse,
+    MapsListResponse,
     MapUpdate,
     PromoCodeCreate,
     PromoCodeOut,
+    PromoCodesListResponse,
     PromoCodeToggle,
     StrategyCreate,
     StrategyDetailResponse,
@@ -70,10 +73,24 @@ async def get_admin_stats(db: DBSession, admin_user: AdminUser) -> dict:
 #  Maps
 # ─────────────────────────────────────────────
 
-@router.get("/admin/maps", response_model=List[MapResponse])
-async def admin_list_maps(db: DBSession, admin_user: AdminUser):
-    result = await db.execute(select(MapModel).order_by(MapModel.id))
-    return result.scalars().all()
+@router.get("/admin/maps", response_model=MapsListResponse)
+async def admin_list_maps(
+    db: DBSession,
+    admin_user: AdminUser,
+    search: str | None = Query(None),
+    limit: int = Query(5, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    query = select(MapModel)
+    count_query = select(func.count()).select_from(MapModel)
+
+    if search:
+        query = query.where(MapModel.name.ilike(f"%{search}%"))
+        count_query = count_query.where(MapModel.name.ilike(f"%{search}%"))
+
+    total = (await db.execute(count_query)).scalar() or 0
+    result = await db.execute(query.order_by(MapModel.id).limit(limit).offset(offset))
+    return MapsListResponse(total=total, maps=result.scalars().all())
 
 
 @router.post("/admin/maps", response_model=MapResponse, status_code=status.HTTP_201_CREATED)
@@ -133,22 +150,29 @@ def _hydrate_preview(strategy: StrategyModel) -> StrategyDetailResponse:
     return detail
 
 
-@router.get("/admin/strategies", response_model=List[StrategyDetailResponse])
+@router.get("/admin/strategies", response_model=AdminStrategiesListResponse)
 async def admin_list_strategies(
     db: DBSession,
     admin_user: AdminUser,
     map_id: int | None = Query(None),
     search: str | None = Query(None),
+    limit: int = Query(5, ge=1, le=100),
+    offset: int = Query(0, ge=0),
 ):
     query = _strategy_detail_query().order_by(StrategyModel.created_at.desc())
+    count_query = select(func.count()).select_from(StrategyModel)
+
     if map_id is not None:
         query = query.where(StrategyModel.map_id == map_id)
+        count_query = count_query.where(StrategyModel.map_id == map_id)
     if search:
         query = query.where(StrategyModel.title.ilike(f"%{search}%"))
+        count_query = count_query.where(StrategyModel.title.ilike(f"%{search}%"))
 
-    result = await db.execute(query)
+    total = (await db.execute(count_query)).scalar() or 0
+    result = await db.execute(query.limit(limit).offset(offset))
     strategies = result.scalars().unique().all()
-    return [_hydrate_preview(s) for s in strategies]
+    return AdminStrategiesListResponse(total=total, strategies=[_hydrate_preview(s) for s in strategies])
 
 
 @router.post("/admin/strategies", response_model=StrategyDetailResponse, status_code=status.HTTP_201_CREATED)
@@ -244,10 +268,24 @@ async def admin_list_buy_tags(db: DBSession, admin_user: AdminUser):
 #  Promo codes
 # ─────────────────────────────────────────────
 
-@router.get("/admin/promo-codes", response_model=List[PromoCodeOut])
-async def admin_list_promo_codes(db: DBSession, admin_user: AdminUser):
-    result = await db.execute(select(PromoCodeModel).order_by(PromoCodeModel.code))
-    return result.scalars().all()
+@router.get("/admin/promo-codes", response_model=PromoCodesListResponse)
+async def admin_list_promo_codes(
+    db: DBSession,
+    admin_user: AdminUser,
+    search: str | None = Query(None, description="Matches the promo code"),
+    limit: int = Query(5, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    query = select(PromoCodeModel)
+    count_query = select(func.count()).select_from(PromoCodeModel)
+
+    if search:
+        query = query.where(PromoCodeModel.code.ilike(f"%{search}%"))
+        count_query = count_query.where(PromoCodeModel.code.ilike(f"%{search}%"))
+
+    total = (await db.execute(count_query)).scalar() or 0
+    result = await db.execute(query.order_by(PromoCodeModel.code).limit(limit).offset(offset))
+    return PromoCodesListResponse(total=total, promo_codes=result.scalars().all())
 
 
 @router.post("/admin/promo-codes", response_model=PromoCodeOut, status_code=status.HTTP_201_CREATED)
