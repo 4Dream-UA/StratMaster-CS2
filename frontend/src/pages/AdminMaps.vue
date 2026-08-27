@@ -46,12 +46,18 @@
         <div v-if="loading" class="loading-row">Loading…</div>
         <table v-else class="admin-table">
           <thead>
-            <tr><th>Name</th><th>Cover</th><th>Status</th><th></th></tr>
+            <tr><th>Name</th><th class="col-cover">Cover</th><th>Status</th><th></th></tr>
           </thead>
           <tbody>
             <tr v-for="m in maps" :key="m.id">
               <td>{{ m.name }}</td>
-              <td class="dim">{{ m.cover_image_url || '—' }}</td>
+              <td class="col-cover">
+                <ImageUploadField
+                  :model-value="m.cover_image_url || ''"
+                  placeholder="https://… or upload"
+                  @update:model-value="v => updateCover(m, v)"
+                />
+              </td>
               <td>
                 <span class="status-pill" :class="m.is_active ? 'on' : 'off'">
                   {{ m.is_active ? 'Active' : 'Hidden' }}
@@ -140,6 +146,22 @@ async function createMap() {
   }
 }
 
+// Debounced per-row so typing a URL manually doesn't fire a PATCH per
+// keystroke — an upload also lands here (single update), so this covers
+// both without needing ImageUploadField to distinguish the two.
+const coverSaveTimers = {}
+function updateCover(map, url) {
+  map.cover_image_url = url
+  clearTimeout(coverSaveTimers[map.id])
+  coverSaveTimers[map.id] = setTimeout(async () => {
+    try {
+      await adminAPI.updateMap(map.id, { cover_image_url: url.trim() || null })
+    } catch (e) {
+      errorMsg.value = e.response?.data?.detail || 'Could not update cover image.'
+    }
+  }, 600)
+}
+
 async function toggleActive(map) {
   map.is_active = !map.is_active
   try {
@@ -218,6 +240,7 @@ onMounted(() => {
 .admin-table td { padding: 12px 10px; border-top: 1px solid var(--line); }
 .admin-table td.dim { color: var(--text-dim); font-size: 12.5px; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .admin-table td.actions { text-align: right; }
+.admin-table .col-cover { min-width: 240px; }
 
 .status-pill { padding: 3px 9px; border-radius: 99px; font-size: 11px; font-weight: 700; }
 .status-pill.on { background: rgba(80,220,100,.12); color: var(--success); }
