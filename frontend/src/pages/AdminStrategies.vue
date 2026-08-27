@@ -147,7 +147,7 @@
             <div class="rows">
               <div v-for="(g, i) in form.grenades" :key="i" class="row grenade-row">
                 <select v-model="g.grenade_type" class="row-select">
-                  <option v-for="t in GRENADE_TYPES" :key="t" :value="t">{{ t }}</option>
+                  <option v-for="t in GRENADE_TYPES" :key="t" :value="t">{{ grenadeTypeLabel(t) }}</option>
                 </select>
                 <input v-model="g.target" type="text" placeholder="Target (e.g. Window)" class="row-main" />
                 <input v-model="g.timing" type="text" placeholder="0:08" class="row-timing" />
@@ -189,6 +189,7 @@ import { strategiesAPI } from '../api/strategies'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
 import TacticsEditor from '../components/TacticsEditor.vue'
+import { grenadeTypeLabel } from '../utils/grenadeLabels'
 
 const router = useRouter()
 const { user } = storeToRefs(useUserStore())

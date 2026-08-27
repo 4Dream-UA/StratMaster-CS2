@@ -53,7 +53,7 @@
       <div v-if="mode === 'grenades'" class="te-panel">
         <p v-if="!grenades.length" class="te-hint">Add a grenade card above first.</p>
         <div v-for="(g, i) in grenades" :key="i" class="te-grenade-row">
-          <span class="te-grenade-label">{{ g.grenade_type || 'Grenade' }} → {{ g.target || '?' }}</span>
+          <span class="te-grenade-label">{{ g.grenade_type ? grenadeTypeLabel(g.grenade_type) : 'Grenade' }} → {{ g.target || '?' }}</span>
           <span v-if="hasTrajectory(g)" class="te-grenade-status">placed</span>
           <button
             type="button" class="te-mini-btn"
@@ -93,6 +93,7 @@
 
 <script setup>
 import { ref } from 'vue'
+import { grenadeTypeLabel } from '../utils/grenadeLabels'
 
 const props = defineProps({
   imageUrl: { type: String, default: null },

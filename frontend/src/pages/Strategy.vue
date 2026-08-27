@@ -178,7 +178,7 @@
               :aria-expanded="openGrenades[i]"
             >
               <span class="grenade-type-icon" v-html="grenadeIcon(g.grenade_type)"></span>
-              <span class="grenade-type-label">{{ g.grenade_type }}</span>
+              <span class="grenade-type-label">{{ grenadeTypeLabel(g.grenade_type) }}</span>
               <span class="grenade-target">→ {{ g.target }}</span>
               <span class="grenade-timing">{{ g.timing }}</span>
               <span class="spoiler-arrow ml-auto">{{ openGrenades[i] ? '▼' : '▶' }}</span>
@@ -224,6 +224,7 @@ import { strategiesAPI } from '../api/strategies'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
 import TacticsPlayer from '../components/TacticsPlayer.vue'
+import { grenadeTypeLabel } from '../utils/grenadeLabels'
 
 const route  = useRoute()
 const router = useRouter()
