@@ -342,3 +342,26 @@ class PlayerPathModel(Base):
     order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     strategy: Mapped["StrategyModel"] = relationship("StrategyModel", back_populates="player_paths")
+
+
+class FavoriteStrategyModel(Base):
+    """A user's bookmarked strategy — separate from FavoriteMapModel: you
+    might like everything on Dust2, but only want to pin one specific
+    execute you're planning to run tonight."""
+    __tablename__ = "favorite_strategies"
+    __table_args__ = (
+        UniqueConstraint("user_id", "strategy_id", name="uq_favorite_user_strategy"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    strategy_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("strategies.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    strategy: Mapped["StrategyModel"] = relationship("StrategyModel")
