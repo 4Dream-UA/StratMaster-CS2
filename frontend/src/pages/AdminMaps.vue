@@ -24,8 +24,8 @@
             <input v-model="form.name" type="text" placeholder="e.g. Anubis" />
           </label>
           <label class="field">
-            <span>Cover image URL</span>
-            <input v-model="form.cover_image_url" type="text" placeholder="https://…" />
+            <span>Cover image</span>
+            <ImageUploadField v-model="form.cover_image_url" placeholder="https://… or upload" />
           </label>
         </div>
         <div class="form-actions">
@@ -86,6 +86,7 @@ import { adminAPI } from '../api/admin'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
 import Pagination from '../components/Pagination.vue'
+import ImageUploadField from '../components/ImageUploadField.vue'
 
 const router = useRouter()
 const { user } = storeToRefs(useUserStore())
