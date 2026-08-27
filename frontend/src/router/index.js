@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import Home from '../pages/Home.vue'
 import Strategy from '../pages/Strategy.vue'
 import Strategies from '../pages/Strategies.vue'
+import MyStrategies from '../pages/MyStrategies.vue'
 import User from '../pages/User.vue'
 import Pricing from '../pages/Pricing.vue'
 import Admin from '../pages/Admin.vue'
@@ -15,6 +16,7 @@ const routes = [
   { path: '/', name: 'Home', component: Home },
   { path: '/map/:id', name: 'Strategies', component: Strategies },
   { path: '/strategy/:id', name: 'Strategy', component: Strategy },
+  { path: '/my-strategies', name: 'MyStrategies', component: MyStrategies },
   { path: '/user', name: 'User', component: User },
   { path: '/pricing', name: 'Pricing', component: Pricing },
   { path: '/admin', name: 'Admin', component: Admin },
