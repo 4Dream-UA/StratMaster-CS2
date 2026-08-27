@@ -37,6 +37,11 @@
       </section>
 
       <!-- ── List ────────────────────────────── -->
+      <div class="admin-search-wrap">
+        <input v-model="search" type="text" class="admin-search" placeholder="Search maps by name…" />
+        <button v-if="search" class="search-clear" @click="search = ''">✕</button>
+      </div>
+
       <section class="list-card">
         <div v-if="loading" class="loading-row">Loading…</div>
         <table v-else class="admin-table">
@@ -58,9 +63,14 @@
                 </button>
               </td>
             </tr>
+            <tr v-if="!maps.length">
+              <td colspan="4" class="empty">No maps found.</td>
+            </tr>
           </tbody>
         </table>
       </section>
+
+      <Pagination :total="total" :page="page" :page-size="PAGE_SIZE" @update:page="onPageChange" />
     </div>
 
     <Footer />
@@ -68,13 +78,14 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '../store/user'
 import { adminAPI } from '../api/admin'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
+import Pagination from '../components/Pagination.vue'
 
 const router = useRouter()
 const { user } = storeToRefs(useUserStore())
@@ -83,13 +94,31 @@ const loading = ref(true)
 const saving = ref(false)
 const errorMsg = ref('')
 
+const PAGE_SIZE = 5
+const page = ref(1)
+const total = ref(0)
+const search = ref('')
+
 const form = reactive({ name: '', cover_image_url: '' })
 
 async function load() {
   loading.value = true
-  maps.value = await adminAPI.getMaps()
+  const res = await adminAPI.getMaps({ limit: PAGE_SIZE, offset: (page.value - 1) * PAGE_SIZE, search: search.value || undefined })
+  maps.value = res.maps
+  total.value = res.total
   loading.value = false
 }
+
+function onPageChange(p) {
+  page.value = p
+  load()
+}
+
+let searchTimer = null
+watch(search, () => {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => { page.value = 1; load() }, 350)
+})
 
 async function createMap() {
   if (!form.name.trim()) return
@@ -145,6 +174,21 @@ onMounted(() => {
 }
 .page-head h1 { font-size: clamp(22px, 4vw, 30px); font-weight: 900; color: var(--text); }
 
+.admin-search-wrap { position: relative; margin-bottom: 16px; }
+.admin-search {
+  width: 100%; padding: 10px 36px 10px 14px;
+  background: var(--bg-elevated); border: 1.5px solid var(--line);
+  border-radius: 10px; font-size: 13.5px; font-family: inherit;
+  color: var(--text); transition: border-color .2s;
+}
+.admin-search::placeholder { color: var(--text-dim); }
+.admin-search:focus { outline: none; border-color: var(--accent); }
+.admin-search-wrap .search-clear {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; color: var(--text-dim); font-size: 13px; cursor: pointer; padding: 4px;
+}
+.admin-search-wrap .search-clear:hover { color: var(--text); }
+
 .form-card, .list-card {
   background: var(--bg-elevated); border: 1px solid var(--line);
   border-radius: var(--radius-lg); padding: 22px; margin-bottom: 20px;
@@ -163,7 +207,7 @@ onMounted(() => {
 .form-actions { display: flex; align-items: center; gap: 14px; }
 .err { color: var(--danger); font-size: 12.5px; font-weight: 600; margin: 0; }
 
-.loading-row { padding: 24px; text-align: center; color: var(--text-dim); font-size: 13px; }
+.loading-row, .empty { padding: 24px; text-align: center; color: var(--text-dim); font-size: 13px; }
 
 .admin-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .admin-table th {
