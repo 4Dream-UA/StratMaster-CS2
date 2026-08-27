@@ -7,9 +7,9 @@ export const adminAPI = {
   },
 
   // ── Maps ──────────────────────────────────
-  async getMaps() {
-    const response = await apiClient.get('/api/admin/maps')
-    return response.data
+  async getMaps(params = {}) {
+    const response = await apiClient.get('/api/admin/maps', { params })
+    return response.data  // { total, maps }
   },
   async createMap(payload) {
     const response = await apiClient.post('/api/admin/maps', payload)
@@ -27,7 +27,7 @@ export const adminAPI = {
   },
   async getStrategies(params = {}) {
     const response = await apiClient.get('/api/admin/strategies', { params })
-    return response.data
+    return response.data  // { total, strategies }
   },
   async createStrategy(payload) {
     const response = await apiClient.post('/api/admin/strategies', payload)
@@ -42,9 +42,9 @@ export const adminAPI = {
   },
 
   // ── Promo codes ───────────────────────────
-  async getPromoCodes() {
-    const response = await apiClient.get('/api/admin/promo-codes')
-    return response.data
+  async getPromoCodes(params = {}) {
+    const response = await apiClient.get('/api/admin/promo-codes', { params })
+    return response.data  // { total, promo_codes }
   },
   async createPromoCode(payload) {
     const response = await apiClient.post('/api/admin/promo-codes', payload)

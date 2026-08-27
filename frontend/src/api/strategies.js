@@ -1,9 +1,10 @@
 import apiClient from './client'
 
 export const strategiesAPI = {
-  async getMaps() {
-    const response = await apiClient.get('/api/maps')
-    return response.data
+  // params: { search, limit, offset }
+  async getMaps(params = {}) {
+    const response = await apiClient.get('/api/maps', { params })
+    return response.data  // { total, maps }
   },
 
   async getStrategiesCount() {
@@ -21,6 +22,8 @@ export const strategiesAPI = {
     if (filters.map_id != null) params.map_id = filters.map_id
     if (filters.search)          params.search  = filters.search
     if (filters.is_free != null) params.is_free = filters.is_free
+    if (filters.limit != null)   params.limit   = filters.limit
+    if (filters.offset != null)  params.offset  = filters.offset
 
     if (filters.side?.length)     params.side     = filters.side
     if (filters.plant?.length)    params.plant    = filters.plant
