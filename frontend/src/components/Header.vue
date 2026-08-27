@@ -7,7 +7,6 @@
 
       <nav class="header-nav">
         <a href="/#strategies" @click.prevent="goToSection('strategies')">Maps</a>
-        <router-link to="/my-strategies">My Strategies</router-link>
         <router-link to="/pricing">Pricing</router-link>
         <router-link to="/user">Referral</router-link>
       </nav>
@@ -46,7 +45,6 @@
     <transition name="slide">
       <nav v-if="isMenuOpen" class="mobile-menu" aria-label="Mobile navigation">
         <a href="/#strategies" @click.prevent="goToSection('strategies')">Maps</a>
-        <router-link to="/my-strategies" @click="closeMenu">My Strategies</router-link>
         <router-link to="/pricing" @click="closeMenu">Pricing</router-link>
         <router-link to="/user" @click="closeMenu">Referral</router-link>
 
