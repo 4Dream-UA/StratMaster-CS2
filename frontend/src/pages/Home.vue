@@ -300,7 +300,7 @@ function clearSearch() { searchQuery.value = '' }
 // ── Fetch maps on mount ────────────────
 onMounted(async () => {
   try {
-    maps.value = await strategiesAPI.getMaps()
+    maps.value = (await strategiesAPI.getMaps({ limit: 100 })).maps
     loadFavoriteIds()
   } catch (error) {
     console.error('Failed to fetch maps:', error)

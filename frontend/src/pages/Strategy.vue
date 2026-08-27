@@ -379,12 +379,12 @@ onMounted(async () => {
   window.scrollTo({ top: 0, behavior: 'auto' })
 
   try {
-    const [strategyRes, maps] = await Promise.all([
+    const [strategyRes, mapsRes] = await Promise.all([
       strategiesAPI.getStrategy(route.params.id),
-      strategiesAPI.getMaps(),
+      strategiesAPI.getMaps({ limit: 100 }),
     ])
     strategy.value = strategyRes
-    mapName.value = maps.find(m => m.id === strategyRes.map_id)?.name ?? 'Map'
+    mapName.value = mapsRes.maps.find(m => m.id === strategyRes.map_id)?.name ?? 'Map'
     loadFavoriteStatus()
   } catch (err) {
     const status = err.response?.status
