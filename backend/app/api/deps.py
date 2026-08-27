@@ -106,3 +106,18 @@ async def get_admin_user(current_user: CurrentUser):
 
 
 AdminUser = Annotated["UserModel", Depends(get_admin_user)]
+
+
+async def get_premium_user(current_user: CurrentUser):
+    """Dependency: ensures the authenticated user has an active subscription."""
+    from backend.app.services.strategy import has_active_subscription
+
+    if not has_active_subscription(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="An active subscription is required",
+        )
+    return current_user
+
+
+PremiumUser = Annotated["UserModel", Depends(get_premium_user)]

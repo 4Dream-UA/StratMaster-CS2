@@ -344,6 +344,68 @@ class PlayerPathModel(Base):
     strategy: Mapped["StrategyModel"] = relationship("StrategyModel", back_populates="player_paths")
 
 
+class PersonalBoardModel(Base):
+    """A premium user's private tactics board — the same player-paths +
+    grenade-trajectories building blocks as an admin-authored strategy, but
+    owned by one user, never published, and editable only by them. Lets a
+    subscriber sketch their own executes on any map, separate from the
+    official strategy catalog."""
+    __tablename__ = "personal_boards"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    map_id: Mapped[int] = mapped_column(Integer, ForeignKey("maps.id", ondelete="CASCADE"), nullable=False)
+    title: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    map: Mapped["MapModel"] = relationship("MapModel")
+    paths: Mapped[list["PersonalBoardPathModel"]] = relationship(
+        "PersonalBoardPathModel", back_populates="board", cascade="all, delete-orphan", order_by="PersonalBoardPathModel.order"
+    )
+    grenades: Mapped[list["PersonalBoardGrenadeModel"]] = relationship(
+        "PersonalBoardGrenadeModel", back_populates="board", cascade="all, delete-orphan", order_by="PersonalBoardGrenadeModel.order"
+    )
+
+
+class PersonalBoardPathModel(Base):
+    __tablename__ = "personal_board_paths"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    board_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("personal_boards.id", ondelete="CASCADE"), nullable=False
+    )
+    label: Mapped[str] = mapped_column(String(32), nullable=False)
+    color: Mapped[str] = mapped_column(String(16), nullable=False, default="#ff9a00")
+    waypoints: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    board: Mapped["PersonalBoardModel"] = relationship("PersonalBoardModel", back_populates="paths")
+
+
+class PersonalBoardGrenadeModel(Base):
+    __tablename__ = "personal_board_grenades"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    board_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("personal_boards.id", ondelete="CASCADE"), nullable=False
+    )
+    grenade_type: Mapped[GrenadeTypeEnum] = mapped_column(Enum(GrenadeTypeEnum), nullable=False)
+    target: Mapped[str] = mapped_column(String(64), nullable=False)
+    order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    from_x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    from_y: Mapped[float | None] = mapped_column(Float, nullable=True)
+    to_x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    to_y: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    board: Mapped["PersonalBoardModel"] = relationship("PersonalBoardModel", back_populates="grenades")
+
+
 class FavoriteStrategyModel(Base):
     """A user's bookmarked strategy — separate from FavoriteMapModel: you
     might like everything on Dust2, but only want to pin one specific
