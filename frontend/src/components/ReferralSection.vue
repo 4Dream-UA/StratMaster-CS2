@@ -67,6 +67,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { referralAPI } from '../api/referral'
+import { BOT_USERNAME } from '../config'
 
 const loaded = ref(false)
 const stats = ref(null)
@@ -110,7 +111,7 @@ function copyCode() {
 function shareCode() {
   if (!stats.value?.referral_code) return
   const text = `Join StratMaster CS2 with my code \`${stats.value.referral_code}\` and get ${stats.value.referral_discount_percent}% off your first purchase!`
-  const url = 't.me/StratMasterCS2_bot'
+  const url = `t.me/${BOT_USERNAME}`
 
   // Native Telegram share sheet, if running inside the Mini App
   if (window.Telegram?.WebApp?.openTelegramLink) {

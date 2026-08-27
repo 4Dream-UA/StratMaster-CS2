@@ -237,6 +237,7 @@ import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
 import TacticsPlayer from '../components/TacticsPlayer.vue'
 import { grenadeTypeLabel } from '../utils/grenadeLabels'
+import { botDeepLink } from '../config'
 
 const route  = useRoute()
 const router = useRouter()
@@ -315,9 +316,11 @@ function scrollToSection(id) {
 }
 
 // ── Share ──────────────────────────────────────────────────────
+// Copies a bot deep link, not the raw site URL — a bare website link opens
+// in a plain browser (no Telegram auth) instead of the Mini App.
 const linkCopied = ref(false)
 function copyLink() {
-  navigator.clipboard?.writeText(window.location.href)
+  navigator.clipboard?.writeText(botDeepLink(`strategy_${strategy.value.id}`))
   linkCopied.value = true
   setTimeout(() => { linkCopied.value = false }, 1800)
 }
