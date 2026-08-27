@@ -20,6 +20,11 @@
           <button class="btn-primary" @click="openCreate">+ New Strategy</button>
         </section>
 
+        <div class="admin-search-wrap">
+          <input v-model="listSearch" type="text" class="admin-search" placeholder="Search strategies by title…" />
+          <button v-if="listSearch" class="search-clear" @click="listSearch = ''">✕</button>
+        </div>
+
         <section class="list-card">
           <div v-if="loading" class="loading-row">Loading…</div>
           <table v-else class="admin-table">
@@ -47,6 +52,8 @@
             </tbody>
           </table>
         </section>
+
+        <Pagination :total="strategiesTotal" :page="listPage" :page-size="PAGE_SIZE" @update:page="onListPageChange" />
       </template>
 
       <!-- ═══ EDIT MODE ═══════════════════════ -->
@@ -180,7 +187,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '../store/user'
@@ -188,6 +195,7 @@ import { adminAPI } from '../api/admin'
 import { strategiesAPI } from '../api/strategies'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
+import Pagination from '../components/Pagination.vue'
 import TacticsEditor from '../components/TacticsEditor.vue'
 import { grenadeTypeLabel } from '../utils/grenadeLabels'
 
@@ -205,6 +213,11 @@ const maps = ref([])
 const buyTags = ref([])
 const strategies = ref([])
 const editingId = ref(null)
+
+const PAGE_SIZE = 5
+const listPage = ref(1)
+const strategiesTotal = ref(0)
+const listSearch = ref('')
 
 function blankForm() {
   return {
@@ -243,15 +256,35 @@ const canSave = computed(() => form.map_id && form.title.trim().length > 0)
 async function loadAll() {
   loading.value = true
   const [mapsRes, tagsRes, stratsRes] = await Promise.all([
-    strategiesAPI.getMaps(),
+    strategiesAPI.getMaps({ limit: 100 }),
     adminAPI.getBuyTags(),
-    adminAPI.getStrategies(),
+    adminAPI.getStrategies({ limit: PAGE_SIZE, offset: (listPage.value - 1) * PAGE_SIZE, search: listSearch.value || undefined }),
   ])
-  maps.value = mapsRes
+  maps.value = mapsRes.maps
   buyTags.value = tagsRes
-  strategies.value = stratsRes
+  strategies.value = stratsRes.strategies
+  strategiesTotal.value = stratsRes.total
   loading.value = false
 }
+
+async function reloadStrategies() {
+  const stratsRes = await adminAPI.getStrategies({
+    limit: PAGE_SIZE, offset: (listPage.value - 1) * PAGE_SIZE, search: listSearch.value || undefined,
+  })
+  strategies.value = stratsRes.strategies
+  strategiesTotal.value = stratsRes.total
+}
+
+function onListPageChange(p) {
+  listPage.value = p
+  reloadStrategies()
+}
+
+let listSearchTimer = null
+watch(listSearch, () => {
+  clearTimeout(listSearchTimer)
+  listSearchTimer = setTimeout(() => { listPage.value = 1; reloadStrategies() }, 350)
+})
 
 function openCreate() {
   Object.assign(form, blankForm())
@@ -325,7 +358,9 @@ async function save() {
 async function remove(strategy) {
   if (!confirm(`Delete "${strategy.title}"? This can't be undone.`)) return
   await adminAPI.deleteStrategy(strategy.id)
-  strategies.value = strategies.value.filter(s => s.id !== strategy.id)
+  // Deleting the last row on a page would strand you on an empty page.
+  if (strategies.value.length === 1 && listPage.value > 1) listPage.value -= 1
+  await reloadStrategies()
 }
 
 onMounted(() => {
@@ -354,6 +389,21 @@ onMounted(() => {
   text-transform: uppercase; color: var(--accent); margin-bottom: 6px;
 }
 .page-head h1 { font-size: clamp(22px, 4vw, 30px); font-weight: 900; color: var(--text); }
+
+.admin-search-wrap { position: relative; margin-bottom: 16px; }
+.admin-search {
+  width: 100%; padding: 10px 36px 10px 14px;
+  background: var(--bg-elevated); border: 1.5px solid var(--line);
+  border-radius: 10px; font-size: 13.5px; font-family: inherit;
+  color: var(--text); transition: border-color .2s;
+}
+.admin-search::placeholder { color: var(--text-dim); }
+.admin-search:focus { outline: none; border-color: var(--accent); }
+.admin-search-wrap .search-clear {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; color: var(--text-dim); font-size: 13px; cursor: pointer; padding: 4px;
+}
+.admin-search-wrap .search-clear:hover { color: var(--text); }
 
 .list-card, .form-card {
   background: var(--bg-elevated); border: 1px solid var(--line);
