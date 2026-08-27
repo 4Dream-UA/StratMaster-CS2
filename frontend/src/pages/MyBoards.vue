@@ -43,6 +43,25 @@
         </section>
 
         <Pagination :total="total" :page="page" :page-size="PAGE_SIZE" @update:page="onPageChange" />
+
+        <!-- ═══ SHARED WITH YOU ═══════════════ -->
+        <section v-if="sharedTotal > 0" class="page-head" style="margin-top: 32px;">
+          <span class="eyebrow">Invited</span>
+          <h1>Shared With You</h1>
+        </section>
+        <section v-if="sharedTotal > 0" class="list-card">
+          <div v-if="sharedLoading" class="loading-row">Loading…</div>
+          <div v-else class="board-grid">
+            <div v-for="b in sharedBoards" :key="b.id" class="board-card" @click="openEdit(b)">
+              <div class="board-card-body">
+                <h3>{{ b.title }}</h3>
+                <p class="board-card-map">{{ mapName(b.map_id) }}</p>
+              </div>
+              <span class="shared-badge">Shared</span>
+            </div>
+          </div>
+        </section>
+        <Pagination v-if="sharedTotal > 0" :total="sharedTotal" :page="sharedPage" :page-size="PAGE_SIZE" @update:page="onSharedPageChange" />
       </template>
 
       <!-- ═══ EDIT MODE ═══════════════════════ -->
@@ -84,12 +103,25 @@
           <div v-if="!selectedMapImage" class="te-no-image">
             This map doesn't have a cover image yet — ask an admin to add one before you can place points on it.
           </div>
-          <TacticsEditor
-            v-else
-            :image-url="selectedMapImage"
-            :grenades="form.grenades"
-            :player-paths="form.paths"
-          />
+          <template v-else>
+            <div class="preview-toggle-row">
+              <button type="button" class="mini-btn" :class="{ active: previewMode }" @click="previewMode = !previewMode">
+                {{ previewMode ? '✎ Back to editing' : '▶ Preview playback' }}
+              </button>
+            </div>
+            <TacticsPlayer
+              v-if="previewMode"
+              :image-url="selectedMapImage"
+              :grenades="form.grenades"
+              :player-paths="form.paths"
+            />
+            <TacticsEditor
+              v-else
+              :image-url="selectedMapImage"
+              :grenades="form.grenades"
+              :player-paths="form.paths"
+            />
+          </template>
 
           <div class="form-actions">
             <button class="btn-primary" :disabled="!canSave || saving" @click="save">
@@ -97,6 +129,43 @@
             </button>
             <button class="mini-btn" @click="mode = 'list'">Cancel</button>
             <p v-if="errorMsg" class="err">{{ errorMsg }}</p>
+          </div>
+        </section>
+
+        <!-- ═══ SHARE (owner only, board must already be saved) ═══ -->
+        <section v-if="editingId && isOwnBoard" class="form-card share-card">
+          <h3>Share this board</h3>
+
+          <div class="share-block">
+            <p class="share-label">Public view link</p>
+            <p class="share-desc">Anyone with this link can view (read-only) — no account needed.</p>
+            <div v-if="shareToken" class="share-row">
+              <input type="text" readonly class="share-link-input" :value="shareLinkUrl" @click="$event.target.select()" />
+              <button class="mini-btn" @click="copyShareLink">{{ shareLinkCopied ? 'Copied!' : 'Copy' }}</button>
+              <button class="mini-btn danger" @click="revokeShare">Revoke</button>
+            </div>
+            <button v-else class="mini-btn" :disabled="shareBusy" @click="generateShare">
+              {{ shareBusy ? 'Generating…' : 'Generate public link' }}
+            </button>
+          </div>
+
+          <div class="share-block">
+            <p class="share-label">Invite an editor</p>
+            <p class="share-desc">Grant another player edit access by their Wallet ID.</p>
+            <div class="share-row">
+              <input v-model="collabWalletId" type="text" placeholder="Wallet ID" class="share-link-input" :disabled="collabBusy" />
+              <button class="mini-btn" :disabled="!collabWalletId || collabBusy" @click="inviteCollaborator">
+                {{ collabBusy ? '…' : 'Grant access' }}
+              </button>
+            </div>
+            <p v-if="collabError" class="err">{{ collabError }}</p>
+
+            <div v-if="collaborators.length" class="collab-list">
+              <div v-for="c in collaborators" :key="c.id" class="collab-row">
+                <span>{{ c.username ? '@' + c.username : c.id }}</span>
+                <button class="mini-btn danger" @click="removeCollaboratorRow(c)">Remove</button>
+              </div>
+            </div>
           </div>
         </section>
       </template>
@@ -113,14 +182,16 @@ import { storeToRefs } from 'pinia'
 import { useUserStore } from '../store/user'
 import { boardsAPI } from '../api/boards'
 import { strategiesAPI } from '../api/strategies'
+import { botDeepLink } from '../config'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
 import Pagination from '../components/Pagination.vue'
 import TacticsEditor from '../components/TacticsEditor.vue'
+import TacticsPlayer from '../components/TacticsPlayer.vue'
 import { grenadeTypeLabel } from '../utils/grenadeLabels'
 
 const router = useRouter()
-const { wallet } = storeToRefs(useUserStore())
+const { user, wallet } = storeToRefs(useUserStore())
 
 const hasActiveAccess = computed(() => {
   if (wallet.value?.is_lifetime) return true
@@ -142,6 +213,23 @@ const editingId = ref(null)
 const PAGE_SIZE = 5
 const page = ref(1)
 const total = ref(0)
+
+const sharedBoards = ref([])
+const sharedLoading = ref(false)
+const sharedPage = ref(1)
+const sharedTotal = ref(0)
+
+const previewMode = ref(false)
+const isOwnBoard = ref(true)
+const shareToken = ref(null)
+const shareLinkCopied = ref(false)
+const shareBusy = ref(false)
+const collaborators = ref([])
+const collabWalletId = ref('')
+const collabBusy = ref(false)
+const collabError = ref('')
+
+const shareLinkUrl = computed(() => shareToken.value ? botDeepLink(`board_${shareToken.value}`) : '')
 
 function blankForm() {
   return { map_id: null, title: '', paths: [], grenades: [] }
@@ -177,11 +265,31 @@ function onPageChange(p) {
   loadBoards()
 }
 
+async function loadSharedBoards() {
+  sharedLoading.value = true
+  try {
+    const res = await boardsAPI.listSharedWithMe({ limit: PAGE_SIZE, offset: (sharedPage.value - 1) * PAGE_SIZE })
+    sharedBoards.value = res.boards
+    sharedTotal.value = res.total
+  } finally {
+    sharedLoading.value = false
+  }
+}
+
+function onSharedPageChange(p) {
+  sharedPage.value = p
+  loadSharedBoards()
+}
+
 function openCreate() {
   Object.assign(form, blankForm())
   form.map_id = maps.value[0]?.id ?? null
   editingId.value = null
   errorMsg.value = ''
+  previewMode.value = false
+  isOwnBoard.value = true
+  shareToken.value = null
+  collaborators.value = []
   mode.value = 'edit'
 }
 
@@ -204,7 +312,53 @@ async function openEdit(boardPreview) {
   })
   editingId.value = board.id
   errorMsg.value = ''
+  previewMode.value = false
+  isOwnBoard.value = board.user_id === user.value?.id
+  shareToken.value = board.share_token || null
+  shareLinkCopied.value = false
+  collabWalletId.value = ''
+  collabError.value = ''
+  collaborators.value = isOwnBoard.value ? await boardsAPI.listCollaborators(board.id) : []
   mode.value = 'edit'
+}
+
+async function generateShare() {
+  shareBusy.value = true
+  try {
+    const res = await boardsAPI.createShareLink(editingId.value)
+    shareToken.value = res.share_token
+  } finally {
+    shareBusy.value = false
+  }
+}
+
+async function revokeShare() {
+  await boardsAPI.revokeShareLink(editingId.value)
+  shareToken.value = null
+}
+
+function copyShareLink() {
+  navigator.clipboard?.writeText(shareLinkUrl.value)
+  shareLinkCopied.value = true
+  setTimeout(() => { shareLinkCopied.value = false }, 1800)
+}
+
+async function inviteCollaborator() {
+  if (!collabWalletId.value.trim()) return
+  collabBusy.value = true
+  collabError.value = ''
+  try {
+    collaborators.value = await boardsAPI.addCollaborator(editingId.value, collabWalletId.value.trim())
+    collabWalletId.value = ''
+  } catch (e) {
+    collabError.value = e.response?.data?.detail || 'Could not grant access.'
+  } finally {
+    collabBusy.value = false
+  }
+}
+
+async function removeCollaboratorRow(collaborator) {
+  collaborators.value = await boardsAPI.removeCollaborator(editingId.value, collaborator.id)
 }
 
 async function save() {
@@ -226,7 +380,7 @@ async function save() {
       await boardsAPI.create(payload)
     }
     mode.value = 'list'
-    await loadBoards()
+    await Promise.all([loadBoards(), loadSharedBoards()])
   } catch (e) {
     errorMsg.value = e.response?.data?.detail || 'Could not save board.'
   } finally {
@@ -245,6 +399,7 @@ onMounted(async () => {
   if (!hasActiveAccess.value) return
   await loadMaps()
   await loadBoards()
+  await loadSharedBoards()
 })
 </script>
 
@@ -301,6 +456,36 @@ onMounted(async () => {
 }
 .mini-btn:hover { border-color: var(--accent); color: var(--accent); }
 .mini-btn.danger:hover { border-color: var(--danger); color: var(--danger); }
+.mini-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(255,154,0,.1); }
+
+.shared-badge {
+  flex-shrink: 0; padding: 3px 9px; border-radius: 99px;
+  background: rgba(255,154,0,.14); color: var(--accent);
+  font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+}
+
+.preview-toggle-row { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+
+.share-card { margin-top: 20px; }
+.share-card h3 { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 16px; }
+.share-block { margin-bottom: 20px; }
+.share-block:last-child { margin-bottom: 0; }
+.share-label { font-size: 12.5px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
+.share-desc { font-size: 12px; color: var(--text-dim); margin-bottom: 10px; }
+.share-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.share-link-input {
+  flex: 1; min-width: 160px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+  padding: 9px 11px; color: var(--text); font-size: 12.5px; font-family: inherit;
+}
+.share-link-input:focus { outline: none; border-color: var(--accent); }
+
+.collab-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.collab-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 12px; font-size: 12.5px; color: var(--text);
+}
 
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
