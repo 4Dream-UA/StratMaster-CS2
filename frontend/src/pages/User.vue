@@ -211,6 +211,35 @@
           </div>
         </section>
 
+        <section v-else-if="activeTab === 'strategies'" key="strategies" class="panel-wrap panel-card">
+          <div class="panel-header">
+            <span class="panel-icon" v-html="ICONS.strategies"></span>
+            <h3>My Strategies</h3>
+          </div>
+          <p class="panel-desc">Strategies you've starred — tap the star on any strategy page to pin it here.</p>
+
+          <div v-if="favStrategiesLoading" class="favorites-placeholder">Loading…</div>
+          <div v-else-if="!favStrategies.length" class="favorites-placeholder">
+            No favorite strategies yet — tap the star on a strategy to pin it here.
+          </div>
+          <div v-else class="favorites-list">
+            <router-link
+              v-for="s in favStrategies" :key="s.id"
+              :to="'/strategy/' + s.id" class="favorite-row"
+            >
+              <span class="favorite-row-name">{{ s.title }}</span>
+              <span class="favorite-row-badge" :class="s.is_free ? 'free' : 'premium'">
+                {{ s.is_free ? 'Free' : 'Premium' }}
+              </span>
+              <button
+                type="button" class="favorite-row-remove"
+                @click.prevent="unfavoriteStrategy(s.id)"
+                aria-label="Remove from favorites"
+              >✕</button>
+            </router-link>
+          </div>
+        </section>
+
         <p v-else key="hint" class="hotbar-hint">Tap an option above to get started.</p>
       </transition>
 
@@ -222,7 +251,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '../store/user'
 import { promoAPI } from '../api/promo'
@@ -235,6 +264,7 @@ import Footer from '../components/Footer.vue'
 import ReferralSection from '../components/ReferralSection.vue'
 
 const router = useRouter()
+const route = useRoute()
 const userStore = useUserStore()
 const { user, wallet } = storeToRefs(userStore)
 
@@ -245,11 +275,14 @@ const promoLoading = ref(false)
 const promoMessage = ref('')
 const promoSuccess = ref(false)
 
-// Default open so the referral code-entry field is immediately visible
-const activeTab = ref('referral')
+// Default open so the referral code-entry field is immediately visible —
+// unless we were redirected here with a specific tab requested (e.g. from
+// the old /my-strategies link).
+const activeTab = ref(route.query.tab === 'strategies' ? 'strategies' : 'referral')
 function toggleTab(key) {
   activeTab.value = activeTab.value === key ? null : key
   if (activeTab.value === 'favorites' && !favoritesLoaded.value) loadFavorites()
+  if (activeTab.value === 'strategies' && !favStrategiesLoaded.value) loadFavStrategies()
 }
 
 // ── Favorite maps ──────────────────────────────────────────────
@@ -277,6 +310,36 @@ async function unfavoriteMap(mapId) {
     await loadFavorites() // out of sync — reload to recover the true state
   }
 }
+
+// ── Favorite strategies ──────────────────────────────────────────
+const favStrategies = ref([])
+const favStrategiesLoading = ref(false)
+const favStrategiesLoaded = ref(false)
+
+async function loadFavStrategies() {
+  favStrategiesLoading.value = true
+  try {
+    favStrategies.value = await favoritesAPI.listStrategies()
+    favStrategiesLoaded.value = true
+  } catch (e) {
+    console.warn('[User] could not load favorite strategies:', e.response?.data?.detail)
+  } finally {
+    favStrategiesLoading.value = false
+  }
+}
+
+async function unfavoriteStrategy(strategyId) {
+  favStrategies.value = favStrategies.value.filter(s => s.id !== strategyId)
+  try {
+    await favoritesAPI.removeStrategy(strategyId)
+  } catch (e) {
+    await loadFavStrategies() // out of sync — reload to recover the true state
+  }
+}
+
+onMounted(() => {
+  if (activeTab.value === 'strategies' && !favStrategiesLoaded.value) loadFavStrategies()
+})
 
 const initials = computed(() => {
   const name = user.value?.username || 'G'
@@ -496,6 +559,9 @@ const ICONS = {
   favorites: `<svg viewBox="0 0 24 24" fill="none" width="20" height="20">
     <path d="M6.5 4h11a1 1 0 011 1v15l-6.5-4-6.5 4V5a1 1 0 011-1z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
   </svg>`,
+  strategies: `<svg viewBox="0 0 24 24" fill="none" width="20" height="20">
+    <path d="M12 3.5l2.82 5.71 6.3.92-4.56 4.44 1.08 6.27L12 17.77l-5.64 3.07 1.08-6.27-4.56-4.44 6.3-.92L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+  </svg>`,
   admin: `<svg viewBox="0 0 24 24" fill="none" width="20" height="20">
     <path d="M14.7 6.3a4 4 0 00-5.4 4.6L4 16.2V20h3.8l5.3-5.3a4 4 0 004.6-5.4l-2.6 2.6-2-2 2.6-2.6z"
           stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
@@ -503,10 +569,11 @@ const ICONS = {
 }
 
 const TABS = [
-  { key: 'referral',  label: 'Referral',  icon: ICONS.referral },
-  { key: 'promo',     label: 'Promo',     icon: ICONS.promo },
-  { key: 'p2p',       label: 'P2P',       icon: ICONS.p2p },
-  { key: 'favorites', label: 'Maps',      icon: ICONS.favorites },
+  { key: 'referral',   label: 'Referral',   icon: ICONS.referral },
+  { key: 'promo',      label: 'Promo',      icon: ICONS.promo },
+  { key: 'p2p',        label: 'P2P',        icon: ICONS.p2p },
+  { key: 'favorites',  label: 'Maps',       icon: ICONS.favorites },
+  { key: 'strategies', label: 'Strategies', icon: ICONS.strategies },
 ]
 </script>
 
@@ -824,13 +891,19 @@ const TABS = [
 
 .favorites-list { display: flex; flex-direction: column; gap: 8px; }
 .favorite-row {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 12px 14px;
   background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
   text-decoration: none; transition: border-color .15s;
 }
 .favorite-row:hover { border-color: var(--accent); }
-.favorite-row-name { font-size: 13.5px; font-weight: 700; color: var(--text); }
+.favorite-row-name { font-size: 13.5px; font-weight: 700; color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.favorite-row-badge {
+  flex-shrink: 0; padding: 2px 8px; border-radius: 99px;
+  font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+}
+.favorite-row-badge.free { background: rgba(80,220,100,.14); color: var(--success); }
+.favorite-row-badge.premium { background: rgba(255,154,0,.15); color: var(--accent); }
 .favorite-row-remove {
   background: none; border: none; color: var(--text-dim); cursor: pointer;
   font-size: 13px; padding: 4px 6px; transition: color .15s;
