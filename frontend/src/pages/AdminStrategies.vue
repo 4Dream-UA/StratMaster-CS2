@@ -140,7 +140,7 @@
             <span>Images (first = main map overview)</span>
             <div class="rows">
               <div v-for="(img, i) in form.images" :key="i" class="row">
-                <input v-model="img.image_url" type="text" placeholder="Image URL" class="row-main" />
+                <ImageUploadField v-model="img.image_url" placeholder="Image URL or upload" />
                 <input v-model.number="img.order" type="number" min="0" placeholder="Order" class="row-order" />
                 <button type="button" class="row-remove" @click="form.images.splice(i, 1)">✕</button>
               </div>
@@ -196,6 +196,7 @@ import { strategiesAPI } from '../api/strategies'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
 import Pagination from '../components/Pagination.vue'
+import ImageUploadField from '../components/ImageUploadField.vue'
 import TacticsEditor from '../components/TacticsEditor.vue'
 import { grenadeTypeLabel } from '../utils/grenadeLabels'
 
