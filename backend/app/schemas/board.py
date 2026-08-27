@@ -47,6 +47,7 @@ BoardUpdate = PersonalBoardCreate
 
 class PersonalBoardPreview(BaseModel):
     id: uuid.UUID
+    user_id: uuid.UUID  # the owner — lets the frontend tell "mine" from "shared with me"
     map_id: int
     title: str
     updated_at: datetime
