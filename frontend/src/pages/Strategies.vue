@@ -152,6 +152,15 @@
             <span class="badge-access" :class="s.is_free ? 'free' : 'premium'">
               {{ s.is_free ? 'Free' : 'Premium' }}
             </span>
+            <button
+              type="button" class="fav-btn" :class="{ active: favoriteIds.has(s.id) }"
+              @click.stop="toggleFavorite(s)"
+              :aria-label="favoriteIds.has(s.id) ? 'Remove from favorites' : 'Add to favorites'"
+            >
+              <svg viewBox="0 0 20 20" :fill="favoriteIds.has(s.id) ? 'currentColor' : 'none'" width="15" height="15">
+                <path d="M10 2.5l2.35 4.76 5.25.76-3.8 3.7.9 5.23L10 14.5l-4.7 2.45.9-5.23-3.8-3.7 5.25-.76z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+              </svg>
+            </button>
           </div>
 
           <div class="card-body">
@@ -184,6 +193,7 @@
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { strategiesAPI } from '../api/strategies'
+import { favoritesAPI } from '../api/favorites'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
 
@@ -286,6 +296,30 @@ watch(
   { deep: true }
 )
 
+// ── Favorite strategies ────────────────────
+const favoriteIds = ref(new Set())
+
+async function loadFavoriteIds() {
+  try {
+    const favs = await favoritesAPI.listStrategies()
+    favoriteIds.value = new Set(favs.map(s => s.id))
+  } catch (e) {
+    // Not critical to the page — just leave every star unfilled.
+  }
+}
+
+async function toggleFavorite(s) {
+  const isFav = favoriteIds.value.has(s.id)
+  const next = new Set(favoriteIds.value)
+  isFav ? next.delete(s.id) : next.add(s.id)
+  favoriteIds.value = next
+  try {
+    isFav ? await favoritesAPI.removeStrategy(s.id) : await favoritesAPI.addStrategy(s.id)
+  } catch (e) {
+    await loadFavoriteIds() // out of sync — resync from the server
+  }
+}
+
 onMounted(async () => {
   // Always open at the top — without this, the browser can keep the
   // scroll offset from whatever page you navigated from, which lands
@@ -296,6 +330,7 @@ onMounted(async () => {
     const maps = await strategiesAPI.getMaps()
     mapName.value = maps.find(m => m.id === mapId)?.name ?? ''
     await fetchStrategies()
+    loadFavoriteIds()
   } catch (e) {
     console.error('[Strategies] mount error:', e)
   } finally {
@@ -494,6 +529,17 @@ onMounted(async () => {
 }
 .badge-access.free    { background: rgba(80,220,100,.2); color: #50dc64; border: 1px solid rgba(80,220,100,.4); }
 .badge-access.premium { background: rgba(255,154,0,.2);  color: var(--accent); border: 1px solid rgba(255,154,0,.4); }
+
+.fav-btn {
+  position: absolute; top: 10px; right: 10px; z-index: 3;
+  width: 30px; height: 30px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+  border: 1px solid rgba(255,255,255,0.15); color: #fff;
+  cursor: pointer; transition: color .15s, border-color .15s, background .15s;
+}
+.fav-btn:hover { border-color: var(--accent); }
+.fav-btn.active { color: var(--accent); background: rgba(255,154,0,0.18); border-color: rgba(255,154,0,0.4); }
 
 .card-body { padding: 16px 18px 20px; }
 .card-body h3 {
