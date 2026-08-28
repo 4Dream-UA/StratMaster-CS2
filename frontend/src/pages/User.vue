@@ -250,7 +250,11 @@
     <Footer />
 
     <!-- ── TOP UP POPUP ─────────────────────────────────── -->
-    <transition name="fade">
+    <!-- Explicit :duration bypasses waiting on the transitionend DOM event —
+         if that never fires (backgrounded tab, reduced-motion), Vue's
+         <transition> gets stuck mid-leave forever: an invisible
+         position:fixed;inset:0 backdrop keeps blocking every click. -->
+    <transition name="fade" :duration="200">
       <div v-if="topupOpen" class="modal-backdrop" @click.self="closeTopupModal">
         <div class="modal">
           <button class="modal-close" @click="closeTopupModal">✕</button>
@@ -306,7 +310,7 @@
     </transition>
 
     <!-- ── AUTO-RENEW METHOD POPUP ──────────────────────── -->
-    <transition name="fade">
+    <transition name="fade" :duration="200">
       <div v-if="autoRenewModalOpen" class="modal-backdrop" @click.self="closeAutoRenewModal">
         <div class="modal">
           <button class="modal-close" @click="closeAutoRenewModal">✕</button>
