@@ -6,8 +6,8 @@ export const subscriptionAPI = {
     return response.data
   },
 
-  async setAutoRenew(enabled) {
-    const response = await apiClient.patch('/api/subscription/auto-renew', { enabled })
+  async setAutoRenew(enabled, method = 'mastercoins') {
+    const response = await apiClient.patch('/api/subscription/auto-renew', { enabled, method })
     return response.data
   },
 }

@@ -49,10 +49,16 @@
       <section v-if="isSubscribed && !isLifetime" class="auto-renew-card">
         <div class="auto-renew-text">
           <strong>Auto-renew</strong>
-          <span>Automatically charge MasterCoins to keep Premium active. You'll always get a reminder 24h before, either way.</span>
+          <span>
+            Automatically renew Premium to keep uninterrupted access. You'll always get a reminder 24h before, either way.
+            <template v-if="wallet?.auto_renew">
+              Paying via <strong class="auto-renew-method-label">{{ methodLabel(wallet.auto_renew_method) }}</strong> —
+              <button type="button" class="link-btn" @click="openAutoRenewModal">change</button>.
+            </template>
+          </span>
         </div>
         <label class="switch">
-          <input type="checkbox" :checked="wallet?.auto_renew" @change="toggleAutoRenew($event.target.checked)" />
+          <input type="checkbox" :checked="wallet?.auto_renew" @change="onAutoRenewToggle($event.target.checked)" />
           <span class="switch-track"><span class="switch-thumb"></span></span>
         </label>
       </section>
@@ -298,6 +304,74 @@
         </div>
       </div>
     </transition>
+
+    <!-- ── AUTO-RENEW METHOD POPUP ──────────────────────── -->
+    <transition name="fade">
+      <div v-if="autoRenewModalOpen" class="modal-backdrop" @click.self="closeAutoRenewModal">
+        <div class="modal">
+          <button class="modal-close" @click="closeAutoRenewModal">✕</button>
+
+          <h3 class="modal-title">Auto-Renew Method</h3>
+          <p class="modal-footnote modal-intro">Pick how Premium should pay for itself when it's about to expire.</p>
+
+          <p class="modal-label">Choose payment method</p>
+          <div class="payment-options">
+            <button
+              class="payment-option" :class="{ selected: autoRenewMethodChoice === 'mastercoins' }"
+              @click="autoRenewMethodChoice = 'mastercoins'"
+            >
+              <span class="payment-icon">
+                <svg viewBox="0 0 24 24" fill="none" width="18" height="18">
+                  <circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.6"/>
+                  <path d="M12 8v8M9.5 9.8c0-.9 1-1.6 2.5-1.6s2.5.7 2.5 1.6c0 2-5 1-5 3 0 .9 1 1.6 2.5 1.6s2.5-.7 2.5-1.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                </svg>
+              </span>
+              <span class="payment-info">
+                <span class="payment-name">MasterCoins</span>
+                <span class="payment-sub">Auto-charged from your balance</span>
+              </span>
+              <span class="status-tag ready">Ready</span>
+            </button>
+
+            <button
+              class="payment-option" :class="{ selected: autoRenewMethodChoice === 'crypto' }"
+              @click="autoRenewMethodChoice = 'crypto'"
+            >
+              <span class="payment-icon">
+                <svg viewBox="0 0 24 24" fill="none" width="18" height="18">
+                  <path d="M7 5v14M11 5v14M6 8h9a3 3 0 010 6H6M6 13h10a3 3 0 010 6H6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              <span class="payment-info">
+                <span class="payment-name">Crypto</span>
+                <span class="payment-sub">We'll send a ready-to-pay link 24h before</span>
+              </span>
+              <span class="status-tag ready">Ready</span>
+            </button>
+
+            <button class="payment-option disabled" disabled>
+              <span class="payment-icon">
+                <svg viewBox="0 0 24 24" fill="none" width="18" height="18">
+                  <rect x="3" y="6" width="18" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/>
+                  <path d="M3 10h18" stroke="currentColor" stroke-width="1.6"/>
+                </svg>
+              </span>
+              <span class="payment-info">
+                <span class="payment-name">Card</span>
+                <span class="payment-sub">Saved-card auto-charge</span>
+              </span>
+              <span class="status-tag soon">Coming soon</span>
+            </button>
+          </div>
+
+          <div class="pay-block">
+            <button class="btn-primary pay-btn" :disabled="autoRenewSaving" @click="confirmAutoRenew">
+              {{ autoRenewSaving ? 'Saving…' : 'Enable Auto-Renew' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
   </main>
 </template>
 
@@ -450,12 +524,48 @@ async function renewNow() {
   }
 }
 
-async function toggleAutoRenew(enabled) {
+async function toggleAutoRenew(enabled, method = 'mastercoins') {
   try {
-    const res = await subscriptionAPI.setAutoRenew(enabled)
-    if (wallet.value) wallet.value.auto_renew = res.auto_renew
+    const res = await subscriptionAPI.setAutoRenew(enabled, method)
+    if (wallet.value) {
+      wallet.value.auto_renew = res.auto_renew
+      wallet.value.auto_renew_method = res.auto_renew_method
+    }
   } catch (e) {
     console.warn('[User] could not update auto-renew:', e.response?.data?.detail)
+  }
+}
+
+function methodLabel(method) {
+  return method === 'crypto' ? 'Crypto' : 'MasterCoins'
+}
+
+function onAutoRenewToggle(checked) {
+  if (!checked) {
+    toggleAutoRenew(false, wallet.value?.auto_renew_method || 'mastercoins')
+    return
+  }
+  openAutoRenewModal()
+}
+
+const autoRenewModalOpen = ref(false)
+const autoRenewMethodChoice = ref('mastercoins')
+const autoRenewSaving = ref(false)
+
+function openAutoRenewModal() {
+  autoRenewMethodChoice.value = wallet.value?.auto_renew_method || 'mastercoins'
+  autoRenewModalOpen.value = true
+}
+function closeAutoRenewModal() {
+  autoRenewModalOpen.value = false
+}
+async function confirmAutoRenew() {
+  autoRenewSaving.value = true
+  try {
+    await toggleAutoRenew(true, autoRenewMethodChoice.value)
+    autoRenewModalOpen.value = false
+  } finally {
+    autoRenewSaving.value = false
   }
 }
 
@@ -746,6 +856,13 @@ const TABS = [
 .auto-renew-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .auto-renew-text strong { font-size: 13.5px; color: var(--text); }
 .auto-renew-text span { font-size: 12px; color: var(--text-dim); }
+.auto-renew-method-label { color: var(--text); }
+.link-btn {
+  background: none; border: none; padding: 0; margin: 0;
+  color: var(--accent); font-size: 12px; font-weight: 700;
+  cursor: pointer; text-decoration: underline;
+}
+.modal-intro { text-align: left; margin: 0 0 4px; }
 
 .switch { position: relative; flex-shrink: 0; cursor: pointer; display: inline-flex; }
 .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
