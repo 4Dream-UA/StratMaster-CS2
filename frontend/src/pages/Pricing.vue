@@ -384,6 +384,7 @@ function selectMethod(method) {
   stopCryptoPolling()
   selectedMethod.value = method
   payMessage.value = ''
+  paySuccess.value = false
 }
 
 function openPayment(planKey) {
