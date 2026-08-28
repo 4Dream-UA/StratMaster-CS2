@@ -29,7 +29,7 @@ def upgrade() -> None:
     op.execute("""
         DO $$
         BEGIN
-            BEGIN ALTER TYPE transactiontype ADD VALUE IF NOT EXISTS 'case_open'; EXCEPTION WHEN others THEN NULL; END;
+            BEGIN ALTER TYPE transactiontypeenum ADD VALUE IF NOT EXISTS 'case_open'; EXCEPTION WHEN others THEN NULL; END;
         END $$;
     """)
 
