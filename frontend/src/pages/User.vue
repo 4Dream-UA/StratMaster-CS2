@@ -65,26 +65,13 @@
             <span class="balance-num">{{ wallet?.balance_coins ?? 0 }}</span>
             <span class="coin-unit">MasterCoins</span>
           </div>
-          <button type="button" class="topup-toggle" :class="{ open: topupOpen }" @click="topupOpen = !topupOpen">
-            <svg v-if="!topupOpen" viewBox="0 0 20 20" width="15" height="15" fill="none">
+          <button type="button" class="topup-toggle" @click="openTopupModal">
+            <svg viewBox="0 0 20 20" width="15" height="15" fill="none">
               <path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
             </svg>
-            {{ topupOpen ? 'Cancel' : 'Top Up MasterCoins' }}
+            Top Up MasterCoins
           </button>
         </div>
-
-        <div v-if="topupOpen" class="topup-form">
-          <input
-            v-model.number="topupCoins" type="number" min="10" placeholder="Amount (min 10)"
-            class="topup-input" :disabled="topupBusy || topupPolling"
-          />
-          <span class="topup-usd">≈ ${{ ((topupCoins || 0) * 0.01).toFixed(2) }}</span>
-          <button
-            class="btn-primary topup-submit" :disabled="topupBusy || topupPolling || !topupCoins || topupCoins < 10"
-            @click="buyCoins"
-          >{{ topupPolling ? 'Waiting…' : topupBusy ? '...' : 'Pay with Crypto' }}</button>
-        </div>
-        <p v-if="topupMessage" class="panel-message" :class="topupSuccess ? 'success' : 'error'">{{ topupMessage }}</p>
 
         <div class="wallet-bottom">
           <div class="wallet-id-chip" @click="copy(wallet?.wallet_id, 'wallet')">
@@ -255,6 +242,62 @@
     </div>
 
     <Footer />
+
+    <!-- ── TOP UP POPUP ─────────────────────────────────── -->
+    <transition name="fade">
+      <div v-if="topupOpen" class="modal-backdrop" @click.self="closeTopupModal">
+        <div class="modal">
+          <button class="modal-close" @click="closeTopupModal">✕</button>
+
+          <h3 class="modal-title">Top Up MasterCoins</h3>
+          <p class="modal-price">${{ ((topupCoins || 0) * 0.01).toFixed(2) }}</p>
+
+          <p class="modal-label">Amount</p>
+          <input
+            v-model.number="topupCoins" type="number" min="10" placeholder="Amount (min 10)"
+            class="topup-amount-input" :disabled="topupBusy || topupPolling"
+          />
+
+          <p class="modal-label">Choose payment method</p>
+          <div class="payment-options">
+            <button class="payment-option selected" disabled>
+              <span class="payment-icon">
+                <svg viewBox="0 0 24 24" fill="none" width="18" height="18">
+                  <path d="M7 5v14M11 5v14M6 8h9a3 3 0 010 6H6M6 13h10a3 3 0 010 6H6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              <span class="payment-info">
+                <span class="payment-name">Crypto</span>
+                <span class="payment-sub">USDT / BTC / TON</span>
+              </span>
+              <span class="status-tag ready">Ready</span>
+            </button>
+
+            <button class="payment-option disabled" disabled>
+              <span class="payment-icon">
+                <svg viewBox="0 0 24 24" fill="none" width="18" height="18">
+                  <rect x="3" y="6" width="18" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/>
+                  <path d="M3 10h18" stroke="currentColor" stroke-width="1.6"/>
+                </svg>
+              </span>
+              <span class="payment-info">
+                <span class="payment-name">Google Pay</span>
+                <span class="payment-sub">One-tap checkout</span>
+              </span>
+              <span class="status-tag soon">Coming soon</span>
+            </button>
+          </div>
+
+          <div class="pay-block">
+            <button
+              class="btn-primary pay-btn" :disabled="topupBusy || topupPolling || !topupCoins || topupCoins < 10"
+              @click="buyCoins"
+            >{{ topupPolling ? 'Waiting for payment…' : topupBusy ? 'Processing…' : `Pay $${((topupCoins || 0) * 0.01).toFixed(2)}` }}</button>
+            <p v-if="topupMessage" class="pay-message" :class="{ success: topupSuccess }">{{ topupMessage }}</p>
+          </div>
+        </div>
+      </div>
+    </transition>
   </main>
 </template>
 
@@ -428,6 +471,17 @@ let topupPollTimer = null
 function stopTopupPolling() {
   if (topupPollTimer) { clearInterval(topupPollTimer); topupPollTimer = null }
   topupPolling.value = false
+}
+
+function openTopupModal() {
+  topupCoins.value = 100
+  topupMessage.value = ''
+  topupSuccess.value = false
+  topupOpen.value = true
+}
+function closeTopupModal() {
+  stopTopupPolling()
+  topupOpen.value = false
 }
 
 function openInvoiceLink(url) {
@@ -747,24 +801,6 @@ const TABS = [
 }
 .topup-toggle:hover { transform: translateY(-1px); box-shadow: 0 10px 22px -8px rgba(255,154,0,.55); }
 .topup-toggle:active { transform: translateY(0); }
-.topup-toggle.open {
-  background: var(--bg); color: var(--text-dim); border: 1px solid var(--line);
-  box-shadow: none;
-}
-
-.topup-form {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line);
-}
-.topup-input {
-  flex: 1; min-width: 110px;
-  padding: 10px 12px; background: var(--bg); border: 1px solid var(--line);
-  border-radius: 9px; color: var(--text); font-size: 13px;
-}
-.topup-input:focus { outline: none; border-color: var(--accent); }
-.topup-usd { font-size: 12px; color: var(--text-dim); flex-shrink: 0; }
-.topup-submit { font-size: 12.5px; padding: 10px 16px; flex-shrink: 0; white-space: nowrap; }
-.topup-submit:disabled { opacity: .5; cursor: not-allowed; }
 
 .wallet-bottom {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
@@ -941,4 +977,72 @@ const TABS = [
 .panel-enter-active, .panel-leave-active { transition: opacity .18s, transform .18s; }
 .panel-enter-from { opacity: 0; transform: translateY(6px); }
 .panel-leave-to { opacity: 0; transform: translateY(-4px); }
+
+/* ── Top Up modal — same shell as the Pricing page's purchase popup ── */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 500;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; backdrop-filter: blur(4px); overflow-y: auto;
+}
+.modal {
+  position: relative; width: 100%; max-width: 400px;
+  background: var(--bg-elevated); border: 1px solid var(--line);
+  border-radius: var(--radius-lg); padding: 32px 28px 26px; margin: auto;
+}
+.modal-close {
+  position: absolute; top: 16px; right: 16px;
+  width: 30px; height: 30px; border-radius: 8px;
+  background: var(--bg); border: 1px solid var(--line);
+  color: var(--text-dim); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; transition: border-color .15s, color .15s;
+}
+.modal-close:hover { border-color: var(--accent); color: var(--accent); }
+.modal-title { font-size: 20px; font-weight: 800; color: var(--text); margin-bottom: 4px; }
+.modal-price { font-size: 24px; font-weight: 900; color: var(--accent); margin-bottom: 4px; }
+.modal-label {
+  font-size: 11px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-dim);
+  margin-bottom: 12px; margin-top: 20px;
+}
+.topup-amount-input {
+  width: 100%; padding: 11px 12px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 9px;
+  color: var(--text); font-size: 14px; font-family: inherit;
+}
+.topup-amount-input:focus { outline: none; border-color: var(--accent); }
+
+.payment-options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 6px; }
+.payment-option {
+  display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+  background: var(--bg); border: 1.5px solid var(--line); border-radius: 10px;
+  cursor: pointer; transition: border-color .2s, background .2s;
+  width: 100%; text-align: left;
+}
+.payment-option.selected { border-color: var(--accent); background: rgba(255,154,0,0.08); }
+.payment-option.disabled { opacity: .5; cursor: not-allowed; }
+.payment-icon {
+  color: var(--text); width: 34px; height: 34px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-elevated-2); border-radius: 8px; flex-shrink: 0;
+}
+.payment-info { display: flex; flex-direction: column; gap: 2px; flex: 1; text-align: left; min-width: 0; }
+.payment-name { font-size: 14px; font-weight: 700; color: var(--text); }
+.payment-sub { font-size: 11px; color: var(--text-dim); }
+.status-tag {
+  padding: 3px 8px; border-radius: 6px; font-size: 9px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em; flex-shrink: 0;
+}
+.status-tag.soon { background: var(--bg-elevated-2); color: var(--text-dim); }
+.status-tag.ready { background: rgba(80,220,100,0.15); color: var(--success); }
+
+.pay-block { margin-top: 20px; }
+.pay-btn { width: 100%; font-size: 14px; padding: 13px; }
+.pay-btn:disabled { opacity: .7; cursor: not-allowed; }
+.pay-message { margin-top: 10px; font-size: 12.5px; color: var(--text-dim); text-align: center; line-height: 1.5; }
+.pay-message.success { color: var(--success); font-weight: 700; }
+
+.fade-enter-active, .fade-leave-active { transition: opacity .2s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>
