@@ -118,6 +118,11 @@ class WalletModel(Base):
     # Opt-in: auto-charge MasterCoins to renew when the subscription is
     # about to expire (the bot reminder still always fires 24h out).
     auto_renew: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # "mastercoins" | "crypto" — which payment method auto-renew uses. Crypto
+    # can't actually be auto-charged (no pull payments), so that path instead
+    # has the 24h reminder pre-generate a ready-to-pay invoice; see
+    # subscription_reminders.py.
+    auto_renew_method: Mapped[str] = mapped_column(String(16), default="mastercoins", nullable=False)
     # The subscription_expires_at value the 24h-expiry reminder was last
     # sent for — compared against the current value so each renewal cycle
     # gets its own reminder instead of firing once, ever.

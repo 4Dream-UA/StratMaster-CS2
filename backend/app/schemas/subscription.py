@@ -18,7 +18,9 @@ class SubscriptionPurchaseResponse(BaseModel):
 
 class AutoRenewRequest(BaseModel):
     enabled: bool
+    method: Literal["mastercoins", "crypto"] = "mastercoins"
 
 
 class AutoRenewResponse(BaseModel):
     auto_renew: bool
+    auto_renew_method: str

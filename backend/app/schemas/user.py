@@ -13,6 +13,7 @@ class WalletResponse(BaseModel):
     is_lifetime: bool
     last_plan_months: int | None
     auto_renew: bool
+    auto_renew_method: str
 
     class Config:
         from_attributes = True

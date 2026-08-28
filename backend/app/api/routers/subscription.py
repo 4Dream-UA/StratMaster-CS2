@@ -64,9 +64,17 @@ async def set_auto_renew(
     db: DBSession,
     current_user: CurrentUser,
 ):
-    """Opt in/out of automatic MasterCoins renewal. The 24h-before-expiry
-    Telegram reminder is sent either way — this only controls whether that
-    reminder also triggers an automatic charge."""
+    """Opt in/out of auto-renew and pick how it pays. The 24h-before-expiry
+    Telegram reminder is sent either way:
+    - "mastercoins": auto-charges the balance directly.
+    - "crypto": can't be auto-charged (no pull payments over crypto), so the
+      reminder instead attaches a ready-to-pay invoice for the exact renewal
+      amount — one tap instead of a manual checkout.
+    """
     current_user.wallet.auto_renew = request.enabled
+    current_user.wallet.auto_renew_method = request.method
     await db.commit()
-    return AutoRenewResponse(auto_renew=current_user.wallet.auto_renew)
+    return AutoRenewResponse(
+        auto_renew=current_user.wallet.auto_renew,
+        auto_renew_method=current_user.wallet.auto_renew_method,
+    )

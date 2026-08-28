@@ -7,6 +7,7 @@ from aiogram.client.default import DefaultBotProperties
 
 from backend.app.core.config import settings
 from backend.app.bot.handlers import start
+from backend.app.db.database import AsyncSessionLocal
 from backend.app.services.subscription_reminders import send_expiry_reminders
 
 logging.basicConfig(level=logging.INFO)
@@ -21,7 +22,8 @@ async def _reminder_loop(bot: Bot):
     process — a crash in one pass must not kill the loop."""
     while True:
         try:
-            await send_expiry_reminders(bot, settings.webapp_url)
+            async with AsyncSessionLocal() as db:
+                await send_expiry_reminders(db, bot, settings.webapp_url)
         except Exception:
             logger.exception("Subscription reminder pass failed")
         await asyncio.sleep(REMINDER_CHECK_INTERVAL_SECONDS)
