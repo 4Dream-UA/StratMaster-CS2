@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.app.core.config import UPLOAD_DIR, settings
-from backend.app.api.routers import users, strategies, webhooks, referral, promo, admin, subscription, wallet, payments, favorites, uploads, boards
+from backend.app.api.routers import users, strategies, webhooks, referral, promo, admin, subscription, wallet, payments, favorites, uploads, boards, cases
 
 
 @asynccontextmanager
@@ -55,6 +55,7 @@ app.include_router(payments.router, prefix="/api", tags=["payments"])
 app.include_router(favorites.router, prefix="/api", tags=["favorites"])
 app.include_router(uploads.router, prefix="/api", tags=["uploads"])
 app.include_router(boards.router, prefix="/api", tags=["boards"])
+app.include_router(cases.router, prefix="/api", tags=["cases"])
 
 # Serves admin-uploaded images back out at the URL the upload endpoint returns.
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")

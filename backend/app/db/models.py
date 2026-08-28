@@ -57,6 +57,7 @@ class TransactionTypeEnum(str, enum.Enum):
     crypto_deposit = "crypto_deposit"
     referral_bonus = "referral_bonus"
     promo_code = "promo_code"
+    case_open = "case_open"
 
 
 # ─────────────────────────────────────────────
@@ -447,3 +448,40 @@ class FavoriteStrategyModel(Base):
     )
 
     strategy: Mapped["StrategyModel"] = relationship("StrategyModel")
+
+
+# ─────────────────────────────────────────────
+#  Cases (lootboxes) — coins-in, weighted-random coins-out
+# ─────────────────────────────────────────────
+
+class CaseModel(Base):
+    __tablename__ = "cases"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    cost_coins: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # [{"coins": 5, "chance_percent": 20}, ...] — chance_percent across all
+    # entries must sum to 100; enforced at seed/admin-edit time, not by the DB.
+    rewards: Mapped[list] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class CaseOpeningModel(Base):
+    """One case-open event — kept as a permanent history/audit trail, not
+    just for the transaction ledger, so a player (or support) can see
+    exactly what a given case paid out and when."""
+    __tablename__ = "case_openings"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False
+    )
+    coins_spent: Mapped[int] = mapped_column(Integer, nullable=False)
+    coins_won: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    case: Mapped["CaseModel"] = relationship("CaseModel")

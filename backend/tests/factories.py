@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from backend.app.db.models import MapModel, StrategyModel, UserModel, WalletModel
+from backend.app.db.models import CaseModel, MapModel, StrategyModel, UserModel, WalletModel
 from backend.app.services.referral import generate_wallet_id
 
 
@@ -57,3 +57,19 @@ async def make_strategy(db_session, *, map_id, is_free=False, title=None, with_c
     await db_session.commit()
     await db_session.refresh(strategy)
     return strategy
+
+
+async def make_case(db_session, *, name="Test Case", cost_coins=49, rewards=None, is_active=True):
+    case_ = CaseModel(
+        name=name,
+        cost_coins=cost_coins,
+        is_active=is_active,
+        rewards=rewards or [
+            {"coins": 5, "chance_percent": 50},
+            {"coins": 100, "chance_percent": 50},
+        ],
+    )
+    db_session.add(case_)
+    await db_session.commit()
+    await db_session.refresh(case_)
+    return case_
