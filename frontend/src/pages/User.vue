@@ -64,10 +64,13 @@
           <div class="wallet-balance-row">
             <span class="balance-num">{{ wallet?.balance_coins ?? 0 }}</span>
             <span class="coin-unit">MasterCoins</span>
-            <button type="button" class="topup-toggle" @click="topupOpen = !topupOpen">
-              {{ topupOpen ? 'Cancel' : '+ Top up' }}
-            </button>
           </div>
+          <button type="button" class="topup-toggle" :class="{ open: topupOpen }" @click="topupOpen = !topupOpen">
+            <svg v-if="!topupOpen" viewBox="0 0 20 20" width="15" height="15" fill="none">
+              <path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+            </svg>
+            {{ topupOpen ? 'Cancel' : 'Top Up MasterCoins' }}
+          </button>
         </div>
 
         <div v-if="topupOpen" class="topup-form">
@@ -734,12 +737,20 @@ const TABS = [
 .coin-unit { font-size: 12px; color: var(--text-dim); font-weight: 600; }
 
 .topup-toggle {
-  margin-left: auto;
-  background: none; border: 1px solid var(--line); color: var(--accent);
-  font-size: 11.5px; font-weight: 700; padding: 5px 11px; border-radius: 99px;
-  cursor: pointer; transition: border-color .15s, background .15s;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  width: 100%; margin-top: 12px;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 100%);
+  color: #111213; border: none;
+  font-size: 13.5px; font-weight: 800; padding: 12px 16px; border-radius: 10px;
+  text-transform: uppercase; letter-spacing: .04em;
+  cursor: pointer; transition: transform .15s, box-shadow .15s, background .15s;
 }
-.topup-toggle:hover { border-color: var(--accent); background: rgba(255,154,0,.08); }
+.topup-toggle:hover { transform: translateY(-1px); box-shadow: 0 10px 22px -8px rgba(255,154,0,.55); }
+.topup-toggle:active { transform: translateY(0); }
+.topup-toggle.open {
+  background: var(--bg); color: var(--text-dim); border: 1px solid var(--line);
+  box-shadow: none;
+}
 
 .topup-form {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
