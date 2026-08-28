@@ -7,6 +7,7 @@
 
       <nav class="header-nav">
         <a href="/#strategies" @click.prevent="goToSection('strategies')">Maps</a>
+        <router-link to="/cases">Cases</router-link>
         <router-link to="/pricing">Pricing</router-link>
         <router-link to="/user">Referral</router-link>
       </nav>
@@ -37,7 +38,7 @@
     </div>
 
     <!-- Backdrop -->
-    <transition name="fade">
+    <transition name="fade" :duration="250">
       <div v-if="isMenuOpen" class="menu-backdrop" @click="closeMenu"></div>
     </transition>
 
@@ -45,6 +46,7 @@
     <transition name="slide">
       <nav v-if="isMenuOpen" class="mobile-menu" aria-label="Mobile navigation">
         <a href="/#strategies" @click.prevent="goToSection('strategies')">Maps</a>
+        <router-link to="/cases" @click="closeMenu">Cases</router-link>
         <router-link to="/pricing" @click="closeMenu">Pricing</router-link>
         <router-link to="/user" @click="closeMenu">Referral</router-link>
 
