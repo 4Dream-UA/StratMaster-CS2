@@ -242,7 +242,7 @@ onUnmounted(() => {
 }
 /* Явно переопределяем hover: только подъём + тень, шрифт/цвет/жирность не трогаем */
 .header-cta:hover {
-  color: var(--text-dim);
+  color: var(--text);
   font-size: 14px;
   font-weight: 800;
   transform: translateY(-2px);

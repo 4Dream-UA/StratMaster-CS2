@@ -45,8 +45,8 @@
           <strong>Your Premium expires in {{ remainingLabel }}.</strong>
           <span>Renew now to keep uninterrupted access — you'll get the same {{ wallet.last_plan_months || 1 }}-month plan.</span>
         </div>
-        <button class="btn-primary expiry-renew-btn" :disabled="renewing" @click="renewNow">
-          {{ renewing ? 'Renewing…' : 'Renew now' }}
+        <button class="btn-primary expiry-renew-btn" :disabled="renewing || renewCryptoPolling" @click="renewNow">
+          {{ renewCryptoPolling ? 'Waiting for payment…' : renewing ? 'Renewing…' : 'Renew now' }}
         </button>
       </section>
       <p v-if="renewMessage" class="renew-message" :class="{ error: renewError }">{{ renewMessage }}</p>
@@ -577,13 +577,52 @@ const formattedWalletId = computed(() => {
 const renewing = ref(false)
 const renewMessage = ref('')
 const renewError = ref(false)
+const renewCryptoPolling = ref(false)
+let renewCryptoPollTimer = null
+
+function stopRenewCryptoPolling() {
+  if (renewCryptoPollTimer) { clearInterval(renewCryptoPollTimer); renewCryptoPollTimer = null }
+  renewCryptoPolling.value = false
+}
 
 async function renewNow() {
-  if (renewing.value) return
+  if (renewing.value || renewCryptoPolling.value) return
+  const months = wallet.value?.last_plan_months || 1
+
+  // Respect whichever method the player picked for auto-renew — charging
+  // MasterCoins unconditionally here ignored a "crypto" choice entirely.
+  if (wallet.value?.auto_renew_method === 'crypto') {
+    renewing.value = true
+    renewMessage.value = ''
+    try {
+      const invoice = await paymentsAPI.createCryptoInvoice({ plan: 'premium', months })
+      openInvoiceLink(invoice.pay_url)
+      renewError.value = false
+      renewMessage.value = 'Complete the payment in the window that just opened — this updates automatically.'
+      renewCryptoPolling.value = true
+      renewCryptoPollTimer = setInterval(async () => {
+        try {
+          const res = await paymentsAPI.getCryptoInvoiceStatus(invoice.invoice_id)
+          if (res.status === 'paid') {
+            stopRenewCryptoPolling()
+            renewMessage.value = 'Renewed via crypto — enjoy uninterrupted access!'
+            flashCard()
+            await userStore.fetchMe()
+          }
+        } catch (e) { /* transient — keep polling */ }
+      }, 3000)
+    } catch (e) {
+      renewError.value = true
+      renewMessage.value = e.response?.data?.detail || 'Could not start checkout — please try again.'
+    } finally {
+      renewing.value = false
+    }
+    return
+  }
+
   renewing.value = true
   renewMessage.value = ''
   try {
-    const months = wallet.value?.last_plan_months || 1
     const res = await subscriptionAPI.purchase('premium', months)
     if (wallet.value) {
       wallet.value.balance_coins = res.new_balance
@@ -599,6 +638,8 @@ async function renewNow() {
     renewing.value = false
   }
 }
+
+onUnmounted(stopRenewCryptoPolling)
 
 async function toggleAutoRenew(enabled, method = 'mastercoins') {
   try {
@@ -1195,7 +1236,7 @@ const TABS = [
   display: flex; align-items: center; justify-content: center; gap: 7px;
   width: 100%; margin-top: 14px;
   background: linear-gradient(160deg, #ffc266 0%, var(--accent) 48%, #cc7300 100%);
-  color: var(--text-dim); text-shadow: 0 1px 1px rgba(255,255,255,.18);
+  color: var(--text); text-shadow: 0 1px 2px rgba(0,0,0,.22);
   border: 1px solid rgba(255,255,255,.14);
   font-size: 13.5px; font-weight: 700; padding: 12px 16px; border-radius: 10px;
   letter-spacing: .01em;
