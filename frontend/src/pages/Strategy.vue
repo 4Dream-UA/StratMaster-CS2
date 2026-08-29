@@ -33,18 +33,7 @@
     <div v-else class="wrap strategy-content">
 
       <!-- ═══ BREADCRUMB ══════════════════════════ -->
-      <nav class="breadcrumb" aria-label="Breadcrumb">
-        <button class="back-btn" @click="router.push('/')">
-          <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
-            <path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          Home
-        </button>
-        <span class="breadcrumb-sep">/</span>
-        <button class="back-btn" @click="router.push('/map/' + strategy.map_id)">
-          {{ mapName }} Strategies
-        </button>
-      </nav>
+      <Breadcrumbs :items="[{ label: 'Home', to: '/' }, { label: mapName, to: '/map/' + strategy.map_id }, { label: strategy.title }]" />
 
       <!-- ═══ HEADER ══════════════════════════════ -->
       <section class="strategy-header">
@@ -236,6 +225,7 @@ import { strategiesAPI } from '../api/strategies'
 import { favoritesAPI } from '../api/favorites'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
+import Breadcrumbs from '../components/Breadcrumbs.vue'
 import TacticsPlayer from '../components/TacticsPlayer.vue'
 import { grenadeTypeLabel } from '../utils/grenadeLabels'
 import { botDeepLink } from '../config'
@@ -464,19 +454,6 @@ onMounted(async () => {
   padding: 36px 20px 110px;
   max-width: 720px;
   margin: 0 auto;
-}
-
-/* ── Breadcrumb ───────────────────────────── */
-.breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 32px;
-}
-.breadcrumb-sep {
-  color: var(--text-dim);
-  font-size: 13px;
-  opacity: 0.6;
 }
 
 .back-btn {

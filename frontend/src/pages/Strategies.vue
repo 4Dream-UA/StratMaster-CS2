@@ -9,14 +9,9 @@
 
     <div v-else class="wrap strategies-content">
 
-      <!-- ═══ BACK + TITLE ════════════════════════════════════ -->
+      <!-- ═══ BREADCRUMB + TITLE ════════════════════════════════ -->
       <section class="page-header">
-        <button class="back-btn" @click="router.push('/#strategies')">
-          <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
-            <path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          Back to Maps
-        </button>
+        <Breadcrumbs :items="[{ label: 'Home', to: '/' }, { label: mapName }]" />
         <h1>{{ mapName }} <span class="accent">Strategies</span></h1>
       </section>
 
@@ -198,6 +193,7 @@ import { strategiesAPI } from '../api/strategies'
 import { favoritesAPI } from '../api/favorites'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
+import Breadcrumbs from '../components/Breadcrumbs.vue'
 import Pagination from '../components/Pagination.vue'
 
 const route  = useRoute()
@@ -366,19 +362,8 @@ onMounted(async () => {
 
 .strategies-content { padding: 28px 20px 100px; }
 
-/* ── Back + title ─────────────────────────────── */
+/* ── Breadcrumb + title ─────────────────────────────── */
 .page-header { margin-bottom: 28px; }
-
-.back-btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: var(--bg-elevated); border: 1px solid var(--line);
-  color: var(--text-dim); padding: 8px 16px; border-radius: 8px;
-  font-size: 13px; font-weight: 600; cursor: pointer;
-  text-decoration: none;
-  transition: border-color .2s, color .2s;
-  margin-bottom: 20px;
-}
-.back-btn:hover { border-color: var(--accent); color: var(--accent); }
 
 .page-header h1 {
   font-size: clamp(28px, 6vw, 44px); font-weight: 900;

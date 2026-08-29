@@ -4,13 +4,7 @@
 
     <div class="wrap pricing-content">
 
-      <button class="back-btn" @click="router.push('/')">
-        <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
-          <path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        Home
-      </button>
+      <Breadcrumbs :items="[{ label: 'Home', to: '/' }, { label: 'Pricing' }]" />
 
       <!-- ── HERO ─────────────────────────────────────── -->
       <section class="pricing-hero">
@@ -270,6 +264,7 @@ import { subscriptionAPI } from '../api/subscription'
 import { paymentsAPI } from '../api/payments'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
+import Breadcrumbs from '../components/Breadcrumbs.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -473,15 +468,6 @@ const Cross = () => h('svg', { viewBox: '0 0 16 16', width: 14, height: 14, fill
 .pricing-page { min-height: 100vh; background: var(--bg); }
 .pricing-content { max-width: 1080px; padding: 32px 20px 120px; }
 
-.back-btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: var(--bg-elevated); border: 1px solid var(--line);
-  color: var(--text-dim); padding: 8px 16px; border-radius: 8px;
-  font-size: 13px; font-weight: 600; cursor: pointer;
-  transition: border-color .2s, color .2s;
-  margin-bottom: 36px;
-}
-.back-btn:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ── Hero ─────────────────────────────────────── */
 .pricing-hero { text-align: center; margin-bottom: 28px; }

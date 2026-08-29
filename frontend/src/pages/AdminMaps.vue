@@ -3,12 +3,7 @@
     <Header />
 
     <div class="wrap admin-content">
-      <button class="back-btn" @click="router.push('/admin')">
-        <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
-          <path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        Admin Panel
-      </button>
+      <Breadcrumbs :items="[{ label: 'Home', to: '/' }, { label: 'Admin', to: '/admin' }, { label: 'Maps' }]" />
 
       <section class="page-head">
         <span class="eyebrow">Content</span>
@@ -91,6 +86,7 @@ import { useUserStore } from '../store/user'
 import { adminAPI } from '../api/admin'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
+import Breadcrumbs from '../components/Breadcrumbs.vue'
 import Pagination from '../components/Pagination.vue'
 import ImageUploadField from '../components/ImageUploadField.vue'
 
@@ -180,15 +176,6 @@ onMounted(() => {
 <style scoped>
 .admin-page { min-height: 100vh; background: var(--bg); }
 .admin-content { max-width: 880px; padding: 32px 20px 120px; }
-
-.back-btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: var(--bg-elevated); border: 1px solid var(--line);
-  color: var(--text-dim); padding: 8px 16px; border-radius: 8px;
-  font-size: 13px; font-weight: 600; cursor: pointer;
-  transition: border-color .2s, color .2s; margin-bottom: 28px;
-}
-.back-btn:hover { border-color: var(--accent); color: var(--accent); }
 
 .page-head { margin-bottom: 24px; }
 .eyebrow {
