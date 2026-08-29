@@ -226,10 +226,12 @@ onMounted(async () => {
   background: var(--bg); border: 1px solid var(--line); flex-shrink: 0; padding: 4px;
 }
 .mini-btn {
-  background: var(--bg); border: 1px solid var(--line); color: var(--text-dim);
+  background: linear-gradient(160deg, var(--bg-elevated), var(--bg)); border: 1px solid var(--line); color: var(--text-dim);
   padding: 9px 16px; border-radius: 9px; font-size: 12.5px; font-weight: 700; cursor: pointer;
-  transition: border-color .15s, color .15s; white-space: nowrap; flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0,0,0,.18);
+  transition: border-color .15s, color .15s, transform .15s, box-shadow .15s; white-space: nowrap; flex-shrink: 0;
 }
-.mini-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.mini-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); box-shadow: 0 4px 14px -4px rgba(255,154,0,.4); transform: translateY(-1px); }
+.mini-btn:active:not(:disabled) { transform: translateY(0); }
 .mini-btn:disabled { opacity: .6; cursor: wait; }
 </style>

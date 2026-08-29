@@ -192,11 +192,13 @@ onMounted(() => {
 .type-pill.promo_code { background: rgba(255,204,68,.12); border-color: rgba(255,204,68,.35); color: #ffcc44; }
 
 .mini-btn {
-  background: var(--bg); border: 1px solid var(--line); color: var(--text-dim);
+  background: linear-gradient(160deg, var(--bg-elevated), var(--bg)); border: 1px solid var(--line); color: var(--text-dim);
   padding: 6px 12px; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer;
-  transition: border-color .15s, color .15s;
+  box-shadow: 0 2px 6px rgba(0,0,0,.18);
+  transition: border-color .15s, color .15s, transform .15s, box-shadow .15s;
 }
-.mini-btn:hover { border-color: var(--accent); color: var(--accent); }
+.mini-btn:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 4px 14px -4px rgba(255,154,0,.4); transform: translateY(-1px); }
+.mini-btn:active { transform: translateY(0); }
 
 .load-more { text-align: center; padding-top: 18px; }
 

@@ -537,13 +537,15 @@ onMounted(async () => {
 .thread-divider::before, .thread-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 
 .icon-btn {
-  background: var(--bg); border: 1px solid var(--line); color: var(--text-dim);
+  background: linear-gradient(160deg, var(--bg-elevated), var(--bg)); border: 1px solid var(--line); color: var(--text-dim);
   width: 30px; height: 30px; border-radius: 8px; font-size: 13px; cursor: pointer;
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-  transition: border-color .15s, color .15s;
+  box-shadow: 0 2px 6px rgba(0,0,0,.18);
+  transition: border-color .15s, color .15s, transform .15s, box-shadow .15s;
 }
-.icon-btn:hover { border-color: var(--accent); color: var(--accent); }
-.icon-btn.danger:hover { border-color: var(--danger); color: var(--danger); }
+.icon-btn:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 4px 14px -4px rgba(255,154,0,.4); transform: translateY(-1px); }
+.icon-btn:active { transform: translateY(0); }
+.icon-btn.danger:hover { border-color: var(--danger); color: var(--danger); box-shadow: 0 4px 14px -4px rgba(235,75,75,.4); }
 .icon-btn.small { width: 26px; height: 26px; font-size: 11px; }
 
 .thread-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -560,11 +562,13 @@ onMounted(async () => {
 
 .form-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
 .mini-btn {
-  background: var(--bg); border: 1px solid var(--line); color: var(--text-dim);
+  background: linear-gradient(160deg, var(--bg-elevated), var(--bg)); border: 1px solid var(--line); color: var(--text-dim);
   padding: 8px 14px; border-radius: 7px; font-size: 12.5px; font-weight: 700; cursor: pointer;
-  transition: border-color .15s, color .15s;
+  box-shadow: 0 2px 6px rgba(0,0,0,.18);
+  transition: border-color .15s, color .15s, transform .15s, box-shadow .15s;
 }
-.mini-btn:hover { border-color: var(--accent); color: var(--accent); }
+.mini-btn:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 4px 14px -4px rgba(255,154,0,.4); transform: translateY(-1px); }
+.mini-btn:active { transform: translateY(0); }
 .err { color: var(--danger); font-size: 12.5px; font-weight: 600; margin: 8px 0 0; width: 100%; }
 
 /* ── Thread detail ─────────────────────────────── */

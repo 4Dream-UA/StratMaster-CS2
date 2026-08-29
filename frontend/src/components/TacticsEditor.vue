@@ -479,11 +479,13 @@ function onImageClick(event) {
 .te-input:focus { outline: none; border-color: var(--accent); }
 
 .te-mini-btn {
-  background: var(--bg); border: 1px solid var(--line); color: var(--text-dim);
+  background: linear-gradient(160deg, var(--bg-elevated), var(--bg)); border: 1px solid var(--line); color: var(--text-dim);
   padding: 6px 12px; border-radius: 7px; font-size: 11.5px; font-weight: 700; cursor: pointer;
-  transition: border-color .15s, color .15s; white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0,0,0,.18);
+  transition: border-color .15s, color .15s, transform .15s, box-shadow .15s; white-space: nowrap;
 }
-.te-mini-btn:hover { border-color: var(--accent); color: var(--accent); }
+.te-mini-btn:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 4px 14px -4px rgba(255,154,0,.4); transform: translateY(-1px); }
+.te-mini-btn:active { transform: translateY(0); }
 .te-mini-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(255,154,0,.1); }
 .te-mini-btn.danger:hover { border-color: var(--danger); color: var(--danger); }
 

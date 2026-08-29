@@ -70,17 +70,23 @@ function go(p) {
 .page-btn {
   min-width: 34px; height: 34px; padding: 0 8px;
   border-radius: 8px; border: 1.5px solid var(--line);
-  background: var(--bg-elevated); color: var(--text-dim);
+  background: linear-gradient(160deg, var(--bg-elevated), var(--bg)); color: var(--text-dim);
   font-size: 13px; font-weight: 600; cursor: pointer;
-  transition: border-color .18s, color .18s, background .18s;
+  box-shadow: 0 2px 6px rgba(0,0,0,.15);
+  transition: border-color .18s, color .18s, background .18s, transform .15s, box-shadow .15s;
 }
 @media (hover: hover) and (pointer: fine) {
-  .page-btn:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
+  .page-btn:not(:disabled):hover {
+    border-color: var(--accent); color: var(--accent);
+    box-shadow: 0 4px 14px -4px rgba(255,154,0,.4); transform: translateY(-1px);
+  }
 }
+.page-btn:active:not(:disabled) { transform: translateY(0); }
 .page-btn.active {
   background: rgba(255,154,0,.14); border-color: var(--accent); color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(255,154,0,.25) inset;
 }
-.page-btn.dots { border-color: transparent; background: none; cursor: default; }
-.page-btn:disabled:not(.dots) { opacity: .4; cursor: not-allowed; }
+.page-btn.dots { border-color: transparent; background: none; box-shadow: none; cursor: default; }
+.page-btn:disabled:not(.dots) { opacity: .4; cursor: not-allowed; box-shadow: none; }
 .nav-btn { font-size: 16px; font-weight: 700; }
 </style>

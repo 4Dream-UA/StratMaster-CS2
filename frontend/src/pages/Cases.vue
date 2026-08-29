@@ -407,11 +407,13 @@ export default { components: { CoinIcon, CaseIcon } }
 .case-cost span { font-size: 13px; font-weight: 700; color: var(--text-dim); }
 
 .mini-btn {
-  background: var(--bg); border: 1px solid var(--line); color: var(--text-dim);
+  background: linear-gradient(160deg, var(--bg-elevated), var(--bg)); border: 1px solid var(--line); color: var(--text-dim);
   border-radius: 8px; font-weight: 700; cursor: pointer;
-  transition: border-color .15s, color .15s;
+  box-shadow: 0 2px 6px rgba(0,0,0,.18);
+  transition: border-color .15s, color .15s, transform .15s, box-shadow .15s;
 }
-.mini-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.mini-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); box-shadow: 0 4px 14px -4px rgba(255,154,0,.4); transform: translateY(-1px); }
+.mini-btn:active:not(:disabled) { transform: translateY(0); }
 
 .buy-row { display: flex; gap: 8px; }
 .buy-btn { flex: 1; padding: 10px; font-size: 12.5px; }
