@@ -31,7 +31,7 @@ TestSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 ALL_TABLES = (
     "promo_redemptions", "transactions", "grenades", "images",
     "strategy_buy_tag_link", "strategies", "buy_tags", "maps",
-    "promo_codes", "wallets", "users", "cases",
+    "promo_codes", "wallets", "users", "cases", "app_settings",
 )
 
 

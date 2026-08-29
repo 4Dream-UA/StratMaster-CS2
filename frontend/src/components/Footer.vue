@@ -3,7 +3,7 @@
     <div class="wrap footer-body">
       <div class="footer-brand">
         <router-link to="/" aria-label="Go to home page">
-          <img src="../assets/logo.png" alt="StratMaster CS2" class="footer-logo" />
+          <img :src="logoUrl || defaultLogo" alt="StratMaster CS2" class="footer-logo" />
         </router-link>
         <p>Premium CS2 strategies and tactics<br>from esports professionals.</p>
       </div>
@@ -41,7 +41,13 @@
   </footer>
 </template>
 
-<script setup></script>
+<script setup>
+import { storeToRefs } from 'pinia'
+import { useSettingsStore } from '../store/settings'
+import defaultLogo from '../assets/logo.png'
+
+const { logoUrl } = storeToRefs(useSettingsStore())
+</script>
 
 <style scoped>
 .footer {

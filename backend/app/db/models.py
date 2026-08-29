@@ -493,6 +493,25 @@ class CaseOpeningModel(Base):
     case: Mapped["CaseModel"] = relationship("CaseModel")
 
 
+class CaseInventoryModel(Base):
+    """One purchased-but-not-yet-opened case. Buying a case inserts a row
+    here; opening it (alone or in an x2/x5 batch) deletes the row and
+    resolves a CaseOpeningModel for it — buy and open are now two separate
+    actions instead of one atomic pay-and-reveal."""
+    __tablename__ = "case_inventory"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False
+    )
+    acquired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    case: Mapped["CaseModel"] = relationship("CaseModel")
+
+
 # ─────────────────────────────────────────────
 #  Forum — premium-only. Two categories seeded by migration: "lounge"
 #  (open discussion, any premium user can start/reply to any thread) and
@@ -522,6 +541,7 @@ class ForumThreadModel(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     title: Mapped[str] = mapped_column(String(128), nullable=False)
+    is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -549,3 +569,15 @@ class ForumPostModel(Base):
 
     thread: Mapped["ForumThreadModel"] = relationship("ForumThreadModel", back_populates="posts")
     user: Mapped["UserModel"] = relationship("UserModel")
+
+
+# ─────────────────────────────────────────────
+#  App settings — a single-row table (id is always 1) for admin-editable
+#  global config that isn't tied to any one user, like the site logo.
+# ─────────────────────────────────────────────
+
+class AppSettingsModel(Base):
+    __tablename__ = "app_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    logo_url: Mapped[str | None] = mapped_column(String(512), nullable=True)

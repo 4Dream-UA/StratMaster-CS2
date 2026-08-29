@@ -55,6 +55,17 @@
         </button>
       </section>
 
+      <!-- ── SITE SETTINGS ───────────────────────────────── -->
+      <section class="settings-card">
+        <h3>Site Logo</h3>
+        <p class="settings-hint">Replaces the logo in the header and footer app-wide. Leave blank to use the default.</p>
+        <div class="settings-row">
+          <img v-if="logoUrl" :src="logoUrl" alt="" class="logo-preview" />
+          <ImageUploadField v-model="logoUrlDraft" placeholder="Logo image URL" />
+          <button class="mini-btn" :disabled="savingLogo" @click="saveLogo">{{ savingLogo ? 'Saving…' : 'Save' }}</button>
+        </div>
+      </section>
+
     </div>
 
     <Footer />
@@ -66,15 +77,32 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '../store/user'
+import { useSettingsStore } from '../store/settings'
 import { adminAPI } from '../api/admin'
+import { settingsAPI } from '../api/settings'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
+import ImageUploadField from '../components/ImageUploadField.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
 const { user } = storeToRefs(userStore)
+const settingsStore = useSettingsStore()
+const { logoUrl } = storeToRefs(settingsStore)
 
 const stats = ref(null)
+const logoUrlDraft = ref('')
+const savingLogo = ref(false)
+
+async function saveLogo() {
+  savingLogo.value = true
+  try {
+    const updated = await settingsAPI.update(logoUrlDraft.value.trim() || null)
+    settingsStore.logoUrl = updated.logo_url
+  } finally {
+    savingLogo.value = false
+  }
+}
 
 const ICON_MAP = `<svg viewBox="0 0 24 24" fill="none" width="22" height="22"><path d="M9 4L4 6v14l5-2 6 2 5-2V4l-5 2-6-2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 4v14M15 6v14" stroke="currentColor" stroke-width="1.6"/></svg>`
 const ICON_TARGET = `<svg viewBox="0 0 24 24" fill="none" width="22" height="22"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="4.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg>`
@@ -101,6 +129,8 @@ onMounted(async () => {
   } catch (e) {
     console.warn('[Admin] stats unavailable:', e)
   }
+  await settingsStore.load()
+  logoUrlDraft.value = logoUrl.value || ''
 })
 </script>
 
@@ -182,4 +212,24 @@ onMounted(async () => {
   transition: transform .2s, color .2s;
 }
 .tile:hover .tile-arrow { transform: translateX(3px); color: var(--accent); }
+
+/* ── Site settings ─────────────────────────────── */
+.settings-card {
+  margin-top: 24px; background: var(--bg-elevated); border: 1px solid var(--line);
+  border-radius: var(--radius-lg); padding: 22px;
+}
+.settings-card h3 { font-size: 15px; font-weight: 800; color: var(--text); margin-bottom: 4px; }
+.settings-hint { font-size: 12.5px; color: var(--text-dim); margin-bottom: 14px; }
+.settings-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.logo-preview {
+  width: 40px; height: 40px; object-fit: contain; border-radius: 8px;
+  background: var(--bg); border: 1px solid var(--line); flex-shrink: 0; padding: 4px;
+}
+.mini-btn {
+  background: var(--bg); border: 1px solid var(--line); color: var(--text-dim);
+  padding: 9px 16px; border-radius: 9px; font-size: 12.5px; font-weight: 700; cursor: pointer;
+  transition: border-color .15s, color .15s; white-space: nowrap; flex-shrink: 0;
+}
+.mini-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.mini-btn:disabled { opacity: .6; cursor: wait; }
 </style>

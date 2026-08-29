@@ -2,7 +2,7 @@
   <header class="header" :class="{ scrolled: isScrolled, 'menu-open': isMenuOpen }">
     <div class="wrap header-inner">
       <router-link to="/" class="header-logo" aria-label="Go to home page">
-        <img src="../assets/logo.png" alt="StratMaster CS2" class="logo-img" />
+        <img :src="logoUrl || defaultLogo" alt="StratMaster CS2" class="logo-img" />
       </router-link>
 
       <nav class="header-nav">
@@ -78,9 +78,15 @@ import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '../store/user'
+import { useSettingsStore } from '../store/settings'
+import defaultLogo from '../assets/logo.png'
 
 const router = useRouter()
 const route = useRoute()
+
+const settingsStore = useSettingsStore()
+const { logoUrl } = storeToRefs(settingsStore)
+settingsStore.load()
 
 const userStore = useUserStore()
 const { user, wallet } = storeToRefs(userStore)

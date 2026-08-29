@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.app.core.config import UPLOAD_DIR, settings
 from backend.app.api.routers import users, strategies, webhooks, referral, promo, admin, subscription, wallet, payments, favorites, uploads, boards, cases, forum
+from backend.app.api.routers import settings as settings_router
 
 
 @asynccontextmanager
@@ -57,6 +58,7 @@ app.include_router(uploads.router, prefix="/api", tags=["uploads"])
 app.include_router(boards.router, prefix="/api", tags=["boards"])
 app.include_router(cases.router, prefix="/api", tags=["cases"])
 app.include_router(forum.router, prefix="/api", tags=["forum"])
+app.include_router(settings_router.router, prefix="/api", tags=["settings"])
 
 # Serves admin-uploaded images back out at the URL the upload endpoint returns.
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
