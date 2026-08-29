@@ -264,14 +264,16 @@ const CoinIcon = {
 }
 
 // Case: a CS2-style metal crate — isometric box, diagonal hazard stripe
-// across the lid, corner rivets and a sealed padlock badge — built from
-// plain shapes/gradients in the app's own accent color, no external art.
+// across the lid, corner rivets and a MasterCoins badge (the same coin
+// glyph used everywhere else in the app) — built from plain shapes/
+// gradients in the app's own accent color, no external art.
 let caseIconSeq = 0
 const CaseIcon = {
+  props: { size: { type: Number, default: 72 } },
   data() { return { uid: `ci${++caseIconSeq}` } },
   render() {
     const id = this.uid
-    return h('svg', { viewBox: '0 0 48 48', width: 48, height: 48, fill: 'none' }, [
+    return h('svg', { viewBox: '0 0 48 48', width: this.size, height: this.size, fill: 'none' }, [
       h('defs', {}, [
         h('linearGradient', { id: `${id}-front`, x1: '0', y1: '0', x2: '0', y2: '1' }, [
           h('stop', { offset: '0', 'stop-color': 'var(--accent)' }),
@@ -305,10 +307,16 @@ const CaseIcon = {
       h('circle', { cx: 11, cy: 38, r: 1.3, fill: 'rgba(0,0,0,.4)' }),
       h('circle', { cx: 33, cy: 38, r: 1.3, fill: 'rgba(0,0,0,.4)' }),
 
-      // padlock badge — clearly marks it "sealed"
-      h('path', { d: 'M19 29v-3.4a3 3 0 1 1 6 0V29', stroke: '#14140f', 'stroke-width': 2, 'stroke-linecap': 'round' }),
-      h('rect', { x: 17, y: 29, width: 10, height: 8, rx: 1.6, fill: '#14140f' }),
-      h('circle', { cx: 22, cy: 33, r: 1.3, fill: `url(#${id}-top)` }),
+      // MasterCoins badge — same circle+squiggle glyph as CoinIcon, dropped
+      // onto the crate so it reads instantly as "coins inside", not a
+      // generic loot box.
+      h('g', { transform: 'translate(22,29) scale(0.94) translate(-12,-12)' }, [
+        h('circle', { cx: 12, cy: 12, r: 8, fill: `url(#${id}-top)`, stroke: '#14140f', 'stroke-width': 1.7 }),
+        h('path', {
+          d: 'M12 8v8M9.5 9.8c0-.9 1-1.6 2.5-1.6s2.5.7 2.5 1.6c0 2-5 1-5 3 0 .9 1 1.6 2.5 1.6s2.5-.7 2.5-1.6',
+          stroke: '#14140f', 'stroke-width': 1.5, 'stroke-linecap': 'round', fill: 'none',
+        }),
+      ]),
     ])
   },
 }
