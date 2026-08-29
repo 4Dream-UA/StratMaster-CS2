@@ -76,6 +76,18 @@ export const adminAPI = {
     const response = await apiClient.patch(`/api/admin/users/${id}/trade-ban`, { is_trade_banned: isTradeBanned })
     return response.data
   },
+  async setUserNickname(id, nickname) {
+    const response = await apiClient.patch(`/api/admin/users/${id}/nickname`, { nickname })
+    return response.data
+  },
+  async clearUserAvatar(id) {
+    const response = await apiClient.delete(`/api/admin/users/${id}/avatar`)
+    return response.data
+  },
+  async setUserPremium(id, unit, amount = null) {
+    const response = await apiClient.patch(`/api/admin/users/${id}/premium`, { unit, amount })
+    return response.data
+  },
 
   // ── Transactions ──────────────────────────
   async getTransactions(params = {}) {
