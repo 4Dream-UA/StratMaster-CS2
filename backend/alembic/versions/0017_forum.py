@@ -42,11 +42,11 @@ def upgrade() -> None:
             created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
         );
     """)
-    op.execute("""
-        CREATE INDEX IF NOT EXISTS ix_forum_threads_category_id ON forum_threads (category_id);
-        CREATE INDEX IF NOT EXISTS ix_forum_threads_user_id ON forum_threads (user_id);
-        CREATE INDEX IF NOT EXISTS ix_forum_posts_thread_id ON forum_posts (thread_id);
-    """)
+    # asyncpg's prepared-statement protocol rejects multiple commands in one
+    # execute() call — each CREATE INDEX needs its own op.execute().
+    op.execute("CREATE INDEX IF NOT EXISTS ix_forum_threads_category_id ON forum_threads (category_id);")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_forum_threads_user_id ON forum_threads (user_id);")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_forum_posts_thread_id ON forum_posts (thread_id);")
 
     op.execute(f"""
         INSERT INTO forum_categories (id, key, name, description) VALUES
