@@ -17,12 +17,27 @@
           <h3>{{ c.name }}</h3>
           <p class="case-cost"><CoinIcon :size="16" /> {{ c.cost_coins }} <span>MC</span></p>
 
-          <button
-            class="btn-primary case-open-btn"
-            :disabled="opening || (wallet?.balance_coins ?? 0) < c.cost_coins"
-            @click="openCase(c)"
-          >{{ opening ? 'Opening…' : 'Open Case' }}</button>
+          <div class="buy-row">
+            <button
+              class="mini-btn buy-btn" :disabled="buying || (wallet?.balance_coins ?? 0) < c.cost_coins"
+              @click="buyCase(c, 1)"
+            >Buy 1</button>
+            <button
+              class="mini-btn buy-btn" :disabled="buying || (wallet?.balance_coins ?? 0) < c.cost_coins * 5"
+              @click="buyCase(c, 5)"
+            >Buy 5</button>
+          </div>
           <p v-if="(wallet?.balance_coins ?? 0) < c.cost_coins" class="case-hint">Not enough MasterCoins</p>
+
+          <p class="inventory-line">You own <strong>{{ inventoryCount(c.id) }}</strong></p>
+
+          <div class="open-row">
+            <button
+              v-for="q in [1, 2, 5]" :key="q" class="btn-primary open-btn"
+              :disabled="opening || inventoryCount(c.id) < q"
+              @click="openCases(c, q)"
+            >{{ opening ? '…' : `Open ×${q}` }}</button>
+          </div>
 
           <button type="button" class="odds-toggle" @click="oddsOpenId = oddsOpenId === c.id ? null : c.id">
             {{ oddsOpenId === c.id ? 'Hide odds ▲' : 'View odds ▼' }}
@@ -66,14 +81,17 @@
          position:fixed;inset:0 backdrop keeps blocking every click. -->
     <transition name="fade" :duration="200">
       <div v-if="revealOpen" class="modal-backdrop" @click.self="revealDone && closeReveal()">
-        <div class="modal reveal-modal">
+        <div class="modal reveal-modal" :class="{ multi: revealReels.length > 1 }">
           <button v-if="revealDone" class="modal-close" @click="closeReveal">✕</button>
 
-          <div class="carousel-wrap" ref="carouselWrapRef">
+          <div
+            v-for="(reel, ri) in revealReels" :key="ri" class="carousel-wrap"
+            :ref="(el) => { if (el) carouselWrapRefs[ri] = el }"
+          >
             <div class="carousel-center-line"></div>
-            <div class="carousel-strip" :class="{ animating: stripAnimating }" :style="{ transform: `translateX(${stripOffset}px)` }">
+            <div class="carousel-strip" :class="{ animating: reel.animating }" :style="{ transform: `translateX(${reel.offset}px)` }">
               <div
-                v-for="(tile, i) in stripItems" :key="i" class="case-tile"
+                v-for="(tile, i) in reel.items" :key="i" class="case-tile"
                 :class="{ won: revealDone && i === WINNING_INDEX }"
                 :style="{ borderColor: tierFor(tile.coins).border, background: tierFor(tile.coins).bg }"
               >
@@ -84,8 +102,8 @@
           </div>
 
           <template v-if="revealDone">
-            <p class="reveal-amount"><CoinIcon :size="24" /> +{{ revealResult }} <span>MC</span></p>
-            <p class="reveal-sub">Added to your balance</p>
+            <p class="reveal-amount"><CoinIcon :size="24" /> +{{ revealTotalWon }} <span>MC</span></p>
+            <p class="reveal-sub">{{ revealReels.length > 1 ? 'Total added to your balance' : 'Added to your balance' }}</p>
             <button class="btn-primary reveal-btn" @click="closeReveal">Nice!</button>
           </template>
           <p v-else class="reveal-sub">Opening…</p>
@@ -108,10 +126,16 @@ const { wallet } = storeToRefs(userStore)
 
 const cases = ref([])
 const loading = ref(true)
+const buying = ref(false)
 const opening = ref(false)
 const oddsOpenId = ref(null)
 const historyOpenId = ref(null)
 const history = ref([])
+const inventory = ref([]) // [{ case_id, case_name, count }]
+
+function inventoryCount(caseId) {
+  return inventory.value.find(i => i.case_id === caseId)?.count ?? 0
+}
 
 function historyFor(caseId) {
   return history.value.filter(h => h.case_id === caseId)
@@ -140,11 +164,6 @@ const STRIP_LENGTH = 55
 const WINNING_INDEX = 48
 const SPIN_DURATION_MS = 4200
 
-const stripItems = ref([])
-const stripOffset = ref(0)
-const stripAnimating = ref(false)
-const carouselWrapRef = ref(null)
-
 function buildStrip(rewardPool, winningCoins) {
   const items = []
   for (let i = 0; i < STRIP_LENGTH; i++) {
@@ -157,9 +176,13 @@ function buildStrip(rewardPool, winningCoins) {
   return items
 }
 
+// One entry per case opened in this batch — each is its own independent
+// reel (x1 is just the single-reel case of this).
 const revealOpen = ref(false)
 const revealDone = ref(false)
-const revealResult = ref(0)
+const revealReels = ref([]) // [{ items, offset, animating }]
+const revealTotalWon = ref(0)
+const carouselWrapRefs = ref([])
 const errorMsg = ref('')
 
 async function loadCases() {
@@ -171,6 +194,14 @@ async function loadCases() {
   }
 }
 
+async function loadInventory() {
+  try {
+    inventory.value = await casesAPI.inventory()
+  } catch (e) {
+    // Not critical to the page.
+  }
+}
+
 async function loadHistory() {
   try {
     history.value = await casesAPI.history()
@@ -179,25 +210,42 @@ async function loadHistory() {
   }
 }
 
-async function openCase(c) {
+async function buyCase(c, quantity) {
+  if (buying.value) return
+  if ((wallet.value?.balance_coins ?? 0) < c.cost_coins * quantity) return
+
+  buying.value = true
+  errorMsg.value = ''
+  try {
+    const res = await casesAPI.buy(c.id, quantity)
+    if (wallet.value) wallet.value.balance_coins = res.new_balance
+    await loadInventory()
+  } catch (e) {
+    errorMsg.value = e.response?.data?.detail || 'Could not buy the case — please try again.'
+  } finally {
+    buying.value = false
+  }
+}
+
+async function openCases(c, quantity) {
   if (opening.value) return
-  if ((wallet.value?.balance_coins ?? 0) < c.cost_coins) return
+  if (inventoryCount(c.id) < quantity) return
 
   opening.value = true
   errorMsg.value = ''
   revealDone.value = false
-  stripAnimating.value = false
-  stripOffset.value = 0
+  carouselWrapRefs.value = []
+  revealReels.value = Array.from({ length: quantity }, () => ({ items: [], offset: 0, animating: false }))
   revealOpen.value = true
 
   try {
-    const res = await casesAPI.open(c.id)
+    const res = await casesAPI.openInventory(c.id, quantity)
     if (wallet.value) wallet.value.balance_coins = res.new_balance
+    revealTotalWon.value = res.total_won
+    revealReels.value = res.rewards.map(coins => ({ items: buildStrip(c.rewards, coins), offset: 0, animating: false }))
+    await loadInventory()
 
-    stripItems.value = buildStrip(c.rewards, res.reward_coins)
-    revealResult.value = res.reward_coins
-
-    // Two steps: one to mount the strip at offset 0 with no transition, a
+    // Two steps: one to mount each strip at offset 0 with no transition, a
     // second (a hair later, not on the same tick) so the browser paints
     // that resting frame before we flip on the transition and jump to the
     // target — otherwise the very first frame can get folded into the
@@ -207,11 +255,13 @@ async function openCase(c) {
     // embedded WebViews), which would leave the strip stuck at rest forever.
     await nextTick()
     setTimeout(() => {
-      const containerWidth = carouselWrapRef.value?.clientWidth ?? 300
-      const jitter = (Math.random() - 0.5) * (CASE_TILE_WIDTH - 24)
-      const target = -(WINNING_INDEX * CASE_TILE_PITCH + CASE_TILE_WIDTH / 2 - containerWidth / 2) + jitter
-      stripAnimating.value = true
-      stripOffset.value = target
+      revealReels.value.forEach((reel, i) => {
+        const containerWidth = carouselWrapRefs.value[i]?.clientWidth ?? 300
+        const jitter = (Math.random() - 0.5) * (CASE_TILE_WIDTH - 24)
+        const target = -(WINNING_INDEX * CASE_TILE_PITCH + CASE_TILE_WIDTH / 2 - containerWidth / 2) + jitter
+        reel.animating = true
+        reel.offset = target
+      })
     }, 30)
 
     // A timer, not transitionend, drives the reveal — for the same reason
@@ -226,7 +276,7 @@ async function openCase(c) {
   } catch (e) {
     revealOpen.value = false
     opening.value = false
-    errorMsg.value = e.response?.data?.detail || 'Could not open the case — please try again.'
+    errorMsg.value = e.response?.data?.detail || 'Could not open — please try again.'
   }
 }
 
@@ -237,6 +287,7 @@ function closeReveal() {
 onMounted(async () => {
   window.scrollTo({ top: 0, behavior: 'auto' })
   await loadCases()
+  await loadInventory()
   loadHistory()
 })
 </script>
@@ -341,7 +392,7 @@ export default { components: { CoinIcon, CaseIcon } }
 @keyframes spin { to { transform: rotate(360deg); } }
 .empty { text-align: center; padding: 60px 20px; color: var(--text-dim); font-size: 14px; }
 
-.case-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 20px; margin-bottom: 32px; }
+.case-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; margin-bottom: 32px; }
 .case-card {
   background: linear-gradient(160deg, rgba(255,154,0,0.07), var(--bg-elevated) 60%);
   border: 1px solid rgba(255,154,0,0.25); border-radius: var(--radius-lg);
@@ -355,9 +406,24 @@ export default { components: { CoinIcon, CaseIcon } }
 }
 .case-cost span { font-size: 13px; font-weight: 700; color: var(--text-dim); }
 
-.case-open-btn { width: 100%; padding: 12px; font-size: 13.5px; }
-.case-open-btn:disabled { opacity: .5; cursor: not-allowed; }
+.mini-btn {
+  background: var(--bg); border: 1px solid var(--line); color: var(--text-dim);
+  border-radius: 8px; font-weight: 700; cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+.mini-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+
+.buy-row { display: flex; gap: 8px; }
+.buy-btn { flex: 1; padding: 10px; font-size: 12.5px; }
+.buy-btn:disabled { opacity: .5; cursor: not-allowed; }
 .case-hint { font-size: 11px; color: var(--danger); margin-top: 6px; }
+
+.inventory-line { font-size: 12px; color: var(--text-dim); margin: 14px 0 8px; }
+.inventory-line strong { color: var(--text); font-weight: 800; }
+
+.open-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.open-btn { flex: 1; min-width: 74px; padding: 10px 6px; font-size: 12px; }
+.open-btn:disabled { opacity: .4; cursor: not-allowed; }
 
 .odds-toggle {
   display: block; width: 100%; margin-top: 14px;
@@ -397,6 +463,7 @@ export default { components: { CoinIcon, CaseIcon } }
   background: var(--bg-elevated); border: 1px solid var(--line);
   border-radius: var(--radius-lg); padding: 24px 16px 28px; text-align: center;
 }
+.reveal-modal.multi { max-width: 420px; }
 .modal-close {
   position: absolute; top: 12px; right: 12px;
   width: 30px; height: 30px; border-radius: 8px;
