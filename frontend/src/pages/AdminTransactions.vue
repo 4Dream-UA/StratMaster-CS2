@@ -82,6 +82,9 @@ const TYPE_OPTIONS = [
   { value: 'referral_bonus', label: 'Referral' },
   { value: 'promo_code', label: 'Promo' },
   { value: 'crypto_deposit', label: 'Crypto' },
+  { value: 'case_open', label: 'Cases' },
+  { value: 'case_gift', label: 'Case Gifts' },
+  { value: 'case_sale', label: 'Case Sales' },
 ]
 
 function typeLabel(type) {
@@ -190,6 +193,7 @@ onMounted(() => {
 .type-pill.subscription_buy { background: rgba(255,154,0,.12); border-color: rgba(255,154,0,.35); color: var(--accent); }
 .type-pill.referral_bonus { background: rgba(80,220,100,.12); border-color: rgba(80,220,100,.35); color: var(--success); }
 .type-pill.promo_code { background: rgba(255,204,68,.12); border-color: rgba(255,204,68,.35); color: #ffcc44; }
+.type-pill.case_open, .type-pill.case_gift, .type-pill.case_sale { background: rgba(136,71,255,.12); border-color: rgba(136,71,255,.35); color: #8847ff; }
 
 .mini-btn {
   background: linear-gradient(160deg, var(--bg-elevated), var(--bg)); border: 1px solid var(--line); color: var(--text-dim);

@@ -14,7 +14,7 @@ import AdminMaps from '../pages/AdminMaps.vue'
 import AdminStrategies from '../pages/AdminStrategies.vue'
 import AdminUsers from '../pages/AdminUsers.vue'
 import AdminPromo from '../pages/AdminPromo.vue'
-import AdminP2P from '../pages/AdminP2P.vue'
+import AdminTransactions from '../pages/AdminTransactions.vue'
 
 const routes = [
   { path: '/', name: 'Home', component: Home },
@@ -34,7 +34,8 @@ const routes = [
   { path: '/admin/strategies', name: 'AdminStrategies', component: AdminStrategies },
   { path: '/admin/users', name: 'AdminUsers', component: AdminUsers },
   { path: '/admin/promo', name: 'AdminPromo', component: AdminPromo },
-  { path: '/admin/p2p', name: 'AdminP2P', component: AdminP2P },
+  { path: '/admin/transactions', name: 'AdminTransactions', component: AdminTransactions },
+  { path: '/admin/p2p', redirect: '/admin/transactions' },
 ]
 
 export const router = createRouter({

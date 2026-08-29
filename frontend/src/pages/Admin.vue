@@ -115,7 +115,7 @@ const TILES = [
   { title: 'Work with Strategies',desc: 'Create and manage strategy content',    icon: ICON_TARGET,route: '/admin/strategies' },
   { title: 'Work with Users',     desc: 'View users, roles and subscriptions',   icon: ICON_USERS, route: '/admin/users' },
   { title: 'Promo Codes',         desc: 'Generate and manage MasterCoin codes',  icon: ICON_PROMO, route: '/admin/promo' },
-  { title: 'Check P2P',           desc: 'Monitor coin transfers and payouts',    icon: ICON_P2P,   route: '/admin/p2p' },
+  { title: 'Check Transactions',  desc: 'Monitor coin transfers, purchases and payouts', icon: ICON_P2P, route: '/admin/transactions' },
 ]
 
 onMounted(async () => {

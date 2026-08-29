@@ -68,6 +68,14 @@ export const adminAPI = {
     const response = await apiClient.patch(`/api/admin/users/${id}/subscription`, { months })
     return response.data
   },
+  async setUserBanned(id, isBanned) {
+    const response = await apiClient.patch(`/api/admin/users/${id}/ban`, { is_banned: isBanned })
+    return response.data
+  },
+  async setUserTradeBanned(id, isTradeBanned) {
+    const response = await apiClient.patch(`/api/admin/users/${id}/trade-ban`, { is_trade_banned: isTradeBanned })
+    return response.data
+  },
 
   // ── Transactions ──────────────────────────
   async getTransactions(params = {}) {

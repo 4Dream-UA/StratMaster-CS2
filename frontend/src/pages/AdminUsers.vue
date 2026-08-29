@@ -39,6 +39,8 @@
                 <span class="status-pill" :class="u.is_admin ? 'admin' : 'off'">
                   {{ u.is_admin ? 'Admin' : 'User' }}
                 </span>
+                <span v-if="u.is_banned" class="status-pill banned">Banned</span>
+                <span v-if="u.is_trade_banned" class="status-pill off">No trades</span>
               </td>
               <td class="actions">
                 <div class="grant-row">
@@ -50,9 +52,17 @@
                     {{ grantBusyId === u.id ? '…' : ((grantMonths[u.id] ?? 0) === 0 ? 'Grant lifetime' : 'Grant') }}
                   </button>
                 </div>
-                <button class="mini-btn" @click="toggleAdmin(u)">
-                  {{ u.is_admin ? 'Revoke admin' : 'Make admin' }}
-                </button>
+                <div class="action-btn-row">
+                  <button class="mini-btn" @click="toggleAdmin(u)">
+                    {{ u.is_admin ? 'Revoke admin' : 'Make admin' }}
+                  </button>
+                  <button class="mini-btn" @click="toggleTradeBan(u)">
+                    {{ u.is_trade_banned ? 'Unban trades' : 'Ban trades' }}
+                  </button>
+                  <button class="mini-btn danger" @click="toggleBan(u)">
+                    {{ u.is_banned ? 'Unban' : 'Ban' }}
+                  </button>
+                </div>
               </td>
             </tr>
             <tr v-if="!users.length">
@@ -136,6 +146,27 @@ async function toggleAdmin(user) {
   }
 }
 
+async function toggleBan(user) {
+  const next = !user.is_banned
+  if (next && !confirm(`Ban ${user.username ? '@' + user.username : 'this user'}? They'll be locked out of the whole app.`)) return
+  try {
+    await adminAPI.setUserBanned(user.id, next)
+    user.is_banned = next
+  } catch (e) {
+    console.warn('[Admin] could not update ban flag:', e.response?.data?.detail)
+  }
+}
+
+async function toggleTradeBan(user) {
+  const next = !user.is_trade_banned
+  try {
+    await adminAPI.setUserTradeBanned(user.id, next)
+    user.is_trade_banned = next
+  } catch (e) {
+    console.warn('[Admin] could not update trade-ban flag:', e.response?.data?.detail)
+  }
+}
+
 onMounted(() => {
   if (!user.value?.is_admin) { router.replace('/user'); return }
   load()
@@ -188,6 +219,7 @@ onMounted(() => {
 .status-pill.on { background: rgba(80,220,100,.12); color: var(--success); }
 .status-pill.off { background: var(--bg); color: var(--text-dim); border: 1px solid var(--line); }
 .status-pill.admin { background: rgba(255,80,80,.12); color: var(--danger); }
+.status-pill.banned { background: rgba(235,75,75,.18); color: var(--danger); border: 1px solid rgba(235,75,75,.4); margin-left: 4px; }
 
 .mini-btn {
   background: linear-gradient(160deg, var(--bg-elevated), var(--bg)); border: 1px solid var(--line); color: var(--text-dim);
@@ -200,6 +232,8 @@ onMounted(() => {
 
 .load-more { text-align: center; padding-top: 18px; }
 
+.mini-btn.danger:hover { border-color: var(--danger); color: var(--danger); box-shadow: 0 4px 14px -4px rgba(235,75,75,.4); }
+.action-btn-row { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
 .grant-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; justify-content: flex-end; }
 .grant-months-input {
   width: 52px; background: var(--bg); border: 1px solid var(--line); border-radius: 7px;
