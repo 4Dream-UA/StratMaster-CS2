@@ -36,22 +36,25 @@
               <span class="odds-tile-coins">{{ r.coins }}</span>
             </div>
           </div>
-        </div>
-      </div>
 
-      <!-- ── History ──────────────────────────── -->
-      <section v-if="history.length" class="history-card">
-        <h3>Recent Openings</h3>
-        <div class="history-list">
-          <div v-for="h in history" :key="h.id" class="history-row">
-            <span class="history-name">{{ h.case_name }}</span>
-            <span class="history-amounts">
-              <span class="spent">-{{ h.coins_spent }}</span>
-              <span class="won">+{{ h.coins_won }} MC</span>
-            </span>
+          <!-- ── Per-case history spoiler (last 10) ─────────── -->
+          <button
+            v-if="historyFor(c.id).length" type="button" class="odds-toggle"
+            @click="historyOpenId = historyOpenId === c.id ? null : c.id"
+          >
+            {{ historyOpenId === c.id ? 'Hide recent openings ▲' : 'Recent openings ▼' }}
+          </button>
+          <div v-if="historyOpenId === c.id" class="history-list">
+            <div v-for="h in historyFor(c.id)" :key="h.id" class="history-row">
+              <span class="history-time">{{ formatHistoryTime(h.created_at) }}</span>
+              <span class="history-amounts">
+                <span class="spent">-{{ h.coins_spent }}</span>
+                <span class="won">+{{ h.coins_won }} MC</span>
+              </span>
+            </div>
           </div>
         </div>
-      </section>
+      </div>
     </div>
 
     <Footer />
@@ -107,7 +110,16 @@ const cases = ref([])
 const loading = ref(true)
 const opening = ref(false)
 const oddsOpenId = ref(null)
+const historyOpenId = ref(null)
 const history = ref([])
+
+function historyFor(caseId) {
+  return history.value.filter(h => h.case_id === caseId)
+}
+function formatHistoryTime(iso) {
+  const d = new Date(iso)
+  return d.toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
 
 // ── Rarity tiers, CS2-style: grey / blue / purple / red ──────────
 const RARITY_TIERS = [
@@ -251,16 +263,52 @@ const CoinIcon = {
   },
 }
 
-// Case: a stylized locked crate, built from plain shapes in the app's own
-// accent color — no external art, no emoji.
+// Case: a CS2-style metal crate — isometric box, diagonal hazard stripe
+// across the lid, corner rivets and a sealed padlock badge — built from
+// plain shapes/gradients in the app's own accent color, no external art.
+let caseIconSeq = 0
 const CaseIcon = {
+  data() { return { uid: `ci${++caseIconSeq}` } },
   render() {
+    const id = this.uid
     return h('svg', { viewBox: '0 0 48 48', width: 48, height: 48, fill: 'none' }, [
-      h('rect', { x: 6, y: 20, width: 36, height: 22, rx: 3, fill: 'var(--accent)' }),
-      h('rect', { x: 6, y: 20, width: 36, height: 8, rx: 3, fill: 'rgba(255,255,255,.2)' }),
-      h('rect', { x: 19, y: 10, width: 10, height: 14, rx: 2, stroke: 'var(--accent)', 'stroke-width': 2, fill: 'var(--bg-elevated)' }),
-      h('circle', { cx: 24, cy: 31, r: 4, fill: 'rgba(0,0,0,.3)' }),
-      h('rect', { x: 23, y: 29, width: 2, height: 4, rx: 1, fill: 'rgba(255,255,255,.55)' }),
+      h('defs', {}, [
+        h('linearGradient', { id: `${id}-front`, x1: '0', y1: '0', x2: '0', y2: '1' }, [
+          h('stop', { offset: '0', 'stop-color': 'var(--accent)' }),
+          h('stop', { offset: '1', 'stop-color': '#c46b00' }),
+        ]),
+        h('linearGradient', { id: `${id}-top`, x1: '0', y1: '0', x2: '1', y2: '1' }, [
+          h('stop', { offset: '0', 'stop-color': '#ffcf80' }),
+          h('stop', { offset: '1', 'stop-color': 'var(--accent)' }),
+        ]),
+        h('clipPath', { id: `${id}-clip` }, [
+          h('rect', { x: 8, y: 15, width: 28, height: 26, rx: 2 }),
+        ]),
+      ]),
+
+      // side face (depth)
+      h('polygon', { points: '36,15 42,7 42,33 36,41', fill: '#8a4c00' }),
+      // top face (lid)
+      h('polygon', { points: '8,15 14,7 42,7 36,15', fill: `url(#${id}-top)` }),
+      // front face
+      h('rect', { x: 8, y: 15, width: 28, height: 26, rx: 2, fill: `url(#${id}-front)` }),
+
+      // diagonal hazard stripes, clipped to the front face
+      h('g', { 'clip-path': `url(#${id}-clip)`, opacity: 0.5 }, [
+        h('rect', { x: -4, y: 16, width: 50, height: 4, fill: '#14140f', transform: 'rotate(-28 20 28)' }),
+        h('rect', { x: -4, y: 26, width: 50, height: 4, fill: '#14140f', transform: 'rotate(-28 20 28)' }),
+      ]),
+
+      // corner rivets
+      h('circle', { cx: 11, cy: 18, r: 1.3, fill: 'rgba(0,0,0,.4)' }),
+      h('circle', { cx: 33, cy: 18, r: 1.3, fill: 'rgba(0,0,0,.4)' }),
+      h('circle', { cx: 11, cy: 38, r: 1.3, fill: 'rgba(0,0,0,.4)' }),
+      h('circle', { cx: 33, cy: 38, r: 1.3, fill: 'rgba(0,0,0,.4)' }),
+
+      // padlock badge — clearly marks it "sealed"
+      h('path', { d: 'M19 29v-3.4a3 3 0 1 1 6 0V29', stroke: '#14140f', 'stroke-width': 2, 'stroke-linecap': 'round' }),
+      h('rect', { x: 17, y: 29, width: 10, height: 8, rx: 1.6, fill: '#14140f' }),
+      h('circle', { cx: 22, cy: 33, r: 1.3, fill: `url(#${id}-top)` }),
     ])
   },
 }
@@ -320,18 +368,13 @@ export default { components: { CoinIcon, CaseIcon } }
 }
 .odds-tile-coins { font-size: 13px; font-weight: 800; color: var(--text); }
 
-.history-card {
-  background: var(--bg-elevated); border: 1px solid var(--line);
-  border-radius: var(--radius-lg); padding: 20px;
-}
-.history-card h3 { font-size: 14px; font-weight: 800; color: var(--text); margin-bottom: 12px; }
-.history-list { display: flex; flex-direction: column; gap: 6px; }
+.history-list { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; text-align: left; }
 .history-row {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 9px 12px; background: var(--bg); border-radius: 8px; font-size: 12.5px;
 }
-.history-name { color: var(--text); font-weight: 600; }
-.history-amounts { display: flex; gap: 8px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.history-time { color: var(--text-dim); font-size: 11px; white-space: nowrap; }
+.history-amounts { display: flex; gap: 8px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .spent { color: var(--danger); }
 .won { color: var(--success); }
 

@@ -25,6 +25,7 @@ class CaseOpenResponse(BaseModel):
 
 class CaseOpeningHistoryItem(BaseModel):
     id: uuid.UUID
+    case_id: uuid.UUID
     case_name: str
     coins_spent: int
     coins_won: int

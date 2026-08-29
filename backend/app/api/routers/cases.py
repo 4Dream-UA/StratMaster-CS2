@@ -80,7 +80,7 @@ async def case_opening_history(db: DBSession, current_user: CurrentUser):
         select(CaseOpeningModel)
         .where(CaseOpeningModel.user_id == current_user.id)
         .order_by(CaseOpeningModel.created_at.desc())
-        .limit(50)
+        .limit(10)
     )
     openings = result.scalars().all()
 
@@ -91,6 +91,7 @@ async def case_opening_history(db: DBSession, current_user: CurrentUser):
     return CaseOpeningHistoryResponse(openings=[
         CaseOpeningHistoryItem(
             id=o.id,
+            case_id=o.case_id,
             case_name=names_by_id.get(o.case_id, "Unknown case"),
             coins_spent=o.coins_spent,
             coins_won=o.coins_won,
