@@ -8,6 +8,8 @@
       <nav class="header-nav">
         <a href="/#strategies" @click.prevent="goToSection('strategies')">Maps</a>
         <router-link to="/cases">Cases</router-link>
+        <router-link to="/boards">My Board</router-link>
+        <router-link to="/forum">Forum</router-link>
         <router-link to="/pricing">Pricing</router-link>
         <router-link to="/user">Referral</router-link>
       </nav>
@@ -47,6 +49,8 @@
       <nav v-if="isMenuOpen" class="mobile-menu" aria-label="Mobile navigation">
         <a href="/#strategies" @click.prevent="goToSection('strategies')">Maps</a>
         <router-link to="/cases" @click="closeMenu">Cases</router-link>
+        <router-link to="/boards" @click="closeMenu">My Board</router-link>
+        <router-link to="/forum" @click="closeMenu">Forum</router-link>
         <router-link to="/pricing" @click="closeMenu">Pricing</router-link>
         <router-link to="/user" @click="closeMenu">Referral</router-link>
 
@@ -183,7 +187,7 @@ onUnmounted(() => {
 }
 .header-nav {
   display: flex;
-  gap: 28px;
+  gap: 20px;
 }
 .header-nav a {
   color: var(--text-dim);
