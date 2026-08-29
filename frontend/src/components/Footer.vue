@@ -13,8 +13,6 @@
         <ul>
           <li><a href="#strategies">Strategies</a></li>
           <li><a href="#strategies">Maps</a></li>
-          <li><router-link to="/cases">Cases</router-link></li>
-          <li><router-link to="/boards">My Board</router-link></li>
           <li><router-link to="/forum">Forum</router-link></li>
           <li><a href="#pricing">Pricing</a></li>
         </ul>

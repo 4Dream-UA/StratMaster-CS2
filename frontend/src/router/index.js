@@ -2,11 +2,9 @@ import { createRouter, createWebHistory } from 'vue-router'
 import Home from '../pages/Home.vue'
 import Strategy from '../pages/Strategy.vue'
 import Strategies from '../pages/Strategies.vue'
-import MyBoards from '../pages/MyBoards.vue'
 import SharedBoard from '../pages/SharedBoard.vue'
 import SharedThread from '../pages/SharedThread.vue'
 import User from '../pages/User.vue'
-import Cases from '../pages/Cases.vue'
 import Forum from '../pages/Forum.vue'
 import Pricing from '../pages/Pricing.vue'
 import Admin from '../pages/Admin.vue'
@@ -20,13 +18,16 @@ const routes = [
   { path: '/', name: 'Home', component: Home },
   { path: '/map/:id', name: 'Strategies', component: Strategies },
   { path: '/strategy/:id', name: 'Strategy', component: Strategy },
-  // My Strategies now lives inside the profile as a tab, not its own page.
+  // My Strategies / My Board / Cases now live inside the profile as tabs,
+  // not their own pages — old links redirect straight to the right tab
+  // (Cases also forwards a `sub` query so e.g. an offer notification can
+  // deep-link into the Offers sub-view).
   { path: '/my-strategies', redirect: { path: '/user', query: { tab: 'strategies' } } },
+  { path: '/boards', redirect: { path: '/user', query: { tab: 'board' } } },
+  { path: '/cases', redirect: (to) => ({ path: '/user', query: { tab: 'cases', sub: to.query.tab } }) },
   { path: '/user', name: 'User', component: User },
-  { path: '/boards', name: 'MyBoards', component: MyBoards },
   { path: '/shared-board/:token', name: 'SharedBoard', component: SharedBoard },
   { path: '/pricing', name: 'Pricing', component: Pricing },
-  { path: '/cases', name: 'Cases', component: Cases },
   { path: '/forum', name: 'Forum', component: Forum },
   { path: '/forum/shared/:token', name: 'SharedThread', component: SharedThread },
   { path: '/admin', name: 'Admin', component: Admin },

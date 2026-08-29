@@ -7,8 +7,6 @@
 
       <nav class="header-nav">
         <a href="/#strategies" @click.prevent="goToSection('strategies')">Maps</a>
-        <router-link to="/cases">Cases</router-link>
-        <router-link to="/boards">My Board</router-link>
         <router-link to="/forum">Forum</router-link>
         <router-link to="/pricing">Pricing</router-link>
         <router-link to="/user">Referral</router-link>
@@ -48,8 +46,6 @@
     <transition name="slide">
       <nav v-if="isMenuOpen" class="mobile-menu" aria-label="Mobile navigation">
         <a href="/#strategies" @click.prevent="goToSection('strategies')">Maps</a>
-        <router-link to="/cases" @click="closeMenu">Cases</router-link>
-        <router-link to="/boards" @click="closeMenu">My Board</router-link>
         <router-link to="/forum" @click="closeMenu">Forum</router-link>
         <router-link to="/pricing" @click="closeMenu">Pricing</router-link>
         <router-link to="/user" @click="closeMenu">Referral</router-link>
@@ -246,11 +242,12 @@ onUnmounted(() => {
 }
 /* Явно переопределяем hover: только подъём + тень, шрифт/цвет/жирность не трогаем */
 .header-cta:hover {
-  color: #111213;
+  color: #fff;
   font-size: 14px;
   font-weight: 800;
   transform: translateY(-2px);
-  box-shadow: 0 12px 28px -6px rgba(255,154,0,0.5);
+  filter: brightness(1.05);
+  box-shadow: 0 14px 30px -10px rgba(255,154,0,0.55), inset 0 1px 0 rgba(255,255,255,.26);
 }
 
 /* ── Hamburger toggle ─────────────────────── */

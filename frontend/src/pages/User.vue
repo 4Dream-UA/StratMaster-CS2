@@ -2,16 +2,10 @@
   <main class="user-page">
     <Header />
 
-    <div class="wrap user-content">
+    <div class="wrap user-content" :class="{ 'user-content-wide': activeTab === 'board' || activeTab === 'cases' }">
 
-      <!-- ── BACK ─────────────────────────────────────── -->
-      <button class="back-btn" @click="router.push('/')">
-        <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
-          <path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        Home
-      </button>
+      <!-- ── BREADCRUMB ─────────────────────────────────── -->
+      <Breadcrumbs :items="[{ label: 'Home', to: '/' }, { label: 'Profile' }]" />
 
       <!-- ── PROFILE HEADER ───────────────────────────── -->
       <section class="profile-card">
@@ -23,10 +17,17 @@
             <input v-if="isSubscribed || isLifetime" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden @change="onAvatarChange" />
           </label>
           <div class="profile-info">
-            <div class="name-line">
-              <h1>{{ user?.username ? '@' + user.username : 'Guest' }}</h1>
+            <div v-if="!nicknameEditing" class="name-line">
+              <h1>{{ user?.display_name || (user?.username ? '@' + user.username : 'Guest') }}</h1>
               <span v-if="user?.is_admin" class="admin-badge">ADMIN</span>
+              <button type="button" class="nickname-edit-btn" @click="startEditNickname" aria-label="Edit nickname">✎</button>
             </div>
+            <div v-else class="nickname-edit-row">
+              <input v-model="nicknameDraft" type="text" maxlength="32" class="nickname-input" placeholder="Nickname" @keyup.enter="saveNickname" />
+              <button class="mini-btn" :disabled="nicknameBusy" @click="saveNickname">{{ nicknameBusy ? '…' : 'Save' }}</button>
+              <button class="mini-btn" @click="nicknameEditing = false">Cancel</button>
+            </div>
+            <span v-if="user?.display_name" class="username-sub">{{ user?.username ? '@' + user.username : '' }}</span>
             <span class="sub-pill" :class="isLifetime ? 'lifetime' : isSubscribed ? 'active' : 'inactive'">
               {{ isLifetime ? 'Lifetime access' : isSubscribed ? `Premium — ${remainingLabel} left` : 'No active subscription' }}
             </span>
@@ -70,7 +71,7 @@
 
       <!-- ── WALLET CARD (bank-card styling, same functionality) ──── -->
       <section class="wallet-card">
-        <div class="bank-card">
+        <div class="bank-card" :class="{ 'card-paying': topupPolling, 'card-success': cardFlash }">
           <div class="bank-card-sheen"></div>
           <div class="bank-card-row-top">
             <span class="bank-chip"><span></span><span></span><span></span></span>
@@ -93,6 +94,17 @@
             </button>
             <span v-if="hasActiveDiscount" class="discount-chip">-25% active</span>
           </div>
+
+          <!-- Contactless-tap payment animation while a top-up is in flight -->
+          <div v-if="topupPolling" class="card-tap-ring"></div>
+          <transition name="fade" :duration="250">
+            <div v-if="cardFlash" class="card-success-badge">
+              <svg viewBox="0 0 24 24" width="28" height="28" fill="none">
+                <circle cx="12" cy="12" r="10" fill="var(--success)"/>
+                <path d="M7.5 12.5l3 3 6-6.5" stroke="#0d1a10" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+          </transition>
         </div>
 
         <button type="button" class="topup-toggle" @click="openTopupModal">
@@ -128,7 +140,11 @@
       </nav>
 
       <!-- ── PANEL ────────────────────────────────────── -->
-      <transition name="panel" mode="out-in">
+      <!-- Explicit :duration bypasses waiting on the transitionend DOM event —
+           if that never fires (backgrounded tab, reduced-motion, or just a
+           fast double-click queuing a second transition mid-flight), Vue's
+           out-in transition gets stuck showing the outgoing panel forever. -->
+      <transition name="panel" mode="out-in" :duration="180">
         <section v-if="activeTab === 'referral'" key="referral" class="panel-wrap">
           <ReferralSection />
         </section>
@@ -272,6 +288,14 @@
               >✕</button>
             </router-link>
           </div>
+        </section>
+
+        <section v-else-if="activeTab === 'board'" key="board" class="panel-wrap">
+          <BoardsPanel />
+        </section>
+
+        <section v-else-if="activeTab === 'cases'" key="cases" class="panel-wrap">
+          <CasesPanel :initial-view="route.query.sub === 'offers' ? 'offers' : 'shop'" />
         </section>
 
         <p v-else key="hint" class="hotbar-hint">Tap an option above to get started.</p>
@@ -425,7 +449,10 @@ import { authAPI } from '../api/auth'
 import { forumAPI } from '../api/forum'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
+import Breadcrumbs from '../components/Breadcrumbs.vue'
 import ReferralSection from '../components/ReferralSection.vue'
+import BoardsPanel from '../components/BoardsPanel.vue'
+import CasesPanel from '../components/CasesPanel.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -441,8 +468,9 @@ const promoSuccess = ref(false)
 
 // Default open so the referral code-entry field is immediately visible —
 // unless we were redirected here with a specific tab requested (e.g. from
-// the old /my-strategies link).
-const activeTab = ref(route.query.tab === 'strategies' ? 'strategies' : 'referral')
+// the old /my-strategies, /boards or /cases links).
+const VALID_QUERY_TABS = ['strategies', 'board', 'cases']
+const activeTab = ref(VALID_QUERY_TABS.includes(route.query.tab) ? route.query.tab : 'referral')
 function toggleTab(key) {
   activeTab.value = activeTab.value === key ? null : key
   if (activeTab.value === 'favorites' && !favoritesLoaded.value) loadFavorites()
@@ -623,6 +651,7 @@ const topupBusy = ref(false)
 const topupPolling = ref(false)
 const topupMessage = ref('')
 const topupSuccess = ref(false)
+const cardFlash = ref(false) // brief checkmark/glow flourish on the wallet card
 let topupPollTimer = null
 
 function stopTopupPolling() {
@@ -668,6 +697,8 @@ async function buyCoins() {
           stopTopupPolling()
           topupSuccess.value = true
           topupMessage.value = `+${invoice.coins} MasterCoins added!`
+          cardFlash.value = true
+          setTimeout(() => { cardFlash.value = false }, 2200)
           await userStore.fetchMe()
         }
       } catch (e) { /* transient — keep polling */ }
@@ -790,6 +821,30 @@ async function onAvatarChange(e) {
   }
 }
 
+// ── Nickname (open to everyone, not just premium) ──────────────────
+const nicknameEditing = ref(false)
+const nicknameDraft = ref('')
+const nicknameBusy = ref(false)
+
+function startEditNickname() {
+  nicknameDraft.value = user.value?.display_name || ''
+  nicknameEditing.value = true
+}
+
+async function saveNickname() {
+  if (nicknameBusy.value) return
+  nicknameBusy.value = true
+  try {
+    const updated = await authAPI.updateNickname(nicknameDraft.value.trim() || null)
+    if (user.value) user.value.display_name = updated.display_name
+    nicknameEditing.value = false
+  } catch (e) {
+    console.warn('[User] could not update nickname:', e.response?.data?.detail)
+  } finally {
+    nicknameBusy.value = false
+  }
+}
+
 function copy(text, field) {
   if (!text) return
   navigator.clipboard.writeText(text).then(() => {
@@ -849,6 +904,16 @@ const ICONS = {
   strategies: `<svg viewBox="0 0 24 24" fill="none" width="20" height="20">
     <path d="M12 3.5l2.82 5.71 6.3.92-4.56 4.44 1.08 6.27L12 17.77l-5.64 3.07 1.08-6.27-4.56-4.44 6.3-.92L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
   </svg>`,
+  board: `<svg viewBox="0 0 24 24" fill="none" width="20" height="20">
+    <rect x="3.5" y="4.5" width="17" height="12" rx="1.4" stroke="currentColor" stroke-width="1.6"/>
+    <path d="M8 20h8M12 16.5V20" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+    <path d="M7 12l3-3 2.5 2.5L17 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`,
+  cases: `<svg viewBox="0 0 24 24" fill="none" width="20" height="20">
+    <rect x="4" y="9" width="16" height="11" rx="1.4" stroke="currentColor" stroke-width="1.6"/>
+    <path d="M4 13h16" stroke="currentColor" stroke-width="1.6"/>
+    <path d="M9 9V7a3 3 0 016 0v2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+  </svg>`,
   admin: `<svg viewBox="0 0 24 24" fill="none" width="20" height="20">
     <path d="M14.7 6.3a4 4 0 00-5.4 4.6L4 16.2V20h3.8l5.3-5.3a4 4 0 004.6-5.4l-2.6 2.6-2-2 2.6-2.6z"
           stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
@@ -861,23 +926,15 @@ const TABS = [
   { key: 'p2p',        label: 'P2P',        icon: ICONS.p2p },
   { key: 'favorites',  label: 'Maps',       icon: ICONS.favorites },
   { key: 'strategies', label: 'Strategies', icon: ICONS.strategies },
+  { key: 'board',      label: 'My Board',   icon: ICONS.board },
+  { key: 'cases',      label: 'Cases',      icon: ICONS.cases },
 ]
 </script>
 
 <style scoped>
 .user-page { min-height: 100vh; background: var(--bg); }
-.user-content { max-width: 640px; padding: 20px 16px 100px; }
-
-/* ── Back ─────────────────────────────────────── */
-.back-btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: var(--bg-elevated); border: 1px solid var(--line);
-  color: var(--text-dim); padding: 8px 14px; border-radius: 8px;
-  font-size: 13px; font-weight: 600; cursor: pointer;
-  transition: border-color .2s, color .2s;
-  margin-bottom: 18px;
-}
-.back-btn:hover { border-color: var(--accent); color: var(--accent); }
+.user-content { max-width: 640px; padding: 20px 16px 100px; transition: max-width .2s; }
+.user-content-wide { max-width: 960px; }
 
 /* ── Profile card ─────────────────────────────── */
 .profile-card {
@@ -927,6 +984,22 @@ const TABS = [
   font-size: 9px; font-weight: 800;
   letter-spacing: .06em; text-transform: uppercase;
 }
+
+.nickname-edit-btn {
+  flex-shrink: 0; background: none; border: none; color: var(--text-dim);
+  cursor: pointer; font-size: 12px; padding: 2px 4px; border-radius: 6px;
+  transition: color .15s, background .15s;
+}
+.nickname-edit-btn:hover { color: var(--accent); background: rgba(255,154,0,.1); }
+
+.nickname-edit-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.nickname-input {
+  min-width: 0; flex: 1; background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+  padding: 7px 10px; color: var(--text); font-size: 13.5px; font-family: inherit;
+}
+.nickname-input:focus { outline: none; border-color: var(--accent); }
+
+.username-sub { font-size: 11.5px; color: var(--text-dim); margin-top: -3px; }
 
 .sub-pill {
   align-self: flex-start;
@@ -1018,10 +1091,45 @@ const TABS = [
   box-shadow: 0 14px 34px -16px rgba(0,0,0,.65), inset 0 1px 0 rgba(255,255,255,.04);
   aspect-ratio: 1.586 / 1;
   display: flex; flex-direction: column; justify-content: space-between;
+  transition: transform .4s ease, box-shadow .4s ease;
 }
 .bank-card-sheen {
   position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(115deg, transparent 30%, rgba(255,154,0,.14) 48%, transparent 62%);
+}
+
+/* Contactless-tap style animation while a top-up payment is being awaited */
+.bank-card.card-paying {
+  animation: cardTapPulse 1.7s ease-in-out infinite;
+}
+@keyframes cardTapPulse {
+  0%, 100% { transform: perspective(700px) rotateX(0deg) rotateY(0deg) scale(1); }
+  50% { transform: perspective(700px) rotateX(1.5deg) rotateY(-3deg) scale(1.012); }
+}
+.card-tap-ring {
+  position: absolute; top: 18px; right: 20px; z-index: 2;
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 2px solid rgba(255,154,0,.6);
+  animation: cardTapRing 1.4s ease-out infinite;
+}
+@keyframes cardTapRing {
+  0% { transform: scale(0.5); opacity: 1; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+/* Success flourish once the invoice is confirmed paid */
+.bank-card.card-success {
+  animation: cardSuccessGlow 1s ease-out;
+}
+@keyframes cardSuccessGlow {
+  0% { box-shadow: 0 0 0 0 rgba(80,220,100,.55), 0 14px 34px -16px rgba(0,0,0,.65); }
+  60% { box-shadow: 0 0 0 22px rgba(80,220,100,0), 0 14px 34px -16px rgba(0,0,0,.65); }
+  100% { box-shadow: 0 0 0 0 rgba(80,220,100,0), 0 14px 34px -16px rgba(0,0,0,.65); }
+}
+.card-success-badge {
+  position: absolute; inset: 0; z-index: 3;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(10,10,8,.55); border-radius: 18px;
 }
 
 .bank-card-row-top { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; }
@@ -1079,14 +1187,16 @@ const TABS = [
 .topup-toggle {
   display: flex; align-items: center; justify-content: center; gap: 7px;
   width: 100%; margin-top: 14px;
-  background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 100%);
-  color: #111213; border: none;
-  font-size: 13.5px; font-weight: 800; padding: 12px 16px; border-radius: 10px;
-  text-transform: uppercase; letter-spacing: .04em;
-  cursor: pointer; transition: transform .15s, box-shadow .15s, background .15s;
+  background: linear-gradient(160deg, #ffc266 0%, var(--accent) 48%, #cc7300 100%);
+  color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.28);
+  border: 1px solid rgba(255,255,255,.14);
+  font-size: 13.5px; font-weight: 700; padding: 12px 16px; border-radius: 10px;
+  letter-spacing: .01em;
+  cursor: pointer; transition: transform .15s, box-shadow .15s, filter .15s;
+  box-shadow: 0 6px 18px -8px rgba(255,154,0,.5), inset 0 1px 0 rgba(255,255,255,.22);
 }
-.topup-toggle:hover { transform: translateY(-1px); box-shadow: 0 10px 22px -8px rgba(255,154,0,.55); }
-.topup-toggle:active { transform: translateY(0); }
+.topup-toggle:hover { transform: translateY(-1px); filter: brightness(1.05); box-shadow: 0 12px 26px -10px rgba(255,154,0,.55), inset 0 1px 0 rgba(255,255,255,.26); }
+.topup-toggle:active { transform: translateY(0); filter: brightness(0.97); }
 
 /* ── Hotbar ───────────────────────────────────── */
 .hotbar {

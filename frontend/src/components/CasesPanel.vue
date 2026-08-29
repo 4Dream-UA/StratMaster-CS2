@@ -1,157 +1,146 @@
 <template>
-  <main class="cases-page">
-    <Header />
+  <div class="cases-panel">
+    <div class="view-tabs">
+      <button type="button" class="view-tab" :class="{ active: activeView === 'shop' }" @click="activeView = 'shop'">Shop</button>
+      <button type="button" class="view-tab" :class="{ active: activeView === 'inventory' }" @click="switchToInventory">
+        My Inventory <span v-if="totalOwned" class="tab-badge">{{ totalOwned }}</span>
+      </button>
+      <button type="button" class="view-tab" :class="{ active: activeView === 'offers' }" @click="switchToOffers">
+        Offers <span v-if="incomingOffers.length" class="tab-badge">{{ incomingOffers.length }}</span>
+      </button>
+    </div>
 
-    <div class="wrap cases-content">
-      <section class="page-header">
-        <h1>Open a <span class="accent">Case</span></h1>
-        <p>Spend MasterCoins for a shot at winning more back.</p>
-      </section>
+    <div v-if="loading" class="loader-row"><div class="spinner"></div></div>
+    <div v-else-if="!cases.length" class="empty">No cases available right now.</div>
 
-      <div class="view-tabs">
-        <button type="button" class="view-tab" :class="{ active: activeView === 'shop' }" @click="activeView = 'shop'">Shop</button>
-        <button type="button" class="view-tab" :class="{ active: activeView === 'inventory' }" @click="switchToInventory">
-          My Inventory <span v-if="totalOwned" class="tab-badge">{{ totalOwned }}</span>
-        </button>
-        <button type="button" class="view-tab" :class="{ active: activeView === 'offers' }" @click="switchToOffers">
-          Offers <span v-if="incomingOffers.length" class="tab-badge">{{ incomingOffers.length }}</span>
-        </button>
-      </div>
+    <!-- ═══ SHOP ═══════════════════════════════ -->
+    <div v-else-if="activeView === 'shop'" class="case-grid">
+      <div v-for="c in cases" :key="c.id" class="case-card">
+        <div class="case-icon"><CaseIcon /></div>
+        <h3>{{ c.name }}</h3>
+        <p class="case-cost"><CoinIcon :size="16" /> {{ c.cost_coins }} <span>MC</span></p>
 
-      <div v-if="loading" class="loader-row"><div class="spinner"></div></div>
-      <div v-else-if="!cases.length" class="empty">No cases available right now.</div>
-
-      <!-- ═══ SHOP ═══════════════════════════════ -->
-      <div v-else-if="activeView === 'shop'" class="case-grid">
-        <div v-for="c in cases" :key="c.id" class="case-card">
-          <div class="case-icon"><CaseIcon /></div>
-          <h3>{{ c.name }}</h3>
-          <p class="case-cost"><CoinIcon :size="16" /> {{ c.cost_coins }} <span>MC</span></p>
-
-          <div class="qty-picker">
-            <button type="button" class="qty-btn" @click="setQty(c.id, qty(c.id) - 1)">−</button>
-            <input type="number" class="qty-input" min="1" max="99" :value="qty(c.id)" @input="setQty(c.id, $event.target.valueAsNumber)" />
-            <button type="button" class="qty-btn" @click="setQty(c.id, qty(c.id) + 1)">+</button>
-          </div>
-          <div class="qty-presets">
-            <button
-              v-for="n in [1, 3, 5, 9]" :key="n" type="button" class="qty-preset"
-              :class="{ active: qty(c.id) === n }" @click="setQty(c.id, n)"
-            >{{ n }}</button>
-          </div>
-
-          <button
-            class="btn-primary buy-btn" :disabled="buying || (wallet?.balance_coins ?? 0) < c.cost_coins * qty(c.id)"
-            @click="buyCase(c, qty(c.id))"
-          >{{ buying ? 'Buying…' : `Buy ${qty(c.id)} for ${c.cost_coins * qty(c.id)} MC` }}</button>
-          <p v-if="(wallet?.balance_coins ?? 0) < c.cost_coins * qty(c.id)" class="case-hint">Not enough MasterCoins</p>
-
-          <button type="button" class="odds-toggle" @click="oddsOpenId = oddsOpenId === c.id ? null : c.id">
-            {{ oddsOpenId === c.id ? 'Hide odds ▲' : 'View odds ▼' }}
-          </button>
-          <div v-if="oddsOpenId === c.id" class="odds-grid">
-            <div
-              v-for="r in c.rewards" :key="r.coins" class="odds-tile"
-              :style="{ borderColor: tierFor(r.coins).border, background: tierFor(r.coins).bg }"
-            >
-              <CoinIcon :size="16" :color="tierFor(r.coins).border" />
-              <span class="odds-tile-coins">{{ r.coins }}</span>
-            </div>
-          </div>
+        <div class="qty-picker">
+          <button type="button" class="qty-btn" @click="setQty(c.id, qty(c.id) - 1)">−</button>
+          <input type="number" class="qty-input" min="1" max="99" :value="qty(c.id)" @input="setQty(c.id, $event.target.valueAsNumber)" />
+          <button type="button" class="qty-btn" @click="setQty(c.id, qty(c.id) + 1)">+</button>
         </div>
-      </div>
-
-      <!-- ═══ INVENTORY ═══════════════════════════════ -->
-      <div v-else-if="activeView === 'inventory'" class="case-grid">
-        <div v-if="!inventory.length" class="empty">Your inventory is empty — buy a case in the Shop first.</div>
-        <div v-for="inv in inventory" :key="inv.case_id" class="case-card">
-          <div class="case-icon"><CaseIcon /></div>
-          <h3>{{ inv.case_name }}</h3>
-          <p class="inventory-line">You own <strong>{{ inv.count }}</strong></p>
-
-          <div class="open-row">
-            <button
-              v-for="q in [1, 2, 5]" :key="q" class="btn-primary open-btn"
-              :disabled="opening || inv.count < q"
-              @click="openCases(caseById(inv.case_id), q)"
-            >{{ opening ? '…' : `Open ×${q}` }}</button>
-          </div>
-
-          <button type="button" class="odds-toggle" @click="sendFormOpenId = sendFormOpenId === inv.case_id ? null : inv.case_id">
-            {{ sendFormOpenId === inv.case_id ? 'Hide gift/sell ▲' : 'Gift or sell ▼' }}
-          </button>
-          <div v-if="sendFormOpenId === inv.case_id" class="send-form">
-            <div class="send-mode-toggle">
-              <button type="button" class="qty-preset" :class="{ active: sendMode === 'gift' }" @click="sendMode = 'gift'">Gift</button>
-              <button type="button" class="qty-preset" :class="{ active: sendMode === 'sale' }" @click="sendMode = 'sale'">Sell</button>
-            </div>
-            <input v-model="sendWalletId" type="text" placeholder="Recipient Wallet ID" class="qty-input send-input" />
-            <input v-model.number="sendQuantity" type="number" min="1" :max="inv.count" placeholder="Qty" class="qty-input send-input-small" />
-            <input v-if="sendMode === 'sale'" v-model.number="sendPrice" type="number" min="1" placeholder="Price MC" class="qty-input send-input-small" />
-            <button class="mini-btn" :disabled="sendBusy" @click="submitSend(inv)">{{ sendBusy ? '…' : (sendMode === 'gift' ? 'Send Gift' : 'Send Offer') }}</button>
-            <p v-if="sendError" class="case-hint">{{ sendError }}</p>
-          </div>
-
+        <div class="qty-presets">
           <button
-            v-if="historyFor(inv.case_id).length" type="button" class="odds-toggle"
-            @click="historyOpenId = historyOpenId === inv.case_id ? null : inv.case_id"
+            v-for="n in [1, 3, 5, 9]" :key="n" type="button" class="qty-preset"
+            :class="{ active: qty(c.id) === n }" @click="setQty(c.id, n)"
+          >{{ n }}</button>
+        </div>
+
+        <button
+          class="btn-primary buy-btn" :disabled="buying || (wallet?.balance_coins ?? 0) < c.cost_coins * qty(c.id)"
+          @click="buyCase(c, qty(c.id))"
+        >{{ buying ? 'Buying…' : `Buy ${qty(c.id)} for ${c.cost_coins * qty(c.id)} MC` }}</button>
+        <p v-if="(wallet?.balance_coins ?? 0) < c.cost_coins * qty(c.id)" class="case-hint">Not enough MasterCoins</p>
+
+        <button type="button" class="odds-toggle" @click="oddsOpenId = oddsOpenId === c.id ? null : c.id">
+          {{ oddsOpenId === c.id ? 'Hide odds ▲' : 'View odds ▼' }}
+        </button>
+        <div v-if="oddsOpenId === c.id" class="odds-grid">
+          <div
+            v-for="r in c.rewards" :key="r.coins" class="odds-tile"
+            :style="{ borderColor: tierFor(r.coins).border, background: tierFor(r.coins).bg }"
           >
-            {{ historyOpenId === inv.case_id ? 'Hide recent openings ▲' : 'Recent openings ▼' }}
-          </button>
-          <div v-if="historyOpenId === inv.case_id" class="history-list">
-            <div v-for="h in historyFor(inv.case_id)" :key="h.id" class="history-row">
-              <span class="history-time">{{ formatHistoryTime(h.created_at) }}</span>
-              <span class="history-amounts">
-                <span class="spent">-{{ h.coins_spent }}</span>
-                <span class="won">+{{ h.coins_won }} MC</span>
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ═══ OFFERS ═══════════════════════════════ -->
-      <div v-else class="offers-view">
-        <h3 class="offers-heading">Incoming</h3>
-        <div v-if="!incomingOffers.length" class="empty">No incoming offers.</div>
-        <div v-else class="offers-list">
-          <div v-for="o in incomingOffers" :key="o.id" class="offer-row">
-            <CaseIcon :size="40" />
-            <div class="offer-info">
-              <span class="offer-title">{{ o.offer_type === 'gift' ? 'Gift' : 'Sale offer' }}: {{ o.quantity }}× {{ o.case_name }}</span>
-              <span class="offer-sub">
-                From {{ o.sender_username ? '@' + o.sender_username : o.sender_wallet_id }}
-                <template v-if="o.offer_type === 'sale'"> — {{ o.price_coins }} MC</template>
-              </span>
-            </div>
-            <div class="offer-actions">
-              <button class="mini-btn" :disabled="offerBusyId === o.id" @click="respondToOffer(o, 'accept')">Accept</button>
-              <button class="mini-btn danger" :disabled="offerBusyId === o.id" @click="respondToOffer(o, 'decline')">Decline</button>
-            </div>
-          </div>
-        </div>
-
-        <h3 class="offers-heading">Outgoing</h3>
-        <div v-if="!outgoingOffers.length" class="empty">No outgoing offers.</div>
-        <div v-else class="offers-list">
-          <div v-for="o in outgoingOffers" :key="o.id" class="offer-row">
-            <CaseIcon :size="40" />
-            <div class="offer-info">
-              <span class="offer-title">{{ o.offer_type === 'gift' ? 'Gift' : 'Sale offer' }}: {{ o.quantity }}× {{ o.case_name }}</span>
-              <span class="offer-sub">
-                To {{ o.receiver_username ? '@' + o.receiver_username : o.receiver_wallet_id }}
-                <template v-if="o.offer_type === 'sale'"> — {{ o.price_coins }} MC</template>
-              </span>
-            </div>
-            <div class="offer-actions">
-              <button class="mini-btn danger" :disabled="offerBusyId === o.id" @click="respondToOffer(o, 'cancel')">Cancel</button>
-            </div>
+            <CoinIcon :size="16" :color="tierFor(r.coins).border" />
+            <span class="odds-tile-coins">{{ r.coins }}</span>
           </div>
         </div>
       </div>
     </div>
 
-    <Footer />
+    <!-- ═══ INVENTORY ═══════════════════════════════ -->
+    <div v-else-if="activeView === 'inventory'" class="case-grid">
+      <div v-if="!inventory.length" class="empty">Your inventory is empty — buy a case in the Shop first.</div>
+      <div v-for="inv in inventory" :key="inv.case_id" class="case-card">
+        <div class="case-icon"><CaseIcon /></div>
+        <h3>{{ inv.case_name }}</h3>
+        <p class="inventory-line">You own <strong>{{ inv.count }}</strong></p>
+
+        <div class="open-row">
+          <button
+            v-for="q in [1, 3, 5]" :key="q" class="btn-primary open-btn"
+            :disabled="opening || inv.count < q"
+            @click="openCases(caseById(inv.case_id), q)"
+          >{{ opening ? '…' : `Open ×${q}` }}</button>
+        </div>
+
+        <button type="button" class="odds-toggle" @click="sendFormOpenId = sendFormOpenId === inv.case_id ? null : inv.case_id">
+          {{ sendFormOpenId === inv.case_id ? 'Hide gift/sell ▲' : 'Gift or sell ▼' }}
+        </button>
+        <div v-if="sendFormOpenId === inv.case_id" class="send-form">
+          <div class="send-mode-toggle">
+            <button type="button" class="qty-preset" :class="{ active: sendMode === 'gift' }" @click="sendMode = 'gift'">Gift</button>
+            <button type="button" class="qty-preset" :class="{ active: sendMode === 'sale' }" @click="sendMode = 'sale'">Sell</button>
+          </div>
+          <input v-model="sendWalletId" type="text" placeholder="Recipient Wallet ID" class="qty-input send-input" />
+          <input v-model.number="sendQuantity" type="number" min="1" :max="inv.count" placeholder="Qty" class="qty-input send-input-small" />
+          <input v-if="sendMode === 'sale'" v-model.number="sendPrice" type="number" min="1" placeholder="Price MC" class="qty-input send-input-small" />
+          <button class="mini-btn" :disabled="sendBusy" @click="submitSend(inv)">{{ sendBusy ? '…' : (sendMode === 'gift' ? 'Send Gift' : 'Send Offer') }}</button>
+          <p v-if="sendError" class="case-hint">{{ sendError }}</p>
+        </div>
+
+        <button
+          v-if="historyFor(inv.case_id).length" type="button" class="odds-toggle"
+          @click="historyOpenId = historyOpenId === inv.case_id ? null : inv.case_id"
+        >
+          {{ historyOpenId === inv.case_id ? 'Hide recent openings ▲' : 'Recent openings ▼' }}
+        </button>
+        <div v-if="historyOpenId === inv.case_id" class="history-list">
+          <div v-for="h in historyFor(inv.case_id)" :key="h.id" class="history-row">
+            <span class="history-time">{{ formatHistoryTime(h.created_at) }}</span>
+            <span class="history-amounts">
+              <span class="spent">-{{ h.coins_spent }}</span>
+              <span class="won">+{{ h.coins_won }} MC</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ OFFERS ═══════════════════════════════ -->
+    <div v-else class="offers-view">
+      <h3 class="offers-heading">Incoming</h3>
+      <div v-if="!incomingOffers.length" class="empty">No incoming offers.</div>
+      <div v-else class="offers-list">
+        <div v-for="o in incomingOffers" :key="o.id" class="offer-row">
+          <CaseIcon :size="40" />
+          <div class="offer-info">
+            <span class="offer-title">{{ o.offer_type === 'gift' ? 'Gift' : 'Sale offer' }}: {{ o.quantity }}× {{ o.case_name }}</span>
+            <span class="offer-sub">
+              From {{ o.sender_username ? '@' + o.sender_username : o.sender_wallet_id }}
+              <template v-if="o.offer_type === 'sale'"> — {{ o.price_coins }} MC</template>
+            </span>
+          </div>
+          <div class="offer-actions">
+            <button class="mini-btn" :disabled="offerBusyId === o.id" @click="respondToOffer(o, 'accept')">Accept</button>
+            <button class="mini-btn danger" :disabled="offerBusyId === o.id" @click="respondToOffer(o, 'decline')">Decline</button>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="offers-heading">Outgoing</h3>
+      <div v-if="!outgoingOffers.length" class="empty">No outgoing offers.</div>
+      <div v-else class="offers-list">
+        <div v-for="o in outgoingOffers" :key="o.id" class="offer-row">
+          <CaseIcon :size="40" />
+          <div class="offer-info">
+            <span class="offer-title">{{ o.offer_type === 'gift' ? 'Gift' : 'Sale offer' }}: {{ o.quantity }}× {{ o.case_name }}</span>
+            <span class="offer-sub">
+              To {{ o.receiver_username ? '@' + o.receiver_username : o.receiver_wallet_id }}
+              <template v-if="o.offer_type === 'sale'"> — {{ o.price_coins }} MC</template>
+            </span>
+          </div>
+          <div class="offer-actions">
+            <button class="mini-btn danger" :disabled="offerBusyId === o.id" @click="respondToOffer(o, 'cancel')">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- ── REVEAL POPUP ─────────────────────────────────── -->
     <!-- Explicit :duration bypasses waiting on the transitionend DOM event —
@@ -189,7 +178,7 @@
         </div>
       </div>
     </transition>
-  </main>
+  </div>
 </template>
 
 <script setup>
@@ -197,8 +186,10 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '../store/user'
 import { casesAPI } from '../api/cases'
-import Header from '../components/Header.vue'
-import Footer from '../components/Footer.vue'
+
+const props = defineProps({
+  initialView: { type: String, default: 'shop' }, // 'shop' | 'inventory' | 'offers'
+})
 
 const userStore = useUserStore()
 const { wallet } = storeToRefs(userStore)
@@ -211,7 +202,7 @@ const oddsOpenId = ref(null)
 const historyOpenId = ref(null)
 const history = ref([])
 const inventory = ref([]) // [{ case_id, case_name, count }]
-const activeView = ref('shop') // 'shop' | 'inventory' | 'offers'
+const activeView = ref(props.initialView === 'inventory' || props.initialView === 'offers' ? props.initialView : 'shop')
 
 function caseById(id) {
   return cases.value.find(c => c.id === id)
@@ -456,11 +447,11 @@ function closeReveal() {
 }
 
 onMounted(async () => {
-  window.scrollTo({ top: 0, behavior: 'auto' })
   await loadCases()
   await loadInventory()
   loadHistory()
   loadOffers()
+  if (props.initialView === 'offers') loadOffers()
 })
 </script>
 
@@ -468,11 +459,6 @@ onMounted(async () => {
 import { h } from 'vue'
 
 // ── Custom icons (no emoji) ─────────────────────────────────────
-// Defined in a plain <script> block (not <script setup>) since a render
-// function needs an options object — merges automatically with the
-// <script setup> block above, same SFC.
-// Coin: the same MasterCoins glyph used everywhere else in the app
-// (Pricing/User payment icons), for one consistent icon language.
 const CoinIcon = {
   props: { size: { type: Number, default: 18 }, color: { type: String, default: 'currentColor' } },
   render() {
@@ -487,9 +473,7 @@ const CoinIcon = {
 }
 
 // Case: a CS2-style metal crate — isometric box, diagonal hazard stripe
-// across the lid, corner rivets and a MasterCoins badge (the same coin
-// glyph used everywhere else in the app) — built from plain shapes/
-// gradients in the app's own accent color, no external art.
+// across the lid, corner rivets and a MasterCoins badge.
 let caseIconSeq = 0
 const CaseIcon = {
   props: { size: { type: Number, default: 72 } },
@@ -511,28 +495,20 @@ const CaseIcon = {
         ]),
       ]),
 
-      // side face (depth)
       h('polygon', { points: '36,15 42,7 42,33 36,41', fill: '#8a4c00' }),
-      // top face (lid)
       h('polygon', { points: '8,15 14,7 42,7 36,15', fill: `url(#${id}-top)` }),
-      // front face
       h('rect', { x: 8, y: 15, width: 28, height: 26, rx: 2, fill: `url(#${id}-front)` }),
 
-      // diagonal hazard stripes, clipped to the front face
       h('g', { 'clip-path': `url(#${id}-clip)`, opacity: 0.5 }, [
         h('rect', { x: -4, y: 16, width: 50, height: 4, fill: '#14140f', transform: 'rotate(-28 20 28)' }),
         h('rect', { x: -4, y: 26, width: 50, height: 4, fill: '#14140f', transform: 'rotate(-28 20 28)' }),
       ]),
 
-      // corner rivets
       h('circle', { cx: 11, cy: 18, r: 1.3, fill: 'rgba(0,0,0,.4)' }),
       h('circle', { cx: 33, cy: 18, r: 1.3, fill: 'rgba(0,0,0,.4)' }),
       h('circle', { cx: 11, cy: 38, r: 1.3, fill: 'rgba(0,0,0,.4)' }),
       h('circle', { cx: 33, cy: 38, r: 1.3, fill: 'rgba(0,0,0,.4)' }),
 
-      // MasterCoins badge — same circle+squiggle glyph as CoinIcon, dropped
-      // onto the crate so it reads instantly as "coins inside", not a
-      // generic loot box.
       h('g', { transform: 'translate(22,29) scale(0.94) translate(-12,-12)' }, [
         h('circle', { cx: 12, cy: 12, r: 8, fill: `url(#${id}-top)`, stroke: '#14140f', 'stroke-width': 1.7 }),
         h('path', {
@@ -548,16 +524,10 @@ export default { components: { CoinIcon, CaseIcon } }
 </script>
 
 <style scoped>
-.cases-page { min-height: 100vh; background: var(--bg); }
-.cases-content { padding: 32px 20px 100px; max-width: 900px; }
-
-.page-header { text-align: center; margin-bottom: 32px; }
-.page-header h1 { font-size: clamp(26px, 5vw, 38px); font-weight: 900; color: var(--text); }
-.accent { color: var(--accent); }
-.page-header p { font-size: 13.5px; color: var(--text-dim); margin-top: 8px; }
+.cases-panel { max-width: 900px; }
 
 .view-tabs {
-  display: flex; justify-content: center; gap: 8px; margin-bottom: 28px;
+  display: flex; justify-content: center; gap: 8px; margin-bottom: 24px; flex-wrap: wrap;
 }
 .view-tab {
   display: flex; align-items: center; gap: 7px;
@@ -579,21 +549,21 @@ export default { components: { CoinIcon, CaseIcon } }
   border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-.empty { text-align: center; padding: 60px 20px; color: var(--text-dim); font-size: 14px; }
+.empty { text-align: center; padding: 40px 20px; color: var(--text-dim); font-size: 14px; }
 
-.case-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; margin-bottom: 32px; }
+.case-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
 .case-card {
   background: linear-gradient(160deg, rgba(255,154,0,0.07), var(--bg-elevated) 60%);
   border: 1px solid rgba(255,154,0,0.25); border-radius: var(--radius-lg);
-  padding: 24px 20px; text-align: center;
+  padding: 22px 18px; text-align: center;
 }
 .case-icon { display: flex; justify-content: center; margin-bottom: 10px; }
-.case-card h3 { font-size: 16px; font-weight: 800; color: var(--text); margin-bottom: 6px; }
+.case-card h3 { font-size: 15px; font-weight: 800; color: var(--text); margin-bottom: 6px; }
 .case-cost {
   display: flex; align-items: center; justify-content: center; gap: 6px;
-  font-size: 22px; font-weight: 900; color: var(--accent); margin-bottom: 16px;
+  font-size: 20px; font-weight: 900; color: var(--accent); margin-bottom: 14px;
 }
-.case-cost span { font-size: 13px; font-weight: 700; color: var(--text-dim); }
+.case-cost span { font-size: 12px; font-weight: 700; color: var(--text-dim); }
 
 .mini-btn {
   background: linear-gradient(160deg, var(--bg-elevated), var(--bg)); border: 1px solid var(--line); color: var(--text-dim);
@@ -612,7 +582,7 @@ export default { components: { CoinIcon, CaseIcon } }
 }
 .qty-btn:hover { border-color: var(--accent); color: var(--accent); }
 .qty-input {
-  width: 64px; text-align: center; background: var(--bg); border: 1px solid var(--line);
+  width: 60px; text-align: center; background: var(--bg); border: 1px solid var(--line);
   border-radius: 8px; color: var(--text); font-size: 14px; font-weight: 800;
   -moz-appearance: textfield;
 }
@@ -632,11 +602,11 @@ export default { components: { CoinIcon, CaseIcon } }
 .buy-btn:disabled { opacity: .5; cursor: not-allowed; }
 .case-hint { font-size: 11px; color: var(--danger); margin-top: 6px; }
 
-.inventory-line { font-size: 12px; color: var(--text-dim); margin: 14px 0 8px; }
+.inventory-line { font-size: 12px; color: var(--text-dim); margin: 12px 0 8px; }
 .inventory-line strong { color: var(--text); font-weight: 800; }
 
 .open-row { display: flex; gap: 6px; flex-wrap: wrap; }
-.open-btn { flex: 1; min-width: 74px; padding: 10px 6px; font-size: 12px; }
+.open-btn { flex: 1; min-width: 70px; padding: 10px 6px; font-size: 12px; }
 .open-btn:disabled { opacity: .4; cursor: not-allowed; }
 
 .odds-toggle {
@@ -647,7 +617,7 @@ export default { components: { CoinIcon, CaseIcon } }
 .odds-toggle:hover { color: var(--accent); }
 
 .odds-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); gap: 8px;
   margin-top: 14px;
 }
 .odds-tile {
@@ -675,15 +645,8 @@ export default { components: { CoinIcon, CaseIcon } }
 .send-input { width: auto; flex: 1; min-width: 140px; }
 .send-input-small { width: 64px; }
 
-.mini-btn {
-  background: linear-gradient(160deg, var(--bg-elevated), var(--bg)); border: 1px solid var(--line); color: var(--text-dim);
-  padding: 7px 14px; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer;
-  box-shadow: 0 2px 6px rgba(0,0,0,.18);
-  transition: border-color .15s, color .15s, transform .15s, box-shadow .15s;
-}
-.mini-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); box-shadow: 0 4px 14px -4px rgba(255,154,0,.4); transform: translateY(-1px); }
-.mini-btn:disabled { opacity: .5; cursor: not-allowed; }
 .mini-btn.danger:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); box-shadow: 0 4px 14px -4px rgba(235,75,75,.4); }
+.mini-btn:disabled { opacity: .5; cursor: not-allowed; }
 
 /* ── Offers ─────────────────────────────── */
 .offers-view { max-width: 640px; margin: 0 auto; }
