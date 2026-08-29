@@ -120,6 +120,28 @@ async def test_admin_can_promote_another_user(client, db_session, auth_as):
     assert resp.json()["is_admin"] is True
 
 
+async def test_admin_grants_fixed_term_subscription(client, db_session, auth_as):
+    admin = await make_user(db_session, is_admin=True)
+    other = await make_user(db_session)
+    auth_as(admin)
+
+    resp = await client.patch(f"/api/admin/users/{other.id}/subscription", json={"months": 3})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["wallet"]["is_lifetime"] is False
+    assert body["wallet"]["subscription_expires_at"] is not None
+
+
+async def test_admin_grants_lifetime_with_zero_months(client, db_session, auth_as):
+    admin = await make_user(db_session, is_admin=True)
+    other = await make_user(db_session)
+    auth_as(admin)
+
+    resp = await client.patch(f"/api/admin/users/{other.id}/subscription", json={"months": 0})
+    assert resp.status_code == 200
+    assert resp.json()["wallet"]["is_lifetime"] is True
+
+
 async def test_admin_lists_transactions_filtered_by_type_and_wallet(client, db_session, auth_as):
     admin = await make_user(db_session, is_admin=True)
     sender = await make_user(db_session, balance=100)

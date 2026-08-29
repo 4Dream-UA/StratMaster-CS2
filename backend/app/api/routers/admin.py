@@ -34,10 +34,11 @@ from backend.app.schemas.strategy import (
     StrategyDetailResponse,
     StrategyUpdate,
 )
-from backend.app.schemas.user import SetAdminRequest, UserAdminOut, UsersListResponse
+from backend.app.schemas.user import AdminGrantSubscriptionRequest, SetAdminRequest, UserAdminOut, UsersListResponse
 from backend.app.schemas.wallet import TransactionsListResponse
 from backend.app.services.notifications import notify_favorited_map_users
 from backend.app.services.referral import generate_promo_code
+from backend.app.services.subscription import extend_subscription
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -365,6 +366,27 @@ async def admin_set_user_admin(user_id: uuid.UUID, payload: SetAdminRequest, db:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     user.is_admin = payload.is_admin
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+@router.patch("/admin/users/{user_id}/subscription", response_model=UserAdminOut)
+async def admin_grant_subscription(
+    user_id: uuid.UUID, payload: AdminGrantSubscriptionRequest, db: DBSession, admin_user: AdminUser
+):
+    result = await db.execute(
+        select(UserModel).options(selectinload(UserModel.wallet)).where(UserModel.id == user_id)
+    )
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if payload.months == 0:
+        extend_subscription(user.wallet, "lifetime", None)
+    else:
+        extend_subscription(user.wallet, "premium", payload.months)
+
     await db.commit()
     await db.refresh(user)
     return user

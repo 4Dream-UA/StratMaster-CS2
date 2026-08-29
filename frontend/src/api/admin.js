@@ -64,6 +64,10 @@ export const adminAPI = {
     const response = await apiClient.patch(`/api/admin/users/${id}/admin`, { is_admin: isAdmin })
     return response.data
   },
+  async grantSubscription(id, months) {
+    const response = await apiClient.patch(`/api/admin/users/${id}/subscription`, { months })
+    return response.data
+  },
 
   // ── Transactions ──────────────────────────
   async getTransactions(params = {}) {

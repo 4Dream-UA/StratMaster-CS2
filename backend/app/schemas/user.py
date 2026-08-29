@@ -57,3 +57,7 @@ class UsersListResponse(BaseModel):
 
 class SetAdminRequest(BaseModel):
     is_admin: bool
+
+
+class AdminGrantSubscriptionRequest(BaseModel):
+    months: int = Field(..., ge=0, le=120, description="0 grants lifetime access")

@@ -32,7 +32,7 @@
               <td>{{ u.wallet.balance_coins }} MC</td>
               <td>
                 <span class="status-pill" :class="isSubscribed(u) ? 'on' : 'off'">
-                  {{ isSubscribed(u) ? 'Active' : 'None' }}
+                  {{ u.wallet.is_lifetime ? 'Lifetime' : (isSubscribed(u) ? 'Active' : 'None') }}
                 </span>
               </td>
               <td>
@@ -41,6 +41,15 @@
                 </span>
               </td>
               <td class="actions">
+                <div class="grant-row">
+                  <input
+                    type="number" min="0" max="120" class="grant-months-input"
+                    v-model.number="grantMonths[u.id]" placeholder="mo."
+                  />
+                  <button class="mini-btn" :disabled="grantBusyId === u.id" @click="grantPremium(u)">
+                    {{ grantBusyId === u.id ? '…' : ((grantMonths[u.id] ?? 0) === 0 ? 'Grant lifetime' : 'Grant') }}
+                  </button>
+                </div>
                 <button class="mini-btn" @click="toggleAdmin(u)">
                   {{ u.is_admin ? 'Revoke admin' : 'Make admin' }}
                 </button>
@@ -78,6 +87,8 @@ const total = ref(0)
 const loading = ref(true)
 const search = ref('')
 const LIMIT = 50
+const grantMonths = ref({})
+const grantBusyId = ref(null)
 
 function isSubscribed(u) {
   const exp = u.wallet?.subscription_expires_at
@@ -98,6 +109,20 @@ let searchTimer = null
 function debouncedSearch() {
   clearTimeout(searchTimer)
   searchTimer = setTimeout(() => load(0, false), 350)
+}
+
+async function grantPremium(u) {
+  const months = grantMonths.value[u.id] ?? 0
+  grantBusyId.value = u.id
+  try {
+    const updated = await adminAPI.grantSubscription(u.id, months)
+    u.wallet = updated.wallet
+    grantMonths.value[u.id] = null
+  } catch (e) {
+    console.warn('[Admin] could not grant subscription:', e.response?.data?.detail)
+  } finally {
+    grantBusyId.value = null
+  }
 }
 
 async function toggleAdmin(user) {
@@ -172,6 +197,13 @@ onMounted(() => {
 .mini-btn:hover { border-color: var(--accent); color: var(--accent); }
 
 .load-more { text-align: center; padding-top: 18px; }
+
+.grant-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; justify-content: flex-end; }
+.grant-months-input {
+  width: 52px; background: var(--bg); border: 1px solid var(--line); border-radius: 7px;
+  padding: 6px 6px; color: var(--text); font-size: 12px; text-align: center;
+}
+.grant-months-input:focus { outline: none; border-color: var(--accent); }
 
 @media (max-width: 640px) {
   .admin-table { display: block; overflow-x: auto; }
