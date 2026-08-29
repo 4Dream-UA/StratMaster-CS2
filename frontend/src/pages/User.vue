@@ -747,6 +747,9 @@ const ICONS = {
     <rect x="3.5" y="4.5" width="17" height="13" rx="1.5" stroke="currentColor" stroke-width="1.6"/>
     <path d="M7 15l3.5-4 2.5 2.5L17 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
   </svg>`,
+  forum: `<svg viewBox="0 0 24 24" fill="none" width="20" height="20">
+    <path d="M4 6h16v9a1 1 0 01-1 1H9l-4 4v-4H5a1 1 0 01-1-1V6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+  </svg>`,
 }
 
 const TABS = [
@@ -756,6 +759,7 @@ const TABS = [
   { key: 'favorites',  label: 'Maps',       icon: ICONS.favorites },
   { key: 'strategies', label: 'Strategies', icon: ICONS.strategies },
   { key: 'board',      label: 'My Board',   icon: ICONS.board, to: '/boards' },
+  { key: 'forum',      label: 'Forum',      icon: ICONS.forum, to: '/forum' },
 ]
 </script>
 
