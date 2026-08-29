@@ -2,11 +2,11 @@
   <div class="tactics-player">
     <div class="tp-canvas">
       <img :src="imageUrl" alt="Strategy map" class="tp-image" />
-      <svg class="tp-overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
+      <svg class="tp-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" ref="overlayRef">
         <!-- landed grenade markers (persist once thrown) -->
         <g v-for="(g, i) in trajectoryGrenades" :key="'land'+i">
           <g v-if="grenadeState(g, currentTime) === 'landed'" :transform="`translate(${g.to_x},${g.to_y})`" class="tp-landed">
-            <circle r="2.4" :fill="grenadeColor(g.grenade_type)" fill-opacity="0.18" :stroke="grenadeColor(g.grenade_type)" stroke-width="0.4" />
+            <circle :r="grenadeEffectRadius(g.grenade_type)" :fill="grenadeColor(g.grenade_type)" fill-opacity="0.18" :stroke="grenadeColor(g.grenade_type)" stroke-width="0.4" />
             <circle r="0.6" :fill="grenadeColor(g.grenade_type)" />
           </g>
         </g>
@@ -60,12 +60,21 @@
           @click="speed = s"
         >{{ s }}×</button>
       </div>
+
+      <button type="button" class="tp-export-btn" :disabled="exporting" @click="exportImage" aria-label="Export as image">
+        <svg viewBox="0 0 20 20" width="15" height="15" fill="none">
+          <path d="M10 3v10M6 9l4 4 4-4M4 16h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        {{ exporting ? '…' : 'Export' }}
+      </button>
     </div>
+    <p v-if="exportError" class="tp-export-error">{{ exportError }}</p>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onUnmounted } from 'vue'
+import { grenadeColor, grenadeEffectRadius } from '../utils/grenadeLabels'
 
 const props = defineProps({
   imageUrl: { type: String, required: true },
@@ -73,15 +82,62 @@ const props = defineProps({
   playerPaths: { type: Array, default: () => [] },
 })
 
+// ── Export current view as a PNG ──────────────────────────────────
+const overlayRef = ref(null)
+const exporting = ref(false)
+const exportError = ref('')
+
+function loadImage(src, crossOrigin) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    if (crossOrigin) img.crossOrigin = crossOrigin
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = src
+  })
+}
+
+async function exportImage() {
+  if (exporting.value) return
+  exporting.value = true
+  exportError.value = ''
+  try {
+    const baseImg = await loadImage(props.imageUrl, 'anonymous')
+
+    const canvas = document.createElement('canvas')
+    canvas.width = baseImg.naturalWidth || 1280
+    canvas.height = baseImg.naturalHeight || 720
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(baseImg, 0, 0, canvas.width, canvas.height)
+
+    // Snapshot the overlay exactly as currently rendered (whatever point in
+    // the playback the scrubber is at).
+    const svgString = new XMLSerializer().serializeToString(overlayRef.value)
+    const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString)
+    const overlayImg = await loadImage(svgUrl)
+    ctx.drawImage(overlayImg, 0, 0, canvas.width, canvas.height)
+
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'))
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'stratmaster-strategy.png'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    // Most likely cause: the map image isn't same-origin (an admin pasted
+    // an external URL instead of uploading it), which taints the canvas
+    // and blocks reading it back out as a PNG.
+    exportError.value = 'Could not export — this image must be hosted on StratMaster (uploaded, not linked) to export.'
+  } finally {
+    exporting.value = false
+  }
+}
+
 const FLIGHT_DURATION = 1.2
 const TAIL_BUFFER = 2
-
-const GRENADE_COLORS = {
-  Smoke: '#c7c9cf', Flashbang: '#ffe98a', Molotov: '#ff6b3d', HE: '#ff9a00', Decoy: '#7fa8ff',
-}
-function grenadeColor(type) {
-  return GRENADE_COLORS[type] || '#ff9a00'
-}
 
 const trajectoryGrenades = computed(() =>
   props.grenades.filter(g => g.from_x != null && g.from_y != null && g.to_x != null && g.to_y != null)
@@ -240,6 +296,18 @@ onUnmounted(() => { if (rafId) cancelAnimationFrame(rafId) })
   color: var(--text-dim); font-size: 11px; font-weight: 700; cursor: pointer; transition: all .15s;
 }
 .tp-speed-btn.active { background: rgba(255,154,0,.14); border-color: var(--accent); color: var(--accent); }
+
+.tp-export-btn {
+  display: flex; align-items: center; gap: 5px; flex-shrink: 0;
+  padding: 6px 11px; border-radius: 7px; background: var(--bg); border: 1px solid var(--line);
+  color: var(--text-dim); font-size: 11px; font-weight: 700; cursor: pointer; transition: all .15s;
+}
+.tp-export-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.tp-export-btn:disabled { opacity: .6; cursor: wait; }
+.tp-export-error {
+  font-size: 11.5px; color: var(--danger); font-weight: 600;
+  background: var(--bg-elevated); padding: 8px 16px; margin: 0;
+}
 
 @media (max-width: 460px) {
   .tp-controls { flex-wrap: wrap; }

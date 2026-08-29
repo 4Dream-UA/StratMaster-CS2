@@ -30,8 +30,14 @@
               v-if="hasTrajectory(g)" :cx="g.from_x" :cy="g.from_y" r="1.3" fill="#ff9a00"
               class="te-handle" @pointerdown="startGrenadeDrag($event, g, 'from')"
             />
+            <!-- effect zone at the landing point — sized per grenade type -->
             <circle
-              v-if="hasTrajectory(g)" :cx="g.to_x" :cy="g.to_y" r="1.1" fill="none" stroke="#ff9a00" stroke-width="0.5"
+              v-if="hasTrajectory(g)" :cx="g.to_x" :cy="g.to_y" :r="grenadeEffectRadius(g.grenade_type)"
+              :fill="grenadeColor(g.grenade_type)" fill-opacity="0.16" :stroke="grenadeColor(g.grenade_type)" stroke-width="0.3"
+              class="te-zone"
+            />
+            <circle
+              v-if="hasTrajectory(g)" :cx="g.to_x" :cy="g.to_y" r="1.1" :fill="grenadeColor(g.grenade_type)"
               class="te-handle" @pointerdown="startGrenadeDrag($event, g, 'to')"
             />
           </g>
@@ -105,7 +111,7 @@
 
 <script setup>
 import { ref, onBeforeUnmount } from 'vue'
-import { grenadeTypeLabel } from '../utils/grenadeLabels'
+import { grenadeTypeLabel, grenadeColor, grenadeEffectRadius } from '../utils/grenadeLabels'
 
 const props = defineProps({
   imageUrl: { type: String, default: null },
