@@ -1,5 +1,6 @@
-from backend.app.db.models import PromoCodeModel
-from backend.tests.factories import make_user
+from backend.app.db.models import CaseInventoryModel, PromoCodeModel
+from backend.tests.factories import make_case, make_user
+from sqlalchemy import select
 
 
 async def _make_promo(db_session, *, code="WELCOME25", coin_reward=25, activations_limit=100):
@@ -70,3 +71,71 @@ async def test_redeem_deactivates_code_once_limit_is_reached(client, db_session,
 
     await db_session.refresh(promo)
     assert promo.is_active is False
+
+
+async def test_redeem_premium_days_promo_extends_subscription(client, db_session, auth_as):
+    user = await make_user(db_session)
+    auth_as(user)
+    promo = PromoCodeModel(code="PREMIUM30", coin_reward=0, reward_type="premium", premium_days=30, activations_limit=100, used_count=0)
+    db_session.add(promo)
+    await db_session.commit()
+
+    resp = await client.post("/api/promo/redeem", json={"code": "PREMIUM30"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["reward_type"] == "premium"
+    assert body["premium_days"] == 30
+    assert body["is_lifetime"] is False
+    assert body["new_subscription_expires_at"] is not None
+
+
+async def test_redeem_zero_days_premium_promo_grants_lifetime(client, db_session, auth_as):
+    user = await make_user(db_session)
+    auth_as(user)
+    promo = PromoCodeModel(code="FOREVER", coin_reward=0, reward_type="premium", premium_days=0, activations_limit=100, used_count=0)
+    db_session.add(promo)
+    await db_session.commit()
+
+    resp = await client.post("/api/promo/redeem", json={"code": "FOREVER"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["is_lifetime"] is True
+
+
+async def test_redeem_case_promo_adds_to_inventory(client, db_session, auth_as):
+    user = await make_user(db_session)
+    auth_as(user)
+    case = await make_case(db_session, name="Promo Case")
+    promo = PromoCodeModel(
+        code="FREECASE", coin_reward=0, reward_type="case", case_id=case.id, case_quantity=2,
+        activations_limit=100, used_count=0,
+    )
+    db_session.add(promo)
+    await db_session.commit()
+
+    resp = await client.post("/api/promo/redeem", json={"code": "FREECASE"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["reward_type"] == "case"
+    assert body["case_quantity"] == 2
+    assert body["case_name"] == "Promo Case"
+
+    result = await db_session.execute(
+        select(CaseInventoryModel).where(CaseInventoryModel.user_id == user.id, CaseInventoryModel.case_id == case.id)
+    )
+    assert len(result.scalars().all()) == 2
+
+
+async def test_redeem_case_promo_rejects_when_case_deactivated(client, db_session, auth_as):
+    user = await make_user(db_session)
+    auth_as(user)
+    case = await make_case(db_session, name="Retired Case", is_active=False)
+    promo = PromoCodeModel(
+        code="DEADCASE", coin_reward=0, reward_type="case", case_id=case.id, case_quantity=1,
+        activations_limit=100, used_count=0,
+    )
+    db_session.add(promo)
+    await db_session.commit()
+
+    resp = await client.post("/api/promo/redeem", json={"code": "DEADCASE"})
+    assert resp.status_code == 400

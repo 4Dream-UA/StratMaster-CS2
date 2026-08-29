@@ -4,7 +4,8 @@ from sqlalchemy import func, select
 
 from backend.app.api.deps import CurrentUser, DBSession
 from backend.app.core.rate_limit import rate_limit
-from backend.app.db.models import PromoCodeModel, PromoRedemptionModel, TransactionModel, WalletModel
+from backend.app.db.models import CaseInventoryModel, CaseModel, PromoCodeModel, PromoRedemptionModel, TransactionModel, WalletModel
+from backend.app.services.subscription import grant_premium_days
 
 router = APIRouter()
 
@@ -54,7 +55,30 @@ async def redeem_promo_code(
     )
     wallet = result.scalar_one()
 
-    wallet.balance_coins += promo.coin_reward
+    case = None
+    if promo.reward_type == "case":
+        if promo.case_id is not None:
+            case = await db.get(CaseModel, promo.case_id)
+        if case is None or not case.is_active:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This promo code's reward is no longer available")
+
+    response: dict = {"success": True, "reward_type": promo.reward_type}
+
+    if promo.reward_type == "premium":
+        new_expiry = grant_premium_days(wallet, promo.premium_days)
+        response["premium_days"] = promo.premium_days
+        response["new_subscription_expires_at"] = new_expiry.isoformat()
+        response["is_lifetime"] = wallet.is_lifetime
+    elif promo.reward_type == "case":
+        for _ in range(promo.case_quantity):
+            db.add(CaseInventoryModel(user_id=current_user.id, case_id=case.id))
+        response["case_name"] = case.name
+        response["case_quantity"] = promo.case_quantity
+    else:
+        wallet.balance_coins += promo.coin_reward
+        response["coins_awarded"] = promo.coin_reward
+        response["new_balance"] = wallet.balance_coins
+
     promo.used_count += 1
     if promo.activations_limit is not None and promo.used_count >= promo.activations_limit:
         promo.is_active = False
@@ -67,14 +91,10 @@ async def redeem_promo_code(
     db.add(TransactionModel(
         sender_wallet_id=None,
         receiver_wallet_id=wallet.wallet_id,
-        amount=promo.coin_reward,
+        amount=promo.coin_reward if promo.reward_type == "coins" else 0,
         transaction_type="promo_code",
     ))
 
     await db.commit()
 
-    return {
-        "success": True,
-        "coins_awarded": promo.coin_reward,
-        "new_balance": wallet.balance_coins,
-    }
+    return response

@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from backend.app.api.deps import AdminUser, DBSession
 from backend.app.db.models import (
     BuyTagModel,
+    CaseModel,
     GrenadeModel,
     ImageModel,
     MapModel,
@@ -286,7 +287,7 @@ async def admin_list_promo_codes(
     limit: int = Query(5, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    query = select(PromoCodeModel)
+    query = select(PromoCodeModel).options(selectinload(PromoCodeModel.case))
     count_query = select(func.count()).select_from(PromoCodeModel)
 
     if search:
@@ -295,7 +296,16 @@ async def admin_list_promo_codes(
 
     total = (await db.execute(count_query)).scalar() or 0
     result = await db.execute(query.order_by(PromoCodeModel.code).limit(limit).offset(offset))
-    return PromoCodesListResponse(total=total, promo_codes=result.scalars().all())
+    return PromoCodesListResponse(total=total, promo_codes=[_promo_out(p) for p in result.scalars().all()])
+
+
+def _promo_out(promo: PromoCodeModel) -> PromoCodeOut:
+    return PromoCodeOut(
+        id=promo.id, code=promo.code, reward_type=promo.reward_type, coin_reward=promo.coin_reward,
+        premium_days=promo.premium_days, case_id=promo.case_id, case_quantity=promo.case_quantity,
+        case_name=promo.case.name if promo.case else None,
+        is_active=promo.is_active, activations_limit=promo.activations_limit, used_count=promo.used_count,
+    )
 
 
 @router.post("/admin/promo-codes", response_model=PromoCodeOut, status_code=status.HTTP_201_CREATED)
@@ -306,9 +316,19 @@ async def admin_create_promo_code(payload: PromoCodeCreate, db: DBSession, admin
     if existing.scalar_one_or_none() is not None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This code already exists")
 
+    case = None
+    if payload.reward_type == "case":
+        case = await db.get(CaseModel, payload.case_id)
+        if case is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found")
+
     promo = PromoCodeModel(
         code=code,
-        coin_reward=payload.coin_reward,
+        reward_type=payload.reward_type,
+        coin_reward=payload.coin_reward if payload.reward_type == "coins" else 0,
+        premium_days=payload.premium_days if payload.reward_type == "premium" else None,
+        case_id=payload.case_id if payload.reward_type == "case" else None,
+        case_quantity=payload.case_quantity,
         activations_limit=payload.activations_limit,
         is_active=True,
         used_count=0,
@@ -316,18 +336,22 @@ async def admin_create_promo_code(payload: PromoCodeCreate, db: DBSession, admin
     db.add(promo)
     await db.commit()
     await db.refresh(promo)
-    return promo
+    promo.case = case
+    return _promo_out(promo)
 
 
 @router.patch("/admin/promo-codes/{promo_id}", response_model=PromoCodeOut)
 async def admin_toggle_promo_code(promo_id: uuid.UUID, payload: PromoCodeToggle, db: DBSession, admin_user: AdminUser):
-    promo = await db.get(PromoCodeModel, promo_id)
+    result = await db.execute(
+        select(PromoCodeModel).options(selectinload(PromoCodeModel.case)).where(PromoCodeModel.id == promo_id)
+    )
+    promo = result.scalar_one_or_none()
     if promo is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promo code not found")
     promo.is_active = payload.is_active
     await db.commit()
-    await db.refresh(promo)
-    return promo
+    await db.refresh(promo, attribute_names=["is_active"])
+    return _promo_out(promo)
 
 
 # ─────────────────────────────────────────────

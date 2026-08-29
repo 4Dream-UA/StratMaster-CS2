@@ -1,5 +1,5 @@
 from backend.app.db.models import GrenadeModel, ImageModel
-from backend.tests.factories import make_map, make_strategy, make_user
+from backend.tests.factories import make_case, make_map, make_strategy, make_user
 from sqlalchemy import select
 
 
@@ -100,6 +100,61 @@ async def test_admin_generates_promo_code(client, db_session, auth_as):
     body = resp.json()
     assert len(body["code"]) == 8
     assert body["coin_reward"] == 50
+
+
+async def test_admin_generates_premium_promo_code(client, db_session, auth_as):
+    admin = await make_user(db_session, is_admin=True)
+    auth_as(admin)
+
+    resp = await client.post(
+        "/api/admin/promo-codes",
+        json={"code": "PREMDAYS", "reward_type": "premium", "premium_days": 14, "activations_limit": 10},
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["reward_type"] == "premium"
+    assert body["premium_days"] == 14
+    assert body["coin_reward"] == 0
+
+
+async def test_admin_generates_case_promo_code(client, db_session, auth_as):
+    admin = await make_user(db_session, is_admin=True)
+    auth_as(admin)
+    case = await make_case(db_session, name="Giveaway Case")
+
+    resp = await client.post(
+        "/api/admin/promo-codes",
+        json={"code": "CASEDROP", "reward_type": "case", "case_id": str(case.id), "case_quantity": 3, "activations_limit": 10},
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["reward_type"] == "case"
+    assert body["case_id"] == str(case.id)
+    assert body["case_name"] == "Giveaway Case"
+    assert body["case_quantity"] == 3
+
+
+async def test_admin_promo_code_requires_matching_reward_fields(client, db_session, auth_as):
+    admin = await make_user(db_session, is_admin=True)
+    auth_as(admin)
+
+    resp = await client.post(
+        "/api/admin/promo-codes",
+        json={"code": "BADPREM", "reward_type": "premium", "activations_limit": 10},
+    )
+    assert resp.status_code == 422
+
+
+async def test_admin_promo_code_rejects_missing_case(client, db_session, auth_as):
+    admin = await make_user(db_session, is_admin=True)
+    auth_as(admin)
+    fake_id = "00000000-0000-0000-0000-000000000000"
+
+    resp = await client.post(
+        "/api/admin/promo-codes",
+        json={"code": "NOSUCHCASE", "reward_type": "case", "case_id": fake_id, "case_quantity": 1, "activations_limit": 10},
+    )
+    assert resp.status_code == 404
 
 
 async def test_admin_cannot_revoke_own_admin_access(client, db_session, auth_as):

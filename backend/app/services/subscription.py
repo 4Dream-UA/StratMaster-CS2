@@ -71,3 +71,21 @@ def extend_subscription(wallet, plan: str, months: int | None) -> datetime:
     # able to fire again for this new date.
     wallet.reminder_sent_for_expiry = None
     return new_expiry
+
+
+def grant_premium_days(wallet, days: int) -> datetime:
+    """Day-granularity variant of extend_subscription, used by promo code
+    rewards. days == 0 means lifetime access, matching the ТЗ (any number
+    of days, 0 = forever)."""
+    now = datetime.now(timezone.utc)
+    if days == 0:
+        new_expiry = now + timedelta(days=365 * LIFETIME_YEARS)
+        wallet.is_lifetime = True
+        wallet.last_plan_months = None
+    else:
+        base = wallet.subscription_expires_at if (wallet.subscription_expires_at and wallet.subscription_expires_at > now) else now
+        new_expiry = base + timedelta(days=days)
+
+    wallet.subscription_expires_at = new_expiry
+    wallet.reminder_sent_for_expiry = None
+    return new_expiry

@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from backend.app.db.models import GrenadeTypeEnum, PlantEnum, SideEnum, SpeedEnum
 from backend.app.schemas.annotations import Annotations
 
@@ -160,8 +160,22 @@ class MapUpdate(BaseModel):
 
 class PromoCodeCreate(BaseModel):
     code: str | None = Field(None, min_length=4, max_length=32, description="Leave empty to auto-generate")
-    coin_reward: int = Field(..., gt=0)
+    reward_type: str = Field("coins", pattern="^(coins|premium|case)$")
+    coin_reward: int = Field(0, ge=0, description="Required (>0) when reward_type is 'coins'")
+    premium_days: int | None = Field(None, ge=0, description="Required when reward_type is 'premium'. 0 = lifetime")
+    case_id: uuid.UUID | None = Field(None, description="Required when reward_type is 'case'")
+    case_quantity: int = Field(1, gt=0)
     activations_limit: int = Field(100, gt=0)
+
+    @model_validator(mode="after")
+    def _validate_reward_fields(self):
+        if self.reward_type == "coins" and self.coin_reward <= 0:
+            raise ValueError("coin_reward must be greater than 0 for a coins reward")
+        if self.reward_type == "premium" and self.premium_days is None:
+            raise ValueError("premium_days is required for a premium reward")
+        if self.reward_type == "case" and self.case_id is None:
+            raise ValueError("case_id is required for a case reward")
+        return self
 
 
 class PromoCodeToggle(BaseModel):
@@ -171,7 +185,12 @@ class PromoCodeToggle(BaseModel):
 class PromoCodeOut(BaseModel):
     id: uuid.UUID
     code: str
+    reward_type: str
     coin_reward: int
+    premium_days: int | None
+    case_id: uuid.UUID | None
+    case_quantity: int
+    case_name: str | None = None
     is_active: bool
     activations_limit: int
     used_count: int

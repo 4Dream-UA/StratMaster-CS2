@@ -808,8 +808,18 @@ async function redeemPromo() {
   try {
     const res = await promoAPI.redeem(promoCode.value.trim())
     promoSuccess.value = true
-    promoMessage.value = `+${res.coins_awarded} MasterCoins added!`
-    if (wallet.value) wallet.value.balance_coins = res.new_balance
+    if (res.reward_type === 'premium') {
+      promoMessage.value = res.is_lifetime ? 'Lifetime Premium activated!' : `+${res.premium_days} days of Premium activated!`
+      if (wallet.value) {
+        wallet.value.subscription_expires_at = res.new_subscription_expires_at
+        wallet.value.is_lifetime = res.is_lifetime
+      }
+    } else if (res.reward_type === 'case') {
+      promoMessage.value = `You received ${res.case_quantity}× ${res.case_name}! Check your Cases inventory.`
+    } else {
+      promoMessage.value = `+${res.coins_awarded} MasterCoins added!`
+      if (wallet.value) wallet.value.balance_coins = res.new_balance
+    }
     promoCode.value = ''
   } catch (e) {
     promoSuccess.value = false

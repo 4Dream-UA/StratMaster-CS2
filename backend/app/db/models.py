@@ -197,6 +197,18 @@ class PromoCodeModel(Base):
     activations_limit: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     used_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
+    # "coins" (default/legacy) | "premium" | "case"
+    reward_type: Mapped[str] = mapped_column(String(16), default="coins", server_default="coins", nullable=False)
+    # Used when reward_type == "premium". 0 means lifetime/forever.
+    premium_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Used when reward_type == "case".
+    case_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("cases.id", ondelete="SET NULL"), nullable=True
+    )
+    case_quantity: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+
+    case: Mapped["CaseModel | None"] = relationship("CaseModel")
+
 
 class PromoRedemptionModel(Base):
     """Tracks which user redeemed which promo code — enforces one redemption per user per code."""

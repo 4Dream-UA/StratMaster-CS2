@@ -17,22 +17,50 @@
 
       <section class="form-card">
         <h3>Generate a code</h3>
+        <div class="reward-type-toggle">
+          <button
+            v-for="rt in REWARD_TYPES" :key="rt.value" type="button"
+            class="reward-type-btn" :class="{ active: form.reward_type === rt.value }"
+            @click="form.reward_type = rt.value"
+          >{{ rt.label }}</button>
+        </div>
         <div class="form-grid">
           <label class="field">
             <span>Code (optional)</span>
             <input v-model="form.code" type="text" placeholder="Auto-generated if empty" />
           </label>
-          <label class="field">
+
+          <label v-if="form.reward_type === 'coins'" class="field">
             <span>Coin reward</span>
             <input v-model.number="form.coin_reward" type="number" min="1" placeholder="25" />
           </label>
+
+          <label v-if="form.reward_type === 'premium'" class="field">
+            <span>Premium days (0 = forever)</span>
+            <input v-model.number="form.premium_days" type="number" min="0" placeholder="30" />
+          </label>
+
+          <template v-if="form.reward_type === 'case'">
+            <label class="field">
+              <span>Case</span>
+              <select v-model="form.case_id">
+                <option value="" disabled>Select a case…</option>
+                <option v-for="c in cases" :key="c.id" :value="c.id">{{ c.name }}</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Quantity per redemption</span>
+              <input v-model.number="form.case_quantity" type="number" min="1" placeholder="1" />
+            </label>
+          </template>
+
           <label class="field">
             <span>Activation limit</span>
             <input v-model.number="form.activations_limit" type="number" min="1" placeholder="100" />
           </label>
         </div>
         <div class="form-actions">
-          <button class="btn-primary" :disabled="!form.coin_reward || saving" @click="createPromo">
+          <button class="btn-primary" :disabled="!canSubmit || saving" @click="createPromo">
             {{ saving ? 'Saving…' : 'Generate' }}
           </button>
           <p v-if="errorMsg" class="err">{{ errorMsg }}</p>
@@ -53,7 +81,7 @@
           <tbody>
             <tr v-for="p in promoCodes" :key="p.id">
               <td class="mono">{{ p.code }}</td>
-              <td>{{ p.coin_reward }} MC</td>
+              <td>{{ rewardLabel(p) }}</td>
               <td>{{ p.used_count }} / {{ p.activations_limit }}</td>
               <td>
                 <span class="status-pill" :class="p.is_active ? 'on' : 'off'">
@@ -81,11 +109,12 @@
 </template>
 
 <script setup>
-import { ref, reactive, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '../store/user'
 import { adminAPI } from '../api/admin'
+import { casesAPI } from '../api/cases'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
 import Pagination from '../components/Pagination.vue'
@@ -93,6 +122,7 @@ import Pagination from '../components/Pagination.vue'
 const router = useRouter()
 const { user } = storeToRefs(useUserStore())
 const promoCodes = ref([])
+const cases = ref([])
 const loading = ref(true)
 const saving = ref(false)
 const errorMsg = ref('')
@@ -102,7 +132,30 @@ const page = ref(1)
 const total = ref(0)
 const search = ref('')
 
-const form = reactive({ code: '', coin_reward: 25, activations_limit: 100 })
+const REWARD_TYPES = [
+  { value: 'coins', label: 'MasterCoins' },
+  { value: 'premium', label: 'Premium' },
+  { value: 'case', label: 'Case' },
+]
+
+const form = reactive({
+  code: '', reward_type: 'coins',
+  coin_reward: 25, premium_days: 30, case_id: '', case_quantity: 1,
+  activations_limit: 100,
+})
+
+const canSubmit = computed(() => {
+  if (form.reward_type === 'coins') return !!form.coin_reward
+  if (form.reward_type === 'premium') return form.premium_days !== null && form.premium_days >= 0
+  if (form.reward_type === 'case') return !!form.case_id && !!form.case_quantity
+  return false
+})
+
+function rewardLabel(p) {
+  if (p.reward_type === 'premium') return p.premium_days === 0 ? 'Lifetime Premium' : `${p.premium_days}d Premium`
+  if (p.reward_type === 'case') return `${p.case_quantity}× ${p.case_name || 'Case'}`
+  return `${p.coin_reward} MC`
+}
 
 async function load() {
   loading.value = true
@@ -124,17 +177,24 @@ watch(search, () => {
 })
 
 async function createPromo() {
-  if (!form.coin_reward) return
+  if (!canSubmit.value) return
   saving.value = true
   errorMsg.value = ''
   try {
     await adminAPI.createPromoCode({
       code: form.code.trim() || null,
-      coin_reward: form.coin_reward,
+      reward_type: form.reward_type,
+      coin_reward: form.reward_type === 'coins' ? form.coin_reward : 0,
+      premium_days: form.reward_type === 'premium' ? form.premium_days : null,
+      case_id: form.reward_type === 'case' ? form.case_id : null,
+      case_quantity: form.case_quantity || 1,
       activations_limit: form.activations_limit || 100,
     })
     form.code = ''
     form.coin_reward = 25
+    form.premium_days = 30
+    form.case_id = ''
+    form.case_quantity = 1
     form.activations_limit = 100
     await load()
   } catch (e) {
@@ -154,9 +214,10 @@ async function toggle(promo) {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   if (!user.value?.is_admin) { router.replace('/user'); return }
   load()
+  cases.value = await casesAPI.list()
 })
 </script>
 
@@ -186,14 +247,22 @@ onMounted(() => {
 }
 .form-card h3 { font-size: 15px; font-weight: 700; margin-bottom: 16px; }
 
+.reward-type-toggle { display: flex; gap: 8px; margin-bottom: 16px; }
+.reward-type-btn {
+  background: var(--bg); border: 1px solid var(--line); color: var(--text-dim);
+  padding: 8px 16px; border-radius: 8px; font-size: 12.5px; font-weight: 700; cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+.reward-type-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(255,154,0,.1); }
+
 .form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 16px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field span { font-size: 11px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
-.field input {
+.field input, .field select {
   background: var(--bg); border: 1px solid var(--line); border-radius: 9px;
   padding: 10px 12px; color: var(--text); font-size: 13.5px; font-family: inherit;
 }
-.field input:focus { outline: none; border-color: var(--accent); }
+.field input:focus, .field select:focus { outline: none; border-color: var(--accent); }
 
 .form-actions { display: flex; align-items: center; gap: 14px; }
 .err { color: var(--danger); font-size: 12.5px; font-weight: 600; margin: 0; }
