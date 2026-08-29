@@ -16,7 +16,12 @@
       <!-- ── PROFILE HEADER ───────────────────────────── -->
       <section class="profile-card">
         <div class="profile-row">
-          <div class="avatar">{{ initials }}</div>
+          <label class="avatar" :class="{ uploadable: isSubscribed || isLifetime }">
+            <img v-if="user?.avatar_url" :src="user.avatar_url" alt="" class="avatar-img" />
+            <span v-else>{{ initials }}</span>
+            <span v-if="isSubscribed || isLifetime" class="avatar-edit-badge">{{ avatarUploading ? '…' : '✎' }}</span>
+            <input v-if="isSubscribed || isLifetime" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden @change="onAvatarChange" />
+          </label>
           <div class="profile-info">
             <div class="name-line">
               <h1>{{ user?.username ? '@' + user.username : 'Guest' }}</h1>
@@ -194,6 +199,24 @@
           </form>
 
           <p v-if="p2pMessage" class="panel-message" :class="p2pSuccess ? 'success' : 'error'">{{ p2pMessage }}</p>
+
+          <div class="block-section">
+            <h4>Blocked players</h4>
+            <p class="panel-desc">Stop a specific player from sending you transfers, case gifts or sale offers.</p>
+            <form class="block-form" @submit.prevent="blockPlayer">
+              <input v-model="blockWalletId" type="text" placeholder="Wallet ID to block" class="p2p-input" autocomplete="off" spellcheck="false" :disabled="blockBusy" />
+              <button type="submit" class="mini-btn" :disabled="blockBusy || !blockWalletId">Block</button>
+            </form>
+            <p v-if="blockError" class="panel-message error">{{ blockError }}</p>
+
+            <div v-if="blockedList.length" class="blocked-list">
+              <div v-for="b in blockedList" :key="b.wallet_id" class="blocked-row">
+                <span>{{ b.username ? '@' + b.username : b.wallet_id }}</span>
+                <button class="mini-btn danger" @click="unblockPlayer(b.wallet_id)">Unblock</button>
+              </div>
+            </div>
+            <p v-else class="favorites-placeholder">No one blocked.</p>
+          </div>
         </section>
 
         <section v-else-if="activeTab === 'favorites'" key="favorites" class="panel-wrap panel-card">
@@ -398,6 +421,8 @@ import { subscriptionAPI } from '../api/subscription'
 import { walletAPI } from '../api/wallet'
 import { paymentsAPI } from '../api/payments'
 import { favoritesAPI } from '../api/favorites'
+import { authAPI } from '../api/auth'
+import { forumAPI } from '../api/forum'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
 import ReferralSection from '../components/ReferralSection.vue'
@@ -422,6 +447,7 @@ function toggleTab(key) {
   activeTab.value = activeTab.value === key ? null : key
   if (activeTab.value === 'favorites' && !favoritesLoaded.value) loadFavorites()
   if (activeTab.value === 'strategies' && !favStrategiesLoaded.value) loadFavStrategies()
+  if (activeTab.value === 'p2p' && !blockedList.value.length) loadBlocked()
 }
 
 // ── Favorite maps ──────────────────────────────────────────────
@@ -710,6 +736,60 @@ async function sendGift() {
   }
 }
 
+// ── Trade blocking ────────────────────────────────
+const blockedList = ref([])
+const blockWalletId = ref('')
+const blockBusy = ref(false)
+const blockError = ref('')
+
+async function loadBlocked() {
+  try {
+    blockedList.value = await walletAPI.listBlocked()
+  } catch (e) {
+    // Not critical to the page.
+  }
+}
+
+async function blockPlayer() {
+  if (!blockWalletId.value.trim() || blockBusy.value) return
+  blockBusy.value = true
+  blockError.value = ''
+  try {
+    await walletAPI.block(blockWalletId.value.trim())
+    blockWalletId.value = ''
+    await loadBlocked()
+  } catch (e) {
+    blockError.value = e.response?.data?.detail || 'Could not block that wallet ID.'
+  } finally {
+    blockBusy.value = false
+  }
+}
+
+async function unblockPlayer(walletId) {
+  await walletAPI.unblock(walletId)
+  await loadBlocked()
+}
+
+// ── Avatar upload (premium only) ──────────────────────────────────
+const avatarUploading = ref(false)
+
+async function onAvatarChange(e) {
+  const file = e.target.files[0]
+  e.target.value = ''
+  if (!file || avatarUploading.value) return
+
+  avatarUploading.value = true
+  try {
+    const uploaded = await forumAPI.uploadImage(file)
+    const updated = await authAPI.updateAvatar(uploaded.url)
+    if (user.value) user.value.avatar_url = updated.avatar_url
+  } catch (e) {
+    console.warn('[User] avatar upload failed:', e.response?.data?.detail)
+  } finally {
+    avatarUploading.value = false
+  }
+}
+
 function copy(text, field) {
   if (!text) return
   navigator.clipboard.writeText(text).then(() => {
@@ -803,11 +883,21 @@ const TABS = [
 .profile-row { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
 
 .avatar {
+  position: relative;
   width: 48px; height: 48px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
   color: #14140f; font-size: 19px; font-weight: 900;
-  flex-shrink: 0;
+  flex-shrink: 0; overflow: hidden;
+}
+.avatar-img { width: 100%; height: 100%; object-fit: cover; }
+.avatar.uploadable { cursor: pointer; }
+.avatar-edit-badge {
+  position: absolute; bottom: -2px; right: -2px;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--bg-elevated); border: 2px solid var(--bg);
+  color: var(--accent); font-size: 9px;
+  display: flex; align-items: center; justify-content: center;
 }
 
 .profile-info { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
@@ -1090,6 +1180,27 @@ const TABS = [
 .p2p-select { flex-basis: 220px; }
 .p2p-submit { font-size: 13px; padding: 11px 18px; flex-shrink: 0; }
 .p2p-submit:disabled { opacity: .5; cursor: not-allowed; }
+
+.block-section { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
+.block-section h4 { font-size: 13.5px; font-weight: 800; color: var(--text); margin-bottom: 4px; }
+.block-form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.block-form .p2p-input { flex: 1; min-width: 160px; }
+.blocked-list { display: flex; flex-direction: column; gap: 6px; }
+.blocked-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 9px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+  font-size: 13px; color: var(--text);
+}
+
+.mini-btn {
+  background: linear-gradient(160deg, var(--bg-elevated), var(--bg)); border: 1px solid var(--line); color: var(--text-dim);
+  padding: 7px 13px; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,.18);
+  transition: border-color .15s, color .15s, transform .15s, box-shadow .15s; white-space: nowrap;
+}
+.mini-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); box-shadow: 0 4px 14px -4px rgba(255,154,0,.4); transform: translateY(-1px); }
+.mini-btn:disabled { opacity: .5; cursor: not-allowed; }
+.mini-btn.danger:hover { border-color: var(--danger); color: var(--danger); box-shadow: 0 4px 14px -4px rgba(235,75,75,.4); }
 
 .favorites-placeholder {
   padding: 20px 0; text-align: center;

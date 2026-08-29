@@ -22,7 +22,7 @@
         <div class="post-list">
           <div v-for="p in thread.posts" :key="p.id" class="post-card" :class="{ staff: p.author_is_admin }">
             <div class="post-sidebar">
-              <Avatar :username="p.author_username" :is-admin="p.author_is_admin" :size="46" />
+              <Avatar :username="p.author_username" :avatar-url="p.author_avatar_url" :is-admin="p.author_is_admin" :size="46" />
               <span class="post-username">{{ p.author_username ? '@' + p.author_username : 'Player' }}</span>
             </div>
             <div class="post-main">
@@ -57,10 +57,19 @@ function hashHue(str) {
   return Math.abs(hash) % 360
 }
 const Avatar = {
-  props: { username: { type: String, default: null }, isAdmin: { type: Boolean, default: false }, size: { type: Number, default: 36 } },
+  props: {
+    username: { type: String, default: null }, avatarUrl: { type: String, default: null },
+    isAdmin: { type: Boolean, default: false }, size: { type: Number, default: 36 },
+  },
   render() {
     const label = this.username || '?'
     const hue = hashHue(label)
+    if (this.avatarUrl) {
+      return h('div', {
+        class: ['thread-avatar', { 'thread-avatar-admin': this.isAdmin }],
+        style: { width: `${this.size}px`, height: `${this.size}px`, background: 'none' },
+      }, [h('img', { src: this.avatarUrl, alt: '', class: 'thread-avatar-img' })])
+    }
     return h('div', {
       class: ['thread-avatar', { 'thread-avatar-admin': this.isAdmin }],
       style: {
@@ -135,10 +144,11 @@ onMounted(async () => {
 .post-body :deep(code) { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 
 .thread-avatar {
-  position: relative; flex-shrink: 0; border-radius: 50%;
+  position: relative; flex-shrink: 0; border-radius: 50%; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
   color: #fff; font-weight: 800; text-shadow: 0 1px 2px rgba(0,0,0,.35); user-select: none;
 }
+.thread-avatar-img { width: 100%; height: 100%; object-fit: cover; }
 .thread-avatar-admin { box-shadow: 0 0 0 2px var(--accent); }
 
 .cta-row {

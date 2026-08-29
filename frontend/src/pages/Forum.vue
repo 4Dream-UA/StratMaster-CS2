@@ -148,7 +148,7 @@
               :class="{ mine: p.author_id === currentUserId, staff: p.author_is_admin }"
             >
               <div class="post-sidebar">
-                <Avatar :username="p.author_username" :is-admin="p.author_is_admin" :size="46" />
+                <Avatar :username="p.author_username" :avatar-url="p.author_avatar_url" :is-admin="p.author_is_admin" :size="46" />
                 <span class="post-username">{{ p.author_username ? '@' + p.author_username : 'Player' }}</span>
                 <span class="post-role" :class="{ admin: p.author_is_admin }">{{ p.author_is_admin ? 'Admin' : 'Player' }}</span>
               </div>
@@ -182,7 +182,7 @@
               <button class="link-btn" @click="replyingTo = null">cancel</button>
             </div>
             <div class="reply-box-row">
-              <Avatar :username="user?.username" :is-admin="isAdmin" :size="38" />
+              <Avatar :username="user?.username" :avatar-url="user?.avatar_url" :is-admin="isAdmin" :size="38" />
               <MarkdownComposer v-model="replyBody" :rows="3" placeholder="Write a reply…" />
             </div>
             <button class="btn-primary reply-btn" :disabled="!replyBody.trim() || posting" @click="submitReply">
@@ -314,12 +314,22 @@ function hashHue(str) {
 const Avatar = {
   props: {
     username: { type: String, default: null },
+    avatarUrl: { type: String, default: null },
     isAdmin: { type: Boolean, default: false },
     size: { type: Number, default: 36 },
   },
   render() {
     const label = this.username || '?'
     const hue = hashHue(label)
+    if (this.avatarUrl) {
+      return h('div', {
+        class: ['forum-avatar', { 'forum-avatar-admin': this.isAdmin }],
+        style: { width: `${this.size}px`, height: `${this.size}px`, background: 'none' },
+      }, [
+        h('img', { src: this.avatarUrl, alt: '', class: 'forum-avatar-img' }),
+        this.isAdmin ? h('span', { class: 'forum-avatar-badge' }, [h(StarIcon, { size: 8 })]) : null,
+      ])
+    }
     return h('div', {
       class: ['forum-avatar', { 'forum-avatar-admin': this.isAdmin }],
       style: {
@@ -356,7 +366,7 @@ const ThreadRow = {
       }, [h(TrashIcon, { size: 11 })]))
     }
     return h('button', { class: ['thread-row', { pinned: t.is_pinned, closed: t.is_closed }], onClick: () => this.$emit('open') }, [
-      h(Avatar, { username: t.author_username, isAdmin: t.author_is_admin, size: 38 }),
+      h(Avatar, { username: t.author_username, avatarUrl: t.author_avatar_url, isAdmin: t.author_is_admin, size: 38 }),
       h('div', { class: 'thread-row-main' }, [
         h('h4', [
           t.is_pinned ? h(PinIcon, { size: 11, class: 'pin-dot' }) : null,
@@ -854,11 +864,12 @@ onMounted(async () => {
 
 /* ── Generated avatar ─────────────────────────────── */
 .forum-avatar {
-  position: relative; flex-shrink: 0; border-radius: 50%;
+  position: relative; flex-shrink: 0; border-radius: 50%; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
   color: #fff; font-weight: 800; text-shadow: 0 1px 2px rgba(0,0,0,.35);
   user-select: none;
 }
+.forum-avatar-img { width: 100%; height: 100%; object-fit: cover; }
 .forum-avatar-admin { box-shadow: 0 0 0 2px var(--accent); }
 .forum-avatar-badge {
   position: absolute; bottom: -2px; right: -2px;

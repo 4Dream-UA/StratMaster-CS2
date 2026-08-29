@@ -13,4 +13,9 @@ export const authAPI = {
     const response = await apiClient.get('/api/me')
     return response.data
   },
+
+  async updateAvatar(avatarUrl) {
+    const response = await apiClient.patch('/api/me/avatar', { avatar_url: avatarUrl })
+    return response.data
+  },
 }
