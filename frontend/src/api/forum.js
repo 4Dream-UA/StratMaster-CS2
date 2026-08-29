@@ -25,11 +25,19 @@ export const forumAPI = {
     const response = await apiClient.patch(`/api/forum/threads/${id}/pin`, { is_pinned: isPinned })
     return response.data
   },
+  async closeThread(id, isClosed) {
+    const response = await apiClient.patch(`/api/forum/threads/${id}/close`, { is_closed: isClosed })
+    return response.data
+  },
+  async toggleWatch(id) {
+    const response = await apiClient.post(`/api/forum/threads/${id}/watch`)
+    return response.data  // { is_watching }
+  },
   async deleteThread(id) {
     await apiClient.delete(`/api/forum/threads/${id}`)
   },
-  async addPost(id, body) {
-    const response = await apiClient.post(`/api/forum/threads/${id}/posts`, { body })
+  async addPost(id, body, replyToPostId = null) {
+    const response = await apiClient.post(`/api/forum/threads/${id}/posts`, { body, reply_to_post_id: replyToPostId })
     return response.data
   },
   async updatePost(id, body) {
@@ -43,5 +51,20 @@ export const forumAPI = {
       headers: { 'Content-Type': undefined },
     })
     return response.data  // { url }
+  },
+  async createShareLink(id) {
+    const response = await apiClient.post(`/api/forum/threads/${id}/share`)
+    return response.data  // { share_token }
+  },
+  async revokeShareLink(id) {
+    await apiClient.delete(`/api/forum/threads/${id}/share`)
+  },
+  async getShared(token) {
+    const response = await apiClient.get(`/api/forum/shared/${token}`)
+    return response.data
+  },
+  async updateCategory(key, name, description) {
+    const response = await apiClient.patch(`/api/forum/categories/${key}`, { name, description })
+    return response.data
   },
 }

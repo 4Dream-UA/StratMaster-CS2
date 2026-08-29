@@ -210,3 +210,153 @@ async def test_author_can_edit_own_post_but_not_others(client, db_session, auth_
     auth_as(other)
     forbidden = await client.patch(f"/api/forum/posts/{post_id}", json={"body": "Hijacked"})
     assert forbidden.status_code == 403
+
+
+async def test_admin_can_close_and_reopen_a_ticket(client, db_session, auth_as):
+    admin = await make_user(db_session, subscribed=True, is_admin=True)
+    owner = await make_user(db_session, subscribed=True)
+
+    auth_as(owner)
+    ticket = (await _open_ticket(client)).json()
+    assert ticket["is_closed"] is False
+
+    auth_as(admin)
+    close = await client.patch(f"/api/forum/threads/{ticket['id']}/close", json={"is_closed": True})
+    assert close.status_code == 200
+    assert close.json()["is_closed"] is True
+
+    auth_as(owner)
+    forbidden = await client.post(f"/api/forum/threads/{ticket['id']}/posts", json={"body": "still there?"})
+    assert forbidden.status_code == 400
+
+    auth_as(admin)
+    reopen = await client.patch(f"/api/forum/threads/{ticket['id']}/close", json={"is_closed": False})
+    assert reopen.json()["is_closed"] is False
+
+    auth_as(owner)
+    now_allowed = await client.post(f"/api/forum/threads/{ticket['id']}/posts", json={"body": "back"})
+    assert now_allowed.status_code == 201
+
+
+async def test_only_admin_can_close_a_thread(client, db_session, auth_as):
+    owner = await make_user(db_session, subscribed=True)
+    auth_as(owner)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "..."})).json()
+
+    resp = await client.patch(f"/api/forum/threads/{thread['id']}/close", json={"is_closed": True})
+    assert resp.status_code == 403
+
+
+async def test_creating_a_thread_auto_watches_the_author(client, db_session, auth_as):
+    user = await make_user(db_session, subscribed=True)
+    auth_as(user)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "..."})).json()
+    assert thread["is_watching"] is True
+
+
+async def test_toggle_watch(client, db_session, auth_as):
+    owner = await make_user(db_session, subscribed=True)
+    other = await make_user(db_session, subscribed=True)
+    auth_as(owner)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "..."})).json()
+
+    auth_as(other)
+    watch = await client.post(f"/api/forum/threads/{thread['id']}/watch")
+    assert watch.json() == {"is_watching": True}
+
+    detail = await client.get(f"/api/forum/threads/{thread['id']}")
+    assert detail.json()["is_watching"] is True
+
+    unwatch = await client.post(f"/api/forum/threads/{thread['id']}/watch")
+    assert unwatch.json() == {"is_watching": False}
+
+
+async def test_reply_to_post_is_quoted_and_notifies_original_author(client, db_session, auth_as, monkeypatch):
+    sent = []
+
+    async def _fake_notify(telegram_id, text, web_app_url=None):
+        sent.append((telegram_id, text, web_app_url))
+
+    monkeypatch.setattr("backend.app.api.routers.forum.send_telegram_message", _fake_notify)
+
+    author = await make_user(db_session, subscribed=True)
+    replier = await make_user(db_session, subscribed=True)
+
+    auth_as(author)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "Original message"})).json()
+    original_post_id = thread["posts"][0]["id"]
+
+    auth_as(replier)
+    reply = await client.post(
+        f"/api/forum/threads/{thread['id']}/posts",
+        json={"body": "Replying to you", "reply_to_post_id": original_post_id},
+    )
+    assert reply.status_code == 201
+    posts = reply.json()["posts"]
+    assert posts[-1]["reply_to"]["id"] == original_post_id
+    assert posts[-1]["reply_to"]["body_snippet"] == "Original message"
+
+    assert len(sent) == 1
+    assert sent[0][0] == author.telegram_id
+
+
+async def test_reply_to_post_in_another_thread_is_rejected(client, db_session, auth_as):
+    user = await make_user(db_session, subscribed=True)
+    auth_as(user)
+    thread1 = (await client.post("/api/forum/categories/lounge/threads", json={"title": "A", "body": "..."})).json()
+    thread2 = (await client.post("/api/forum/categories/lounge/threads", json={"title": "B", "body": "..."})).json()
+
+    resp = await client.post(
+        f"/api/forum/threads/{thread2['id']}/posts",
+        json={"body": "x", "reply_to_post_id": thread1["posts"][0]["id"]},
+    )
+    assert resp.status_code == 400
+
+
+async def test_share_link_lets_anyone_view_read_only(client, db_session, auth_as):
+    owner = await make_user(db_session, subscribed=True)
+    stranger = await make_user(db_session, subscribed=True)
+    auth_as(owner)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "..."})).json()
+
+    share = await client.post(f"/api/forum/threads/{thread['id']}/share")
+    assert share.status_code == 200
+    token = share.json()["share_token"]
+
+    resp = await client.get(f"/api/forum/shared/{token}")
+    assert resp.status_code == 200
+    assert resp.json()["title"] == "T"
+
+    revoke = await client.delete(f"/api/forum/threads/{thread['id']}/share")
+    assert revoke.status_code == 204
+    gone = await client.get(f"/api/forum/shared/{token}")
+    assert gone.status_code == 404
+
+
+async def test_only_owner_or_admin_can_share_a_thread(client, db_session, auth_as):
+    owner = await make_user(db_session, subscribed=True)
+    stranger = await make_user(db_session, subscribed=True)
+    auth_as(owner)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "..."})).json()
+
+    auth_as(stranger)
+    resp = await client.post(f"/api/forum/threads/{thread['id']}/share")
+    assert resp.status_code == 403
+
+
+async def test_admin_can_update_category_name_and_description(client, db_session, auth_as):
+    admin = await make_user(db_session, subscribed=True, is_admin=True)
+    auth_as(admin)
+    resp = await client.patch("/api/forum/categories/lounge", json={"name": "Chat", "description": "General chat"})
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Chat"
+
+    listed = await client.get("/api/forum/categories")
+    assert any(c["name"] == "Chat" for c in listed.json())
+
+
+async def test_non_admin_cannot_update_category(client, db_session, auth_as):
+    user = await make_user(db_session, subscribed=True)
+    auth_as(user)
+    resp = await client.patch("/api/forum/categories/lounge", json={"name": "x", "description": "y"})
+    assert resp.status_code == 403

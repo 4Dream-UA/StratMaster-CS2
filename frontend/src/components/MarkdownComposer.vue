@@ -5,7 +5,8 @@
       <button type="button" class="md-tool-btn" title="Italic" @click="wrapSelection('*')"><em>I</em></button>
       <button type="button" class="md-tool-btn" title="Code" @click="wrapSelection('`')">{{ '</>' }}</button>
       <label class="md-tool-btn md-image-btn" :class="{ busy: uploading }" title="Insert image">
-        {{ uploading ? '…' : '🖼' }}
+        <span v-if="uploading">…</span>
+        <ImageIcon v-else :size="13" />
         <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden @change="onImageChange" />
       </label>
       <button type="button" class="md-tool-btn md-preview-toggle" :class="{ active: previewOn }" @click="previewOn = !previewOn">
@@ -25,9 +26,20 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, h } from 'vue'
 import { forumAPI } from '../api/forum'
 import { renderMarkdown } from '../utils/markdown'
+
+const ImageIcon = {
+  props: { size: { type: Number, default: 14 } },
+  render() {
+    return h('svg', { viewBox: '0 0 24 24', width: this.size, height: this.size, fill: 'none' }, [
+      h('rect', { x: 3.5, y: 4.5, width: 17, height: 15, rx: 2, stroke: 'currentColor', 'stroke-width': 1.6 }),
+      h('circle', { cx: 8.5, cy: 9.5, r: 1.5, stroke: 'currentColor', 'stroke-width': 1.4 }),
+      h('path', { d: 'M4 16l5-4.5 3.5 3L16 11l4 4.5', stroke: 'currentColor', 'stroke-width': 1.6, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }),
+    ])
+  },
+}
 
 const props = defineProps({
   modelValue: { type: String, default: '' },

@@ -542,6 +542,10 @@ class ForumThreadModel(Base):
     )
     title: Mapped[str] = mapped_column(String(128), nullable=False)
     is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Closed = admin marked it resolved (mainly for support tickets) — no
+    # more replies from non-admins, but still viewable.
+    is_closed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    share_token: Mapped[str | None] = mapped_column(String(24), unique=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -551,6 +555,22 @@ class ForumThreadModel(Base):
     user: Mapped["UserModel"] = relationship("UserModel")
     posts: Mapped[list["ForumPostModel"]] = relationship(
         "ForumPostModel", back_populates="thread", cascade="all, delete-orphan", order_by="ForumPostModel.created_at"
+    )
+
+
+class ForumThreadWatcherModel(Base):
+    """One row = one user watching one thread — auto-added when you start a
+    thread or post in it, toggleable explicitly otherwise. Drives the
+    Telegram notification on new replies."""
+    __tablename__ = "forum_thread_watchers"
+    __table_args__ = (UniqueConstraint("thread_id", "user_id", name="uq_forum_thread_watcher"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    thread_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("forum_threads.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
 
 
@@ -564,11 +584,17 @@ class ForumPostModel(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
+    # A reply can quote/target one specific earlier post in the same thread.
+    # SET NULL on delete — losing the quoted post shouldn't delete this reply.
+    reply_to_post_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("forum_posts.id", ondelete="SET NULL"), nullable=True
+    )
     body: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     thread: Mapped["ForumThreadModel"] = relationship("ForumThreadModel", back_populates="posts")
     user: Mapped["UserModel"] = relationship("UserModel")
+    reply_to: Mapped["ForumPostModel | None"] = relationship("ForumPostModel", remote_side=[id])
 
 
 # ─────────────────────────────────────────────

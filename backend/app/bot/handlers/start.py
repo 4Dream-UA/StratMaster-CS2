@@ -13,6 +13,7 @@ router = Router()
 DEEP_LINK_ROUTES = {
     "strategy": "strategy/{value}",
     "board": "shared-board/{value}",
+    "thread": "forum/shared/{value}",
 }
 
 

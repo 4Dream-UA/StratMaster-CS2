@@ -80,6 +80,20 @@ async def _clean_redis():
     await redis.aclose()
 
 
+@pytest.fixture(autouse=True)
+def _no_real_telegram_calls(monkeypatch):
+    """Never let a test hit the real Telegram Bot API — send_telegram_message
+    is best-effort/fire-and-forget in app code, so nothing would fail
+    loudly, but every reply-triggering test would otherwise make a real
+    network call. Tests asserting notification content monkeypatch this
+    themselves (that override wins, since it's applied after this one)."""
+    async def _noop(telegram_id, text, web_app_url=None):
+        pass
+
+    monkeypatch.setattr("backend.app.services.notifications.send_telegram_message", _noop)
+    monkeypatch.setattr("backend.app.api.routers.forum.send_telegram_message", _noop)
+
+
 @pytest_asyncio.fixture
 async def db_session():
     async with TestSessionLocal() as session:

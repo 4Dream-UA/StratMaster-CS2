@@ -4,6 +4,7 @@ import Strategy from '../pages/Strategy.vue'
 import Strategies from '../pages/Strategies.vue'
 import MyBoards from '../pages/MyBoards.vue'
 import SharedBoard from '../pages/SharedBoard.vue'
+import SharedThread from '../pages/SharedThread.vue'
 import User from '../pages/User.vue'
 import Cases from '../pages/Cases.vue'
 import Forum from '../pages/Forum.vue'
@@ -27,6 +28,7 @@ const routes = [
   { path: '/pricing', name: 'Pricing', component: Pricing },
   { path: '/cases', name: 'Cases', component: Cases },
   { path: '/forum', name: 'Forum', component: Forum },
+  { path: '/forum/shared/:token', name: 'SharedThread', component: SharedThread },
   { path: '/admin', name: 'Admin', component: Admin },
   { path: '/admin/maps', name: 'AdminMaps', component: AdminMaps },
   { path: '/admin/strategies', name: 'AdminStrategies', component: AdminStrategies },

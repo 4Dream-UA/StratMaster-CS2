@@ -27,12 +27,24 @@
 
         <div v-if="loadingCategories" class="loading-row">Loading…</div>
         <div v-else class="category-grid">
-          <button v-for="cat in categories" :key="cat.key" class="category-card" @click="openCategory(cat)">
-            <span class="category-icon-badge"><LoungeIcon v-if="cat.key === 'lounge'" /><SupportIcon v-else /></span>
-            <h3>{{ cat.name }}</h3>
-            <p>{{ cat.description }}</p>
-            <span class="category-arrow">→</span>
-          </button>
+          <div v-for="cat in categories" :key="cat.key" class="category-card-wrap">
+            <button class="category-card" @click="openCategory(cat)">
+              <span class="category-icon-badge"><LoungeIcon v-if="cat.key === 'lounge'" /><SupportIcon v-else /></span>
+              <h3>{{ cat.name }}</h3>
+              <p>{{ cat.description }}</p>
+              <span class="category-arrow">→</span>
+            </button>
+            <button v-if="isAdmin" class="icon-btn small category-edit-btn" title="Edit category" @click="startEditCategory(cat)"><EditIcon :size="11" /></button>
+
+            <div v-if="editingCategoryKey === cat.key" class="category-edit-form">
+              <input v-model="categoryDraft.name" type="text" class="thread-input" placeholder="Name" />
+              <input v-model="categoryDraft.description" type="text" class="thread-input" placeholder="Description" />
+              <div class="form-actions">
+                <button class="mini-btn" @click="saveCategory(cat)">Save</button>
+                <button class="mini-btn" @click="editingCategoryKey = null">Cancel</button>
+              </div>
+            </div>
+          </div>
         </div>
       </template>
 
@@ -92,21 +104,39 @@
         <section class="page-head">
           <span class="eyebrow">
             {{ activeCategory?.name }}
-            <span v-if="activeThread?.is_pinned" class="pinned-tag">📌 Pinned</span>
+            <span v-if="activeThread?.is_pinned" class="pinned-tag"><PinIcon :size="10" /> Pinned</span>
+            <span v-if="activeThread?.is_closed" class="closed-tag"><LockIcon :size="10" /> Closed</span>
           </span>
 
           <div v-if="!titleEditing" class="thread-title-row">
             <h1>{{ activeThread?.title }}</h1>
-            <div v-if="canModifyActiveThread" class="thread-actions">
-              <button class="icon-btn" title="Edit title" @click="startEditTitle">✎</button>
-              <button v-if="isAdmin" class="icon-btn" :title="activeThread?.is_pinned ? 'Unpin' : 'Pin'" @click="toggleActiveThreadPin">📌</button>
-              <button class="icon-btn danger" title="Delete thread" @click="deleteActiveThread">🗑</button>
+            <div class="thread-actions">
+              <button class="icon-btn" :class="{ active: activeThread?.is_watching }" :title="activeThread?.is_watching ? 'Stop watching' : 'Watch for replies'" @click="toggleWatch"><WatchIcon /></button>
+              <button class="icon-btn" title="Share" @click="openShare"><ShareIcon /></button>
+              <template v-if="canModifyActiveThread">
+                <button class="icon-btn" title="Edit title" @click="startEditTitle"><EditIcon /></button>
+                <button v-if="isAdmin" class="icon-btn" :title="activeThread?.is_pinned ? 'Unpin' : 'Pin'" @click="toggleActiveThreadPin"><PinIcon /></button>
+                <button v-if="isAdmin && activeCategory?.key === 'support'" class="icon-btn" :title="activeThread?.is_closed ? 'Reopen ticket' : 'Close ticket'" @click="toggleClose"><LockIcon /></button>
+                <button class="icon-btn danger" title="Delete thread" @click="deleteActiveThread"><TrashIcon /></button>
+              </template>
             </div>
           </div>
           <div v-else class="thread-title-edit">
             <input v-model="titleDraft" type="text" class="thread-input" />
             <button class="mini-btn" @click="saveTitle">Save</button>
             <button class="mini-btn" @click="titleEditing = false">Cancel</button>
+          </div>
+
+          <div v-if="shareOpen" class="share-box">
+            <template v-if="activeThread?.share_token">
+              <input type="text" readonly class="thread-input share-link-input" :value="shareLinkUrl" @click="$event.target.select()" />
+              <button class="mini-btn" @click="copyShareLink">{{ shareLinkCopied ? 'Copied!' : 'Copy' }}</button>
+              <button v-if="canModifyActiveThread" class="mini-btn danger" @click="revokeShare">Revoke</button>
+            </template>
+            <button v-else-if="canModifyActiveThread" class="mini-btn" :disabled="shareBusy" @click="generateShare">
+              {{ shareBusy ? 'Generating…' : 'Generate share link' }}
+            </button>
+            <p v-else class="share-hint">Only the thread owner or an admin can generate a share link.</p>
           </div>
         </section>
 
@@ -125,7 +155,13 @@
               <div class="post-main">
                 <div class="post-head">
                   <span class="post-time">{{ formatTime(p.created_at) }}</span>
-                  <button v-if="canModifyPost(p) && editingPostId !== p.id" class="icon-btn small" title="Edit" @click="startEditPost(p)">✎</button>
+                  <button v-if="!activeThread.is_closed || isAdmin" class="icon-btn small" title="Reply" @click="startReplyTo(p)"><ReplyIcon :size="11" /></button>
+                  <button v-if="canModifyPost(p) && editingPostId !== p.id" class="icon-btn small" title="Edit" @click="startEditPost(p)"><EditIcon :size="11" /></button>
+                </div>
+
+                <div v-if="p.reply_to" class="post-quote">
+                  <span class="post-quote-author">{{ p.reply_to.author_username ? '@' + p.reply_to.author_username : 'Player' }}</span>
+                  {{ p.reply_to.body_snippet }}
                 </div>
 
                 <template v-if="editingPostId === p.id">
@@ -140,7 +176,11 @@
             </div>
           </div>
 
-          <div class="reply-box">
+          <div v-if="!activeThread.is_closed || isAdmin" class="reply-box">
+            <div v-if="replyingTo" class="replying-banner">
+              Replying to <strong>{{ replyingTo.author_username ? '@' + replyingTo.author_username : 'Player' }}</strong>
+              <button class="link-btn" @click="replyingTo = null">cancel</button>
+            </div>
             <div class="reply-box-row">
               <Avatar :username="user?.username" :is-admin="isAdmin" :size="38" />
               <MarkdownComposer v-model="replyBody" :rows="3" placeholder="Write a reply…" />
@@ -150,6 +190,7 @@
             </button>
             <p v-if="errorMsg" class="err">{{ errorMsg }}</p>
           </div>
+          <p v-else class="closed-notice">This ticket is closed. An admin can reopen it if you still need help.</p>
         </template>
       </template>
     </div>
@@ -160,10 +201,12 @@
 
 <script setup>
 import { ref, computed, onMounted, h } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '../store/user'
 import { forumAPI } from '../api/forum'
 import { renderMarkdown } from '../utils/markdown'
+import { botDeepLink } from '../config'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
 import Pagination from '../components/Pagination.vue'
@@ -174,6 +217,85 @@ const LoungeIcon = {
     h('path', { d: 'M4 8h14l-3.5-3.5M20 16H6l3.5 3.5', stroke: 'var(--accent)', 'stroke-width': 1.6, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }),
   ]),
 }
+
+// ── Small premium-styled utility icons (no emoji anywhere in the UI) ──
+const PinIcon = {
+  props: { size: { type: Number, default: 13 } },
+  render() {
+    return h('svg', { viewBox: '0 0 24 24', width: this.size, height: this.size, fill: 'none', style: { flexShrink: 0 } }, [
+      h('path', { d: 'M9 4h6l-.7 5.6L18 13v2h-5.2L12 22l-.8-7H6v-2l3.7-3.4L9 4z', fill: 'currentColor' }),
+    ])
+  },
+}
+const TrashIcon = {
+  props: { size: { type: Number, default: 13 } },
+  render() {
+    return h('svg', { viewBox: '0 0 24 24', width: this.size, height: this.size, fill: 'none', style: { flexShrink: 0 } }, [
+      h('path', {
+        d: 'M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0 1 13a1 1 0 001 1h6a1 1 0 001-1l1-13',
+        stroke: 'currentColor', 'stroke-width': 1.6, 'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+      }),
+      h('path', { d: 'M10 11v6M14 11v6', stroke: 'currentColor', 'stroke-width': 1.6, 'stroke-linecap': 'round' }),
+    ])
+  },
+}
+const EditIcon = {
+  props: { size: { type: Number, default: 13 } },
+  render() {
+    return h('svg', { viewBox: '0 0 24 24', width: this.size, height: this.size, fill: 'none', style: { flexShrink: 0 } }, [
+      h('path', {
+        d: 'M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z',
+        stroke: 'currentColor', 'stroke-width': 1.6, 'stroke-linejoin': 'round', 'stroke-linecap': 'round',
+      }),
+    ])
+  },
+}
+const StarIcon = {
+  props: { size: { type: Number, default: 9 } },
+  render() {
+    return h('svg', { viewBox: '0 0 24 24', width: this.size, height: this.size, fill: 'currentColor', style: { flexShrink: 0 } }, [
+      h('path', { d: 'M12 2.5l2.9 6 6.6.7-4.9 4.5 1.3 6.5L12 16.9l-5.9 3.3 1.3-6.5-4.9-4.5 6.6-.7L12 2.5z' }),
+    ])
+  },
+}
+const WatchIcon = {
+  props: { size: { type: Number, default: 13 } },
+  render() {
+    return h('svg', { viewBox: '0 0 24 24', width: this.size, height: this.size, fill: 'none', style: { flexShrink: 0 } }, [
+      h('path', { d: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z', stroke: 'currentColor', 'stroke-width': 1.6, 'stroke-linejoin': 'round' }),
+      h('circle', { cx: 12, cy: 12, r: 3, stroke: 'currentColor', 'stroke-width': 1.6 }),
+    ])
+  },
+}
+const ShareIcon = {
+  props: { size: { type: Number, default: 13 } },
+  render() {
+    return h('svg', { viewBox: '0 0 24 24', width: this.size, height: this.size, fill: 'none', style: { flexShrink: 0 } }, [
+      h('circle', { cx: 18, cy: 5, r: 2.4, stroke: 'currentColor', 'stroke-width': 1.6 }),
+      h('circle', { cx: 6, cy: 12, r: 2.4, stroke: 'currentColor', 'stroke-width': 1.6 }),
+      h('circle', { cx: 18, cy: 19, r: 2.4, stroke: 'currentColor', 'stroke-width': 1.6 }),
+      h('path', { d: 'M8.1 10.8l7.8-4.2M8.1 13.2l7.8 4.2', stroke: 'currentColor', 'stroke-width': 1.6, 'stroke-linecap': 'round' }),
+    ])
+  },
+}
+const LockIcon = {
+  props: { size: { type: Number, default: 13 } },
+  render() {
+    return h('svg', { viewBox: '0 0 24 24', width: this.size, height: this.size, fill: 'none', style: { flexShrink: 0 } }, [
+      h('rect', { x: 5, y: 11, width: 14, height: 9, rx: 2, stroke: 'currentColor', 'stroke-width': 1.6 }),
+      h('path', { d: 'M8 11V8a4 4 0 018 0v3', stroke: 'currentColor', 'stroke-width': 1.6, 'stroke-linecap': 'round' }),
+    ])
+  },
+}
+const ReplyIcon = {
+  props: { size: { type: Number, default: 13 } },
+  render() {
+    return h('svg', { viewBox: '0 0 24 24', width: this.size, height: this.size, fill: 'none', style: { flexShrink: 0 } }, [
+      h('path', { d: 'M9 6L3 12l6 6M3 12h11a6 6 0 016 6v1', stroke: 'currentColor', 'stroke-width': 1.6, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }),
+    ])
+  },
+}
+
 const SupportIcon = {
   render: () => h('svg', { viewBox: '0 0 24 24', width: 24, height: 24, fill: 'none' }, [
     h('path', { d: 'M12 4a5 5 0 015 5c0 2.5-2 3.5-3 4.5s-1 1.5-1 2.5', stroke: 'var(--accent)', 'stroke-width': 1.6, 'stroke-linecap': 'round' }),
@@ -207,7 +329,7 @@ const Avatar = {
       },
     }, [
       h('span', label.charAt(0).toUpperCase()),
-      this.isAdmin ? h('span', { class: 'forum-avatar-badge' }, '★') : null,
+      this.isAdmin ? h('span', { class: 'forum-avatar-badge' }, [h(StarIcon, { size: 8 })]) : null,
     ])
   },
 }
@@ -225,18 +347,22 @@ const ThreadRow = {
       actions.push(h('button', {
         class: 'icon-btn small', title: t.is_pinned ? 'Unpin' : 'Pin',
         onClick: (e) => { e.stopPropagation(); this.$emit('toggle-pin') },
-      }, '📌'))
+      }, [h(PinIcon, { size: 11 })]))
     }
     if (this.canModify) {
       actions.push(h('button', {
         class: 'icon-btn small danger', title: 'Delete',
         onClick: (e) => { e.stopPropagation(); this.$emit('remove') },
-      }, '🗑'))
+      }, [h(TrashIcon, { size: 11 })]))
     }
-    return h('button', { class: ['thread-row', { pinned: t.is_pinned }], onClick: () => this.$emit('open') }, [
+    return h('button', { class: ['thread-row', { pinned: t.is_pinned, closed: t.is_closed }], onClick: () => this.$emit('open') }, [
       h(Avatar, { username: t.author_username, isAdmin: t.author_is_admin, size: 38 }),
       h('div', { class: 'thread-row-main' }, [
-        h('h4', [t.is_pinned ? h('span', { class: 'pin-dot' }, '📌 ') : null, t.title]),
+        h('h4', [
+          t.is_pinned ? h(PinIcon, { size: 11, class: 'pin-dot' }) : null,
+          t.is_closed ? h(LockIcon, { size: 11, class: 'pin-dot' }) : null,
+          t.title,
+        ]),
         h('span', { class: 'thread-row-meta' },
           `${t.author_username ? '@' + t.author_username + ' · ' : ''}${t.post_count} ${t.post_count === 1 ? 'post' : 'posts'}`),
       ]),
@@ -284,6 +410,18 @@ const titleEditing = ref(false)
 const titleDraft = ref('')
 const editingPostId = ref(null)
 const editingPostBody = ref('')
+const replyingTo = ref(null)
+
+const shareOpen = ref(false)
+const shareBusy = ref(false)
+const shareLinkCopied = ref(false)
+const shareLinkUrl = computed(() => activeThread.value?.share_token ? botDeepLink(`thread_${activeThread.value.share_token}`) : '')
+
+const editingCategoryKey = ref(null)
+const categoryDraft = ref({ name: '', description: '' })
+
+const route = useRoute()
+const router = useRouter()
 
 const backLabel = computed(() => {
   if (view.value === 'thread') return 'Threads'
@@ -369,6 +507,8 @@ async function openThread(id) {
   view.value = 'thread'
   titleEditing.value = false
   editingPostId.value = null
+  replyingTo.value = null
+  shareOpen.value = false
   try {
     activeThread.value = await forumAPI.getThread(id)
   } finally {
@@ -376,13 +516,19 @@ async function openThread(id) {
   }
 }
 
+function startReplyTo(post) {
+  replyingTo.value = post
+  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
+}
+
 async function submitReply() {
   if (!replyBody.value.trim() || !activeThread.value) return
   posting.value = true
   errorMsg.value = ''
   try {
-    activeThread.value = await forumAPI.addPost(activeThread.value.id, replyBody.value.trim())
+    activeThread.value = await forumAPI.addPost(activeThread.value.id, replyBody.value.trim(), replyingTo.value?.id ?? null)
     replyBody.value = ''
+    replyingTo.value = null
   } catch (e) {
     errorMsg.value = e.response?.data?.detail || 'Could not send the reply.'
   } finally {
@@ -406,6 +552,50 @@ async function saveTitle() {
 
 async function toggleActiveThreadPin() {
   activeThread.value = await forumAPI.pinThread(activeThread.value.id, !activeThread.value.is_pinned)
+}
+
+async function toggleClose() {
+  activeThread.value = await forumAPI.closeThread(activeThread.value.id, !activeThread.value.is_closed)
+}
+
+async function toggleWatch() {
+  const res = await forumAPI.toggleWatch(activeThread.value.id)
+  activeThread.value.is_watching = res.is_watching
+}
+
+function openShare() {
+  shareOpen.value = !shareOpen.value
+  shareLinkCopied.value = false
+}
+async function generateShare() {
+  shareBusy.value = true
+  try {
+    const res = await forumAPI.createShareLink(activeThread.value.id)
+    activeThread.value.share_token = res.share_token
+  } finally {
+    shareBusy.value = false
+  }
+}
+async function revokeShare() {
+  await forumAPI.revokeShareLink(activeThread.value.id)
+  activeThread.value.share_token = null
+}
+function copyShareLink() {
+  navigator.clipboard.writeText(shareLinkUrl.value).then(() => {
+    shareLinkCopied.value = true
+    setTimeout(() => { shareLinkCopied.value = false }, 1800)
+  }).catch(() => {})
+}
+
+function startEditCategory(cat) {
+  editingCategoryKey.value = cat.key
+  categoryDraft.value = { name: cat.name, description: cat.description }
+}
+async function saveCategory(cat) {
+  if (!categoryDraft.value.name.trim() || !categoryDraft.value.description.trim()) return
+  const updated = await forumAPI.updateCategory(cat.key, categoryDraft.value.name.trim(), categoryDraft.value.description.trim())
+  Object.assign(cat, updated)
+  editingCategoryKey.value = null
 }
 
 async function deleteActiveThread() {
@@ -449,6 +639,21 @@ onMounted(async () => {
   window.scrollTo({ top: 0, behavior: 'auto' })
   if (!hasActiveAccess.value) return
   await loadCategories()
+
+  // Deep link from a Telegram notification (watch/reply) or a shared URL —
+  // ?thread=<id> jumps straight to that thread instead of the category list.
+  const threadId = route.query.thread
+  if (threadId) {
+    try {
+      const thread = await forumAPI.getThread(threadId)
+      activeCategory.value = categories.value.find(c => c.key === thread.category_key) || { key: thread.category_key, name: thread.category_key }
+      activeThread.value = thread
+      view.value = 'thread'
+    } catch (e) {
+      // Invalid/inaccessible thread id — fall through to the category list.
+    }
+    router.replace({ query: {} })
+  }
 })
 </script>
 
@@ -481,10 +686,21 @@ onMounted(async () => {
   text-transform: uppercase; color: var(--accent); margin-bottom: 6px;
 }
 .pinned-tag {
+  display: inline-flex; align-items: center; gap: 4px;
   font-size: 10px; font-weight: 800; letter-spacing: 0; text-transform: none;
   background: rgba(255,154,0,.14); color: var(--accent); padding: 2px 8px; border-radius: 99px;
 }
+.pin-dot { color: var(--accent); margin-right: 4px; vertical-align: -1px; }
+.closed-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 800; letter-spacing: 0; text-transform: none;
+  background: rgba(235,75,75,.12); color: var(--danger); padding: 2px 8px; border-radius: 99px;
+}
 .page-head h1 { font-size: clamp(22px, 4vw, 30px); font-weight: 900; color: var(--text); }
+
+.share-box { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.share-link-input { flex: 1; min-width: 180px; margin-bottom: 0; }
+.share-hint { font-size: 12px; color: var(--text-dim); margin-top: 10px; }
 
 .loading-row, .empty { padding: 24px; text-align: center; color: var(--text-dim); font-size: 13px; }
 
@@ -507,6 +723,15 @@ onMounted(async () => {
 .category-card p { font-size: 12.5px; color: var(--text-dim); line-height: 1.5; }
 .category-arrow { position: absolute; top: 22px; right: 22px; color: var(--text-dim); font-size: 16px; }
 
+.category-card-wrap { position: relative; }
+.category-card-wrap .category-card { width: 100%; }
+.category-edit-btn { position: absolute; bottom: 12px; right: 12px; }
+.category-edit-form {
+  margin-top: 10px; background: var(--bg-elevated); border: 1px solid var(--line);
+  border-radius: 12px; padding: 14px;
+}
+.category-edit-form .thread-input:last-of-type { margin-bottom: 0; }
+
 /* ── Thread list ─────────────────────────────── */
 .list-card, .form-card {
   background: var(--bg-elevated); border: 1px solid var(--line);
@@ -521,6 +746,7 @@ onMounted(async () => {
 }
 .thread-row:hover { border-color: var(--accent); }
 .thread-row.pinned { border-color: rgba(255,154,0,.35); background: rgba(255,154,0,.04); }
+.thread-row.closed { opacity: .65; }
 .thread-row-main { flex: 1; min-width: 0; }
 .thread-row-main h4 {
   font-size: 13.5px; font-weight: 700; color: var(--text); margin-bottom: 4px;
@@ -547,6 +773,7 @@ onMounted(async () => {
 .icon-btn:active { transform: translateY(0); }
 .icon-btn.danger:hover { border-color: var(--danger); color: var(--danger); box-shadow: 0 4px 14px -4px rgba(235,75,75,.4); }
 .icon-btn.small { width: 26px; height: 26px; font-size: 11px; }
+.icon-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(255,154,0,.12); }
 
 .thread-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .thread-actions { display: flex; gap: 6px; flex-shrink: 0; }
@@ -569,6 +796,8 @@ onMounted(async () => {
 }
 .mini-btn:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 4px 14px -4px rgba(255,154,0,.4); transform: translateY(-1px); }
 .mini-btn:active { transform: translateY(0); }
+.mini-btn.danger:hover { border-color: var(--danger); color: var(--danger); box-shadow: 0 4px 14px -4px rgba(235,75,75,.4); }
+.link-btn { background: none; border: none; color: var(--accent); font-size: 12px; font-weight: 700; cursor: pointer; text-decoration: underline; padding: 0; margin-left: 6px; }
 .err { color: var(--danger); font-size: 12.5px; font-weight: 600; margin: 8px 0 0; width: 100%; }
 
 /* ── Thread detail ─────────────────────────────── */
@@ -598,9 +827,26 @@ onMounted(async () => {
 .post-body :deep(a) { color: var(--accent); }
 .post-body :deep(code) { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 
+.post-quote {
+  font-size: 12px; color: var(--text-dim); line-height: 1.5;
+  background: var(--bg); border-left: 2px solid var(--accent);
+  border-radius: 6px; padding: 6px 10px; margin-bottom: 8px;
+}
+.post-quote-author { color: var(--accent); font-weight: 700; margin-right: 4px; }
+
+.closed-notice {
+  font-size: 12.5px; color: var(--text-dim); text-align: center;
+  background: var(--bg-elevated); border: 1px dashed var(--line);
+  border-radius: var(--radius-lg); padding: 16px;
+}
+
 .reply-box {
   background: var(--bg-elevated); border: 1px solid var(--line);
   border-radius: var(--radius-lg); padding: 16px;
+}
+.replying-banner {
+  display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-dim);
+  background: var(--bg); border-radius: 8px; padding: 8px 12px; margin-bottom: 10px;
 }
 .reply-box-row { display: flex; gap: 12px; align-items: flex-start; }
 .reply-box-row :deep(.md-composer) { flex: 1; min-width: 0; }
