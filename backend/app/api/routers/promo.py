@@ -56,6 +56,8 @@ async def redeem_promo_code(
 
     wallet.balance_coins += promo.coin_reward
     promo.used_count += 1
+    if promo.activations_limit is not None and promo.used_count >= promo.activations_limit:
+        promo.is_active = False
 
     db.add(PromoRedemptionModel(
         user_id=current_user.id,

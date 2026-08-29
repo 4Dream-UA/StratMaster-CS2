@@ -52,4 +52,21 @@ async def test_redeem_respects_activation_limit(client, db_session, auth_as):
     second_user = await make_user(db_session)
     auth_as(second_user)
     second = await client.post("/api/promo/redeem", json={"code": "LIMITED"})
-    assert second.status_code == 400
+    # The first redemption already exhausted and deactivated the code, so
+    # this now hits the is_active check (404) rather than the activations
+    # limit check (400) — both are "you can't use this code" from the
+    # caller's perspective.
+    assert second.status_code == 404
+
+
+async def test_redeem_deactivates_code_once_limit_is_reached(client, db_session, auth_as):
+    promo = await _make_promo(db_session, code="ONESHOT", coin_reward=5, activations_limit=1)
+    assert promo.is_active is True
+
+    user = await make_user(db_session)
+    auth_as(user)
+    resp = await client.post("/api/promo/redeem", json={"code": "ONESHOT"})
+    assert resp.status_code == 200
+
+    await db_session.refresh(promo)
+    assert promo.is_active is False
