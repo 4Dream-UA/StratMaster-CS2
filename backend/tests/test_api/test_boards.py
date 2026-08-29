@@ -17,6 +17,29 @@ def _payload(map_id, title="My Board"):
     }
 
 
+async def test_board_annotations_round_trip(client, db_session, auth_as):
+    user = await make_user(db_session, subscribed=True)
+    map_ = await make_map(db_session)
+    auth_as(user)
+
+    annotations = {
+        "drawings": [{"points": [{"x": 5, "y": 5}, {"x": 40, "y": 40}], "color": "#00ff00"}],
+        "notes": [{"x": 60, "y": 20, "text": "Fake here"}],
+        "bomb": {"x": 30, "y": 80},
+    }
+    payload = {**_payload(map_.id), "annotations": annotations}
+    create = await client.post("/api/boards", json=payload)
+    assert create.status_code == 201
+    assert create.json()["annotations"] == annotations
+
+    board_id = create.json()["id"]
+    fetched = await client.get(f"/api/boards/{board_id}")
+    assert fetched.json()["annotations"] == annotations
+
+    cleared = await client.patch(f"/api/boards/{board_id}", json=_payload(map_.id))
+    assert cleared.json()["annotations"] == {"drawings": [], "notes": [], "bomb": None}
+
+
 async def test_non_premium_user_cannot_create_board(client, db_session, auth_as):
     user = await make_user(db_session)  # no subscription
     map_ = await make_map(db_session)

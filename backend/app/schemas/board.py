@@ -4,6 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from backend.app.db.models import GrenadeTypeEnum
+from backend.app.schemas.annotations import Annotations
 from backend.app.schemas.strategy import Waypoint
 
 
@@ -39,6 +40,7 @@ class PersonalBoardCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=64)
     paths: list[BoardPathCreate] = []
     grenades: list[BoardGrenadeCreate] = []
+    annotations: Annotations = Annotations()
 
 
 # Same full-replace-on-edit shape as StrategyCreate/StrategyUpdate.
@@ -59,6 +61,7 @@ class PersonalBoardDetail(PersonalBoardPreview):
     share_token: str | None = None
     paths: list[BoardPathOut] = []
     grenades: list[BoardGrenadeOut] = []
+    annotations: Annotations = Annotations()
 
 
 class PersonalBoardsListResponse(BaseModel):

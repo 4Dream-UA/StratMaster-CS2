@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 from pydantic import BaseModel, Field
 from backend.app.db.models import GrenadeTypeEnum, PlantEnum, SideEnum, SpeedEnum
+from backend.app.schemas.annotations import Annotations
 
 
 class MapResponse(BaseModel):
@@ -81,6 +82,7 @@ class StrategyDetailResponse(StrategyPreviewResponse):
     images: list[ImageOut] = []
     grenades: list[GrenadeOut] = []
     player_paths: list[PlayerPathOut] = []
+    annotations: Annotations = Annotations()
     created_at: datetime
 
 
@@ -131,6 +133,7 @@ class StrategyCreate(BaseModel):
     is_free: bool = False
     roles_description: str | None = None
     timings_description: str | None = None
+    annotations: Annotations = Annotations()
     buy_tag_ids: list[int] = []
     grenades: list[GrenadeCreate] = []
     images: list[ImageCreate] = []

@@ -195,6 +195,7 @@ async def admin_create_strategy(payload: StrategyCreate, db: DBSession, admin_us
         is_free=payload.is_free,
         roles_description=payload.roles_description,
         timings_description=payload.timings_description,
+        annotations=payload.annotations.model_dump(),
         buy_tags=buy_tags,
         grenades=[GrenadeModel(**g.model_dump()) for g in payload.grenades],
         images=[ImageModel(**i.model_dump()) for i in payload.images],
@@ -236,6 +237,7 @@ async def admin_update_strategy(strategy_id: uuid.UUID, payload: StrategyUpdate,
     strategy.is_free = payload.is_free
     strategy.roles_description = payload.roles_description
     strategy.timings_description = payload.timings_description
+    strategy.annotations = payload.annotations.model_dump()
     strategy.buy_tags = buy_tags
     # Reassigning the collections triggers delete-orphan cleanup on the rows
     # that dropped out, and inserts the new ones — a full replace per submit.

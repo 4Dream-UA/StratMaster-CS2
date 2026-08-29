@@ -43,6 +43,38 @@ async def test_admin_create_strategy_with_grenades_and_images(client, db_session
     assert len(body["grenades"]) == 1
 
 
+async def test_strategy_annotations_round_trip(client, db_session, auth_as):
+    admin = await make_user(db_session, is_admin=True)
+    auth_as(admin)
+    map_ = await make_map(db_session)
+
+    annotations = {
+        "drawings": [{"points": [{"x": 10, "y": 10}, {"x": 20, "y": 20}], "color": "#ff0000"}],
+        "notes": [{"x": 50, "y": 50, "text": "Rotate here after 20s"}],
+        "bomb": {"x": 75, "y": 75},
+    }
+    payload = {
+        "map_id": map_.id, "title": "B Default", "side": "T_side", "plant": "B", "speed": "medium",
+        "difficulty_stars": 3, "success_rate": 70, "is_free": True,
+        "buy_tag_ids": [], "images": [], "grenades": [],
+        "annotations": annotations,
+    }
+    create = await client.post("/api/admin/strategies", json=payload)
+    assert create.status_code == 201
+    assert create.json()["annotations"] == annotations
+
+    strategy_id = create.json()["id"]
+    fetched = await client.get(f"/api/strategies/{strategy_id}")
+    assert fetched.json()["annotations"] == annotations
+
+    # Defaults to empty when omitted, never a validation error.
+    payload2 = {**payload, "title": "No annotations"}
+    del payload2["annotations"]
+    create2 = await client.post("/api/admin/strategies", json=payload2)
+    assert create2.status_code == 201
+    assert create2.json()["annotations"] == {"drawings": [], "notes": [], "bomb": None}
+
+
 async def test_deleting_strategy_cascades_to_grenades_and_images(client, db_session, auth_as):
     admin = await make_user(db_session, is_admin=True)
     auth_as(admin)

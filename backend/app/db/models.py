@@ -272,6 +272,9 @@ class StrategyModel(Base):
     is_free: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     roles_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     timings_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Freeform overlay: arbitrary drawn lines, text notes, one C4 marker —
+    # see backend/app/schemas/annotations.py for the shape.
+    annotations: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -376,6 +379,9 @@ class PersonalBoardModel(Base):
     # Set only once the owner taps "Copy public link" — null means no public
     # link has ever been generated (or it was revoked by clearing this).
     share_token: Mapped[str | None] = mapped_column(String(24), unique=True, nullable=True)
+    # Freeform overlay: arbitrary drawn lines, text notes, one C4 marker —
+    # see backend/app/schemas/annotations.py for the shape.
+    annotations: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

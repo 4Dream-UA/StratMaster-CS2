@@ -125,6 +125,7 @@ async def create_board(payload: PersonalBoardCreate, db: DBSession, user: Premiu
         title=payload.title,
         paths=[PersonalBoardPathModel(**p.model_dump()) for p in payload.paths],
         grenades=[PersonalBoardGrenadeModel(**g.model_dump()) for g in payload.grenades],
+        annotations=payload.annotations.model_dump(),
     )
     db.add(board)
     await db.commit()
@@ -152,6 +153,7 @@ async def update_board(board_id: uuid.UUID, payload: BoardUpdate, db: DBSession,
     # same pattern as admin_update_strategy.
     board.paths = [PersonalBoardPathModel(**p.model_dump()) for p in payload.paths]
     board.grenades = [PersonalBoardGrenadeModel(**g.model_dump()) for g in payload.grenades]
+    board.annotations = payload.annotations.model_dump()
     await db.commit()
 
     return await _get_accessible_board(db, user, board_id)
