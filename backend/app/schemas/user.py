@@ -93,6 +93,10 @@ class SetNicknameRequest(BaseModel):
         return v or None
 
 
+class AdminGrantCoinsRequest(BaseModel):
+    amount: int = Field(..., gt=0, le=1_000_000)
+
+
 class AdminSetPremiumRequest(BaseModel):
     """Sets the wallet's premium expiry to an ABSOLUTE value (now + duration),
     overwriting whatever time was left — unlike /subscription, which extends."""

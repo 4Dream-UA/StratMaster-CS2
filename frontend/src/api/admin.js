@@ -100,6 +100,10 @@ export const adminAPI = {
     const response = await apiClient.patch(`/api/admin/users/${id}/premium`, { unit, amount })
     return response.data
   },
+  async grantUserCoins(id, amount) {
+    const response = await apiClient.patch(`/api/admin/users/${id}/coins`, { amount })
+    return response.data
+  },
 
   // ── Transactions ──────────────────────────
   async getTransactions(params = {}) {

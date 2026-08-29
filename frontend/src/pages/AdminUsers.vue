@@ -104,6 +104,17 @@
             </div>
           </div>
 
+          <!-- Grant coins -->
+          <div class="section">
+            <p class="section-label">Grant MasterCoins</p>
+            <div class="inline-form">
+              <input v-model.number="grantCoinsAmount" type="number" min="1" placeholder="Amount" class="inline-input inline-input-small" />
+              <button class="mini-btn" :disabled="grantCoinsBusy || !grantCoinsAmount" @click="grantCoins">
+                {{ grantCoinsBusy ? '…' : 'Grant' }}
+              </button>
+            </div>
+          </div>
+
           <!-- Premium — absolute set, overwrites whatever time is left -->
           <div class="section">
             <p class="section-label">Set premium (overwrites current time left)</p>
@@ -195,6 +206,8 @@ const avatarBusy = ref(false)
 const premiumUnit = ref('month')
 const premiumAmount = ref(1)
 const premiumBusy = ref(false)
+const grantCoinsAmount = ref(null)
+const grantCoinsBusy = ref(false)
 const busyAction = ref(null)
 
 function openPlayer(u) {
@@ -202,6 +215,7 @@ function openPlayer(u) {
   nicknameDraft.value = u.display_name || ''
   premiumUnit.value = 'month'
   premiumAmount.value = 1
+  grantCoinsAmount.value = null
 }
 function closePlayer() { selected.value = null }
 
@@ -262,6 +276,20 @@ async function setPremium() {
     console.warn('[Admin] could not set premium:', e.response?.data?.detail)
   } finally {
     premiumBusy.value = false
+  }
+}
+
+async function grantCoins() {
+  if (!grantCoinsAmount.value) return
+  grantCoinsBusy.value = true
+  try {
+    const updated = await adminAPI.grantUserCoins(selected.value.id, grantCoinsAmount.value)
+    patchSelected(updated)
+    grantCoinsAmount.value = null
+  } catch (e) {
+    console.warn('[Admin] could not grant coins:', e.response?.data?.detail)
+  } finally {
+    grantCoinsBusy.value = false
   }
 }
 

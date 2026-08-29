@@ -60,6 +60,7 @@ class TransactionTypeEnum(str, enum.Enum):
     case_open = "case_open"
     case_gift = "case_gift"
     case_sale = "case_sale"
+    admin_grant = "admin_grant"
 
 
 # ─────────────────────────────────────────────

@@ -36,6 +36,7 @@ from backend.app.schemas.strategy import (
     StrategyUpdate,
 )
 from backend.app.schemas.user import (
+    AdminGrantCoinsRequest,
     AdminGrantSubscriptionRequest,
     AdminSetPremiumRequest,
     SetAdminRequest,
@@ -516,6 +517,26 @@ async def admin_set_user_premium(user_id: uuid.UUID, payload: AdminSetPremiumReq
         wallet.subscription_expires_at = now + delta
         wallet.last_plan_months = payload.amount if payload.unit == "month" else None
     wallet.reminder_sent_for_expiry = None
+
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+@router.patch("/admin/users/{user_id}/coins", response_model=UserAdminOut)
+async def admin_grant_coins(user_id: uuid.UUID, payload: AdminGrantCoinsRequest, db: DBSession, admin_user: AdminUser):
+    result = await db.execute(
+        select(UserModel).options(selectinload(UserModel.wallet)).where(UserModel.id == user_id)
+    )
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    user.wallet.balance_coins += payload.amount
+    db.add(TransactionModel(
+        sender_wallet_id=None, receiver_wallet_id=user.wallet.wallet_id,
+        amount=payload.amount, transaction_type="admin_grant",
+    ))
 
     await db.commit()
     await db.refresh(user)

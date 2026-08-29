@@ -290,3 +290,26 @@ async def test_admin_set_premium_requires_amount_unless_forever(client, db_sessi
 
     resp = await client.patch(f"/api/admin/users/{target.id}/premium", json={"unit": "hour"})
     assert resp.status_code == 422
+
+
+async def test_admin_can_grant_coins_to_a_player(client, db_session, auth_as):
+    admin = await make_user(db_session, is_admin=True)
+    target = await make_user(db_session, balance=50)
+    auth_as(admin)
+
+    resp = await client.patch(f"/api/admin/users/{target.id}/coins", json={"amount": 250})
+    assert resp.status_code == 200
+    assert resp.json()["wallet"]["balance_coins"] == 300
+
+    tx = await client.get("/api/admin/transactions", params={"transaction_type": "admin_grant"})
+    txs = tx.json()["transactions"]
+    assert any(t["amount"] == 250 and t["receiver_wallet_id"] == target.wallet.wallet_id for t in txs)
+
+
+async def test_admin_grant_coins_rejects_non_positive_amount(client, db_session, auth_as):
+    admin = await make_user(db_session, is_admin=True)
+    target = await make_user(db_session)
+    auth_as(admin)
+
+    resp = await client.patch(f"/api/admin/users/{target.id}/coins", json={"amount": 0})
+    assert resp.status_code == 422
