@@ -149,7 +149,14 @@ def auth_as():
                 .options(selectinload(UserModel.wallet))
                 .where(UserModel.id == user_id)
             )
-            return result.scalar_one()
+            fresh_user = result.scalar_one()
+            # Mirrors the real get_current_user's ban check — this override
+            # only bypasses initData signature verification, not app logic,
+            # so a test banning a user mid-flow sees the same 403 prod would.
+            if fresh_user.is_banned:
+                from fastapi import HTTPException, status
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your account has been banned.")
+            return fresh_user
 
         app.dependency_overrides[deps.get_current_user] = _override
         app.dependency_overrides[deps.get_optional_user] = _override

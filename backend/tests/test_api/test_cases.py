@@ -149,3 +149,196 @@ async def test_weighted_distribution_is_reasonably_close_over_many_opens(client,
         seen.add(resp.json()["rewards"][0])
 
     assert seen == {1, 2}
+
+
+# ─────────────────────────────────────────────
+#  P2P case gifting + sales
+# ─────────────────────────────────────────────
+
+async def test_gift_case_escrows_immediately_and_notifies(client, db_session, auth_as, monkeypatch):
+    sent = []
+    async def _fake_notify(telegram_id, text, web_app_url=None):
+        sent.append((telegram_id, text))
+    monkeypatch.setattr("backend.app.api.routers.cases.send_telegram_message", _fake_notify)
+
+    case_ = await make_case(db_session, cost_coins=10)
+    sender = await make_user(db_session, balance=100)
+    receiver = await make_user(db_session)
+    auth_as(sender)
+    await client.post(f"/api/cases/{case_.id}/buy", json={"quantity": 2})
+
+    resp = await client.post("/api/cases/gift", json={
+        "receiver_wallet_id": receiver.wallet.wallet_id, "case_id": str(case_.id), "quantity": 2,
+    })
+    assert resp.status_code == 201
+    offer = resp.json()
+    assert offer["status"] == "pending"
+    assert offer["offer_type"] == "gift"
+    assert offer["price_coins"] == 0
+
+    # Escrowed immediately — sender's inventory is empty while pending.
+    inv = await client.get("/api/cases/inventory")
+    assert inv.json() == []
+    assert len(sent) == 1
+    assert sent[0][0] == receiver.telegram_id
+
+
+async def test_gift_requires_owning_enough_cases(client, db_session, auth_as):
+    case_ = await make_case(db_session, cost_coins=10)
+    sender = await make_user(db_session, balance=100)
+    receiver = await make_user(db_session)
+    auth_as(sender)
+    await client.post(f"/api/cases/{case_.id}/buy", json={"quantity": 1})
+
+    resp = await client.post("/api/cases/gift", json={
+        "receiver_wallet_id": receiver.wallet.wallet_id, "case_id": str(case_.id), "quantity": 5,
+    })
+    assert resp.status_code == 400
+
+
+async def test_receiver_accepts_gift_and_it_lands_in_their_inventory(client, db_session, auth_as):
+    case_ = await make_case(db_session, cost_coins=10)
+    sender = await make_user(db_session, balance=100)
+    receiver = await make_user(db_session)
+    auth_as(sender)
+    await client.post(f"/api/cases/{case_.id}/buy", json={"quantity": 1})
+    offer = (await client.post("/api/cases/gift", json={
+        "receiver_wallet_id": receiver.wallet.wallet_id, "case_id": str(case_.id), "quantity": 1,
+    })).json()
+
+    auth_as(receiver)
+    accept = await client.post(f"/api/cases/offers/{offer['id']}/accept")
+    assert accept.status_code == 200
+    assert accept.json()["status"] == "accepted"
+
+    inv = await client.get("/api/cases/inventory")
+    assert inv.json() == [{"case_id": str(case_.id), "case_name": case_.name, "count": 1}]
+
+
+async def test_receiver_declines_gift_and_it_returns_to_sender(client, db_session, auth_as):
+    case_ = await make_case(db_session, cost_coins=10)
+    sender = await make_user(db_session, balance=100)
+    receiver = await make_user(db_session)
+    auth_as(sender)
+    await client.post(f"/api/cases/{case_.id}/buy", json={"quantity": 1})
+    offer = (await client.post("/api/cases/gift", json={
+        "receiver_wallet_id": receiver.wallet.wallet_id, "case_id": str(case_.id), "quantity": 1,
+    })).json()
+
+    auth_as(receiver)
+    decline = await client.post(f"/api/cases/offers/{offer['id']}/decline")
+    assert decline.status_code == 200
+    assert decline.json()["status"] == "declined"
+
+    auth_as(sender)
+    inv = await client.get("/api/cases/inventory")
+    assert inv.json() == [{"case_id": str(case_.id), "case_name": case_.name, "count": 1}]
+
+
+async def test_sender_can_cancel_a_pending_offer(client, db_session, auth_as):
+    case_ = await make_case(db_session, cost_coins=10)
+    sender = await make_user(db_session, balance=100)
+    receiver = await make_user(db_session)
+    auth_as(sender)
+    await client.post(f"/api/cases/{case_.id}/buy", json={"quantity": 1})
+    offer = (await client.post("/api/cases/gift", json={
+        "receiver_wallet_id": receiver.wallet.wallet_id, "case_id": str(case_.id), "quantity": 1,
+    })).json()
+
+    cancel = await client.post(f"/api/cases/offers/{offer['id']}/cancel")
+    assert cancel.status_code == 200
+    inv = await client.get("/api/cases/inventory")
+    assert inv.json() == [{"case_id": str(case_.id), "case_name": case_.name, "count": 1}]
+
+
+async def test_only_receiver_can_accept_or_decline(client, db_session, auth_as):
+    case_ = await make_case(db_session, cost_coins=10)
+    sender = await make_user(db_session, balance=100)
+    receiver = await make_user(db_session)
+    stranger = await make_user(db_session)
+    auth_as(sender)
+    await client.post(f"/api/cases/{case_.id}/buy", json={"quantity": 1})
+    offer = (await client.post("/api/cases/gift", json={
+        "receiver_wallet_id": receiver.wallet.wallet_id, "case_id": str(case_.id), "quantity": 1,
+    })).json()
+
+    auth_as(stranger)
+    assert (await client.post(f"/api/cases/offers/{offer['id']}/accept")).status_code == 403
+    assert (await client.post(f"/api/cases/offers/{offer['id']}/decline")).status_code == 403
+
+
+async def test_sell_case_charges_buyer_and_pays_seller(client, db_session, auth_as):
+    case_ = await make_case(db_session, cost_coins=10)
+    seller = await make_user(db_session, balance=100)
+    buyer = await make_user(db_session, balance=500)
+    auth_as(seller)
+    await client.post(f"/api/cases/{case_.id}/buy", json={"quantity": 1})
+    offer = (await client.post("/api/cases/sell", json={
+        "receiver_wallet_id": buyer.wallet.wallet_id, "case_id": str(case_.id), "quantity": 1, "price_coins": 200,
+    })).json()
+    assert offer["offer_type"] == "sale"
+    assert offer["price_coins"] == 200
+
+    auth_as(buyer)
+    accept = await client.post(f"/api/cases/offers/{offer['id']}/accept")
+    assert accept.status_code == 200
+
+    me = await client.get("/api/me")
+    assert me.json()["wallet"]["balance_coins"] == 300  # 500 - 200
+
+    inv = await client.get("/api/cases/inventory")
+    assert inv.json() == [{"case_id": str(case_.id), "case_name": case_.name, "count": 1}]
+
+
+async def test_sell_case_rejects_insufficient_buyer_balance(client, db_session, auth_as):
+    case_ = await make_case(db_session, cost_coins=10)
+    seller = await make_user(db_session, balance=100)
+    buyer = await make_user(db_session, balance=5)
+    auth_as(seller)
+    await client.post(f"/api/cases/{case_.id}/buy", json={"quantity": 1})
+    offer = (await client.post("/api/cases/sell", json={
+        "receiver_wallet_id": buyer.wallet.wallet_id, "case_id": str(case_.id), "quantity": 1, "price_coins": 200,
+    })).json()
+
+    auth_as(buyer)
+    resp = await client.post(f"/api/cases/offers/{offer['id']}/accept")
+    assert resp.status_code == 400
+
+
+async def test_offer_blocked_by_personal_block(client, db_session, auth_as):
+    case_ = await make_case(db_session, cost_coins=10)
+    sender = await make_user(db_session, balance=100)
+    receiver = await make_user(db_session)
+    auth_as(sender)
+    await client.post(f"/api/cases/{case_.id}/buy", json={"quantity": 1})
+
+    auth_as(receiver)
+    await client.post("/api/wallet/block", json={"wallet_id": sender.wallet.wallet_id})
+
+    auth_as(sender)
+    resp = await client.post("/api/cases/gift", json={
+        "receiver_wallet_id": receiver.wallet.wallet_id, "case_id": str(case_.id), "quantity": 1,
+    })
+    assert resp.status_code == 403
+    # Not consumed by the rejected offer.
+    inv = await client.get("/api/cases/inventory")
+    assert inv.json() == [{"case_id": str(case_.id), "case_name": case_.name, "count": 1}]
+
+
+async def test_offer_blocked_when_sender_is_trade_banned(client, db_session, auth_as):
+    admin = await make_user(db_session, is_admin=True)
+    case_ = await make_case(db_session, cost_coins=10)
+    sender = await make_user(db_session, balance=100)
+    receiver = await make_user(db_session)
+    auth_as(sender)
+    await client.post(f"/api/cases/{case_.id}/buy", json={"quantity": 1})
+
+    auth_as(admin)
+    ban = await client.patch(f"/api/admin/users/{sender.id}/trade-ban", json={"is_trade_banned": True})
+    assert ban.status_code == 200
+
+    auth_as(sender)
+    resp = await client.post("/api/cases/gift", json={
+        "receiver_wallet_id": receiver.wallet.wallet_id, "case_id": str(case_.id), "quantity": 1,
+    })
+    assert resp.status_code == 403

@@ -1,8 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from backend.app.api.deps import CurrentUser, DBSession
 from backend.app.core.rate_limit import rate_limit
-from backend.app.db.models import TransactionModel
+from backend.app.db.models import TransactionModel, UserModel, WalletTradeBlockModel
+from backend.app.schemas.user import BlockedUserOut, BlockUserRequest
 from backend.app.schemas.wallet import (
     CoinTransferRequest,
     CoinTransferResponse,
@@ -10,6 +13,7 @@ from backend.app.schemas.wallet import (
     GiftSubscriptionResponse,
 )
 from backend.app.services.subscription import assert_purchasable, extend_subscription, price_for
+from backend.app.services.trading import assert_can_trade
 from backend.app.services.wallet import assert_transferable, get_wallet_by_id
 
 router = APIRouter()
@@ -38,6 +42,11 @@ async def transfer_coins(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    try:
+        await assert_can_trade(db, current_user, receiver.user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
 
     sender.balance_coins -= request.amount
     receiver.balance_coins += request.amount
@@ -115,3 +124,61 @@ async def gift_subscription(
         receiver_wallet_id=receiver.wallet_id,
         receiver_subscription_expires_at=new_expiry,
     )
+
+
+# ─────────────────────────────────────────────
+#  Trade blocking — stop a specific player from sending you transfers,
+#  case gifts or case sale offers.
+# ─────────────────────────────────────────────
+
+@router.get("/wallet/blocked", response_model=list[BlockedUserOut])
+async def list_blocked(db: DBSession, current_user: CurrentUser):
+    result = await db.execute(
+        select(WalletTradeBlockModel)
+        .options(selectinload(WalletTradeBlockModel.blocked_user).selectinload(UserModel.wallet))
+        .where(WalletTradeBlockModel.blocker_user_id == current_user.id)
+    )
+    blocks = result.scalars().all()
+    return [
+        BlockedUserOut(wallet_id=b.blocked_user.wallet.wallet_id, username=b.blocked_user.username)
+        for b in blocks
+    ]
+
+
+@router.post("/wallet/block", status_code=status.HTTP_204_NO_CONTENT)
+async def block_user(payload: BlockUserRequest, db: DBSession, current_user: CurrentUser):
+    target_wallet = await get_wallet_by_id(db, payload.wallet_id)
+    if target_wallet is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No wallet found with this ID")
+    if target_wallet.user_id == current_user.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You can't block yourself")
+
+    existing = await db.execute(
+        select(WalletTradeBlockModel).where(
+            WalletTradeBlockModel.blocker_user_id == current_user.id,
+            WalletTradeBlockModel.blocked_user_id == target_wallet.user_id,
+        )
+    )
+    if existing.scalar_one_or_none() is not None:
+        return
+
+    db.add(WalletTradeBlockModel(blocker_user_id=current_user.id, blocked_user_id=target_wallet.user_id))
+    await db.commit()
+
+
+@router.delete("/wallet/block/{wallet_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def unblock_user(wallet_id: str, db: DBSession, current_user: CurrentUser):
+    target_wallet = await get_wallet_by_id(db, wallet_id)
+    if target_wallet is None:
+        return
+
+    result = await db.execute(
+        select(WalletTradeBlockModel).where(
+            WalletTradeBlockModel.blocker_user_id == current_user.id,
+            WalletTradeBlockModel.blocked_user_id == target_wallet.user_id,
+        )
+    )
+    block = result.scalar_one_or_none()
+    if block is not None:
+        await db.delete(block)
+        await db.commit()

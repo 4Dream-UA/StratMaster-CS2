@@ -34,7 +34,14 @@ from backend.app.schemas.strategy import (
     StrategyDetailResponse,
     StrategyUpdate,
 )
-from backend.app.schemas.user import AdminGrantSubscriptionRequest, SetAdminRequest, UserAdminOut, UsersListResponse
+from backend.app.schemas.user import (
+    AdminGrantSubscriptionRequest,
+    SetAdminRequest,
+    SetBannedRequest,
+    SetTradeBannedRequest,
+    UserAdminOut,
+    UsersListResponse,
+)
 from backend.app.schemas.wallet import TransactionsListResponse
 from backend.app.services.notifications import notify_favorited_map_users
 from backend.app.services.referral import generate_promo_code
@@ -366,6 +373,41 @@ async def admin_set_user_admin(user_id: uuid.UUID, payload: SetAdminRequest, db:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     user.is_admin = payload.is_admin
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+@router.patch("/admin/users/{user_id}/ban", response_model=UserAdminOut)
+async def admin_set_user_banned(user_id: uuid.UUID, payload: SetBannedRequest, db: DBSession, admin_user: AdminUser):
+    if user_id == admin_user.id and payload.is_banned:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You can't ban your own account")
+
+    result = await db.execute(
+        select(UserModel).options(selectinload(UserModel.wallet)).where(UserModel.id == user_id)
+    )
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    user.is_banned = payload.is_banned
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+@router.patch("/admin/users/{user_id}/trade-ban", response_model=UserAdminOut)
+async def admin_set_user_trade_banned(
+    user_id: uuid.UUID, payload: SetTradeBannedRequest, db: DBSession, admin_user: AdminUser
+):
+    result = await db.execute(
+        select(UserModel).options(selectinload(UserModel.wallet)).where(UserModel.id == user_id)
+    )
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    user.is_trade_banned = payload.is_trade_banned
     await db.commit()
     await db.refresh(user)
     return user

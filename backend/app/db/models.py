@@ -58,6 +58,8 @@ class TransactionTypeEnum(str, enum.Enum):
     referral_bonus = "referral_bonus"
     promo_code = "promo_code"
     case_open = "case_open"
+    case_gift = "case_gift"
+    case_sale = "case_sale"
 
 
 # ─────────────────────────────────────────────
@@ -84,7 +86,13 @@ class UserModel(Base):
     )
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True, nullable=False)
     username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Full account ban — enforced in get_current_user, locks every endpoint.
+    is_banned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Lighter than is_banned: still full app access, just can't send P2P
+    # transfers/case gifts/case sales to anyone.
+    is_trade_banned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     referred_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -607,3 +615,58 @@ class AppSettingsModel(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     logo_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+
+# ─────────────────────────────────────────────
+#  Trade blocking — a user can stop a specific other user from sending
+#  them P2P transfers / case gifts / case sale offers; admin can do the
+#  same thing app-wide via UserModel.is_trade_banned.
+# ─────────────────────────────────────────────
+
+class WalletTradeBlockModel(Base):
+    __tablename__ = "wallet_trade_blocks"
+    __table_args__ = (UniqueConstraint("blocker_user_id", "blocked_user_id", name="uq_trade_block"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # blocker doesn't want to receive anything from blocked.
+    blocker_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    blocked_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    blocked_user: Mapped["UserModel"] = relationship("UserModel", foreign_keys=[blocked_user_id])
+
+
+# ─────────────────────────────────────────────
+#  Case gifting + P2P case sales — one pending "offer" row per gift/sale.
+#  Cases leave the sender's inventory into escrow (this row) the moment
+#  the offer is created; they only land in the receiver's inventory once
+#  the receiver explicitly accepts, per spec ("получатель должен
+#  подтвердить подарок").
+# ─────────────────────────────────────────────
+
+class CaseOfferModel(Base):
+    __tablename__ = "case_offers"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    sender_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    receiver_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False
+    )
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    price_coins: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 0 = gift
+    offer_type: Mapped[str] = mapped_column(String(8), nullable=False)  # "gift" | "sale"
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")  # pending|accepted|declined|cancelled
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    case: Mapped["CaseModel"] = relationship("CaseModel")
+    sender: Mapped["UserModel"] = relationship("UserModel", foreign_keys=[sender_user_id])
+    receiver: Mapped["UserModel"] = relationship("UserModel", foreign_keys=[receiver_user_id])

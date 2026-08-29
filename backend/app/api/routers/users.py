@@ -4,10 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from backend.app.api.deps import CurrentUser, DBSession, TelegramUser
+from backend.app.api.deps import CurrentUser, DBSession, PremiumUser, TelegramUser
 from backend.app.core.rate_limit import rate_limit
 from backend.app.db.models import TransactionModel, UserModel, WalletModel
-from backend.app.schemas.user import AuthRequest, UserResponse
+from backend.app.schemas.user import AuthRequest, UpdateAvatarRequest, UserResponse
 from backend.app.services.referral import generate_wallet_id
 
 router = APIRouter()
@@ -50,6 +50,9 @@ async def auth(
         .where(UserModel.telegram_id == telegram_id)
     )
     user = result.scalar_one_or_none()
+
+    if user is not None and user.is_banned:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your account has been banned.")
 
     if user is None:
         # ── Resolve referrer (if a valid ref_wallet_id was passed) ──
@@ -99,4 +102,16 @@ async def auth(
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: CurrentUser):
+    return current_user
+
+
+@router.patch("/me/avatar", response_model=UserResponse)
+async def update_avatar(payload: UpdateAvatarRequest, db: DBSession, current_user: PremiumUser):
+    """Premium-only — uploads go through POST /forum/uploads (same
+    validation, already premium-gated), this just attaches the resulting
+    URL to the account. avatar_url=None clears back to the generated
+    initials avatar."""
+    current_user.avatar_url = payload.avatar_url
+    await db.commit()
+    await db.refresh(current_user)
     return current_user

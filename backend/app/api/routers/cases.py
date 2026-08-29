@@ -1,23 +1,39 @@
 import random
 import uuid
+from datetime import datetime, timezone
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 from backend.app.api.deps import CurrentUser, DBSession
+from backend.app.core.config import settings
 from backend.app.core.rate_limit import rate_limit
-from backend.app.db.models import CaseInventoryModel, CaseModel, CaseOpeningModel, TransactionModel
+from backend.app.db.models import (
+    CaseInventoryModel,
+    CaseModel,
+    CaseOfferModel,
+    CaseOpeningModel,
+    TransactionModel,
+    UserModel,
+)
 from backend.app.schemas.case import (
     CaseBuyRequest,
     CaseBuyResponse,
+    CaseGiftRequest,
     CaseInventoryItem,
+    CaseOfferOut,
     CaseOpenBulkRequest,
     CaseOpenBulkResponse,
     CaseOpeningHistoryItem,
     CaseOpeningHistoryResponse,
     CaseOut,
+    CaseSaleRequest,
 )
+from backend.app.services.notifications import send_telegram_message
+from backend.app.services.trading import assert_can_trade
+from backend.app.services.wallet import get_wallet_by_id
 
 router = APIRouter()
 
@@ -175,3 +191,221 @@ async def case_opening_history(db: DBSession, current_user: CurrentUser):
         )
         for o in openings
     ])
+
+
+# ─────────────────────────────────────────────
+#  P2P case gifting + sales — an "offer" escrows the sender's cases the
+#  moment it's created; they only land in the receiver's inventory once
+#  the receiver explicitly accepts (declining/cancelling returns them).
+# ─────────────────────────────────────────────
+
+def _offer_link() -> str | None:
+    if not settings.webapp_url:
+        return None
+    return f"{settings.webapp_url.rstrip('/')}/cases?tab=offers"
+
+
+async def _escrow_cases(db, user_id: uuid.UUID, case_id: uuid.UUID, quantity: int) -> None:
+    result = await db.execute(
+        select(CaseInventoryModel)
+        .where(CaseInventoryModel.user_id == user_id, CaseInventoryModel.case_id == case_id)
+        .order_by(CaseInventoryModel.acquired_at)
+        .limit(quantity)
+        .with_for_update()
+    )
+    owned = result.scalars().all()
+    if len(owned) < quantity:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"You only own {len(owned)} of this case",
+        )
+    for row in owned:
+        await db.delete(row)
+
+
+async def _create_offer(db, sender, receiver_wallet_id: str, case_id: uuid.UUID, quantity: int, price_coins: int, offer_type: str) -> CaseOfferModel:
+    case_ = await db.get(CaseModel, case_id)
+    if case_ is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found")
+
+    receiver_wallet = await get_wallet_by_id(db, receiver_wallet_id)
+    if receiver_wallet is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No wallet found with this ID")
+    if receiver_wallet.user_id == sender.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You can't send an offer to yourself")
+
+    try:
+        await assert_can_trade(db, sender, receiver_wallet.user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+
+    await _escrow_cases(db, sender.id, case_.id, quantity)
+
+    offer = CaseOfferModel(
+        sender_user_id=sender.id, receiver_user_id=receiver_wallet.user_id, case_id=case_.id,
+        quantity=quantity, price_coins=price_coins, offer_type=offer_type, status="pending",
+    )
+    db.add(offer)
+    await db.commit()
+    await db.refresh(offer)
+
+    receiver_user = await db.get(UserModel, receiver_wallet.user_id)
+    verb = "gifted you" if offer_type == "gift" else f"wants to sell you for {price_coins} MC"
+    sender_name = f"@{sender.username}" if sender.username else "A player"
+    text = f"🎁 {sender_name} {verb} {quantity}× {case_.name} — open the app to accept or decline."
+    await send_telegram_message(receiver_user.telegram_id, text, web_app_url=_offer_link())
+
+    return offer
+
+
+async def _get_offer_or_404(db, offer_id: uuid.UUID) -> CaseOfferModel:
+    result = await db.execute(
+        select(CaseOfferModel)
+        .options(
+            selectinload(CaseOfferModel.case),
+            selectinload(CaseOfferModel.sender).selectinload(UserModel.wallet),
+            selectinload(CaseOfferModel.receiver).selectinload(UserModel.wallet),
+        )
+        .where(CaseOfferModel.id == offer_id)
+    )
+    offer = result.scalar_one_or_none()
+    if offer is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Offer not found")
+    return offer
+
+
+def _offer_out(o: CaseOfferModel) -> CaseOfferOut:
+    return CaseOfferOut(
+        id=o.id,
+        sender_wallet_id=o.sender.wallet.wallet_id, sender_username=o.sender.username,
+        receiver_wallet_id=o.receiver.wallet.wallet_id, receiver_username=o.receiver.username,
+        case_id=o.case_id, case_name=o.case.name,
+        quantity=o.quantity, price_coins=o.price_coins, offer_type=o.offer_type,
+        status=o.status, created_at=o.created_at,
+    )
+
+
+@router.post(
+    "/cases/gift", response_model=CaseOfferOut, status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit("case_offer", max_requests=15, window_seconds=60))],
+)
+async def gift_case(payload: CaseGiftRequest, db: DBSession, current_user: CurrentUser):
+    offer = await _create_offer(db, current_user, payload.receiver_wallet_id, payload.case_id, payload.quantity, 0, "gift")
+    return await _get_offer_or_404_out(db, offer.id)
+
+
+@router.post(
+    "/cases/sell", response_model=CaseOfferOut, status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit("case_offer", max_requests=15, window_seconds=60))],
+)
+async def sell_case(payload: CaseSaleRequest, db: DBSession, current_user: CurrentUser):
+    offer = await _create_offer(
+        db, current_user, payload.receiver_wallet_id, payload.case_id, payload.quantity, payload.price_coins, "sale",
+    )
+    return await _get_offer_or_404_out(db, offer.id)
+
+
+async def _get_offer_or_404_out(db, offer_id: uuid.UUID) -> CaseOfferOut:
+    return _offer_out(await _get_offer_or_404(db, offer_id))
+
+
+@router.get("/cases/offers", response_model=List[CaseOfferOut])
+async def list_offers(db: DBSession, current_user: CurrentUser, direction: str = "incoming"):
+    if direction not in ("incoming", "outgoing"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="direction must be 'incoming' or 'outgoing'")
+
+    column = CaseOfferModel.receiver_user_id if direction == "incoming" else CaseOfferModel.sender_user_id
+    result = await db.execute(
+        select(CaseOfferModel)
+        .options(
+            selectinload(CaseOfferModel.case),
+            selectinload(CaseOfferModel.sender).selectinload(UserModel.wallet),
+            selectinload(CaseOfferModel.receiver).selectinload(UserModel.wallet),
+        )
+        .where(column == current_user.id, CaseOfferModel.status == "pending")
+        .order_by(CaseOfferModel.created_at.desc())
+    )
+    return [_offer_out(o) for o in result.scalars().all()]
+
+
+@router.post("/cases/offers/{offer_id}/accept", response_model=CaseOfferOut)
+async def accept_offer(offer_id: uuid.UUID, db: DBSession, current_user: CurrentUser):
+    offer = await _get_offer_or_404(db, offer_id)
+    if offer.receiver_user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This isn't your offer to accept")
+    if offer.status != "pending":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This offer is no longer pending")
+
+    if offer.offer_type == "sale":
+        receiver_wallet = current_user.wallet
+        if receiver_wallet.balance_coins < offer.price_coins:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Not enough MasterCoins — need {offer.price_coins}, have {receiver_wallet.balance_coins}",
+            )
+        sender_wallet = offer.sender.wallet
+        receiver_wallet.balance_coins -= offer.price_coins
+        sender_wallet.balance_coins += offer.price_coins
+        db.add(TransactionModel(
+            sender_wallet_id=receiver_wallet.wallet_id, receiver_wallet_id=sender_wallet.wallet_id,
+            amount=offer.price_coins, transaction_type="case_sale",
+        ))
+    else:
+        # No coins change hands for a gift, but still logged (amount=0) so
+        # it shows up in the admin transaction audit trail.
+        db.add(TransactionModel(
+            sender_wallet_id=offer.sender.wallet.wallet_id, receiver_wallet_id=current_user.wallet.wallet_id,
+            amount=0, transaction_type="case_gift",
+        ))
+
+    for _ in range(offer.quantity):
+        db.add(CaseInventoryModel(user_id=current_user.id, case_id=offer.case_id))
+
+    offer.status = "accepted"
+    offer.resolved_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    verb = "accepted your gift" if offer.offer_type == "gift" else "bought"
+    receiver_name = f"@{current_user.username}" if current_user.username else "The recipient"
+    await send_telegram_message(
+        offer.sender.telegram_id,
+        f"✅ {receiver_name} {verb} {offer.quantity}× {offer.case.name}.",
+        web_app_url=_offer_link(),
+    )
+
+    return await _get_offer_or_404_out(db, offer.id)
+
+
+async def _return_escrow(db, offer: CaseOfferModel) -> None:
+    for _ in range(offer.quantity):
+        db.add(CaseInventoryModel(user_id=offer.sender_user_id, case_id=offer.case_id))
+
+
+@router.post("/cases/offers/{offer_id}/decline", response_model=CaseOfferOut)
+async def decline_offer(offer_id: uuid.UUID, db: DBSession, current_user: CurrentUser):
+    offer = await _get_offer_or_404(db, offer_id)
+    if offer.receiver_user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This isn't your offer to decline")
+    if offer.status != "pending":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This offer is no longer pending")
+
+    await _return_escrow(db, offer)
+    offer.status = "declined"
+    offer.resolved_at = datetime.now(timezone.utc)
+    await db.commit()
+    return await _get_offer_or_404_out(db, offer.id)
+
+
+@router.post("/cases/offers/{offer_id}/cancel", response_model=CaseOfferOut)
+async def cancel_offer(offer_id: uuid.UUID, db: DBSession, current_user: CurrentUser):
+    offer = await _get_offer_or_404(db, offer_id)
+    if offer.sender_user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This isn't your offer to cancel")
+    if offer.status != "pending":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This offer is no longer pending")
+
+    await _return_escrow(db, offer)
+    offer.status = "cancelled"
+    offer.resolved_at = datetime.now(timezone.utc)
+    await db.commit()
+    return await _get_offer_or_404_out(db, offer.id)

@@ -27,6 +27,7 @@ class ReplyToOut(BaseModel):
 class ForumPostOut(BaseModel):
     id: uuid.UUID
     author_username: str | None = None
+    author_avatar_url: str | None = None
     author_id: uuid.UUID
     author_is_admin: bool = False
     body: str
@@ -38,6 +39,7 @@ class ForumThreadPreview(BaseModel):
     id: uuid.UUID
     title: str
     author_username: str | None = None
+    author_avatar_url: str | None = None
     author_id: uuid.UUID
     author_is_admin: bool = False
     is_pinned: bool = False

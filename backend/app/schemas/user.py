@@ -23,6 +23,7 @@ class UserResponse(BaseModel):
     id: uuid.UUID
     telegram_id: int
     username: str | None
+    avatar_url: str | None = None
     is_admin: bool
     created_at: datetime
     wallet: WalletResponse
@@ -42,7 +43,10 @@ class UserAdminOut(BaseModel):
     id: uuid.UUID
     telegram_id: int
     username: str | None
+    avatar_url: str | None = None
     is_admin: bool
+    is_banned: bool = False
+    is_trade_banned: bool = False
     created_at: datetime
     wallet: WalletResponse
 
@@ -59,5 +63,26 @@ class SetAdminRequest(BaseModel):
     is_admin: bool
 
 
+class SetBannedRequest(BaseModel):
+    is_banned: bool
+
+
+class SetTradeBannedRequest(BaseModel):
+    is_trade_banned: bool
+
+
 class AdminGrantSubscriptionRequest(BaseModel):
     months: int = Field(..., ge=0, le=120, description="0 grants lifetime access")
+
+
+class UpdateAvatarRequest(BaseModel):
+    avatar_url: str | None = None
+
+
+class BlockedUserOut(BaseModel):
+    wallet_id: str
+    username: str | None = None
+
+
+class BlockUserRequest(BaseModel):
+    wallet_id: str = Field(..., min_length=1, max_length=16)

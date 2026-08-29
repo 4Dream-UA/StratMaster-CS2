@@ -50,6 +50,7 @@ async def _thread_preview(db, thread: ForumThreadModel) -> ForumThreadPreview:
         id=thread.id,
         title=thread.title,
         author_username=thread.user.username,
+        author_avatar_url=thread.user.avatar_url,
         author_id=thread.user_id,
         author_is_admin=thread.user.is_admin,
         is_pinned=thread.is_pinned,
@@ -206,7 +207,7 @@ def _post_out(p: ForumPostModel) -> ForumPostOut:
             snippet += "…"
         reply_to = ReplyToOut(id=p.reply_to.id, author_username=p.reply_to.user.username, body_snippet=snippet)
     return ForumPostOut(
-        id=p.id, author_username=p.user.username, author_id=p.user_id,
+        id=p.id, author_username=p.user.username, author_avatar_url=p.user.avatar_url, author_id=p.user_id,
         author_is_admin=p.user.is_admin, body=p.body, reply_to=reply_to, created_at=p.created_at,
     )
 
