@@ -17,4 +17,15 @@ export const walletAPI = {
     })
     return response.data
   },
+
+  async listBlocked() {
+    const response = await apiClient.get('/api/wallet/blocked')
+    return response.data
+  },
+  async block(walletId) {
+    await apiClient.post('/api/wallet/block', { wallet_id: walletId })
+  },
+  async unblock(walletId) {
+    await apiClient.delete(`/api/wallet/block/${walletId}`)
+  },
 }

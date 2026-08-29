@@ -10,8 +10,11 @@
 
       <div class="view-tabs">
         <button type="button" class="view-tab" :class="{ active: activeView === 'shop' }" @click="activeView = 'shop'">Shop</button>
-        <button type="button" class="view-tab" :class="{ active: activeView === 'inventory' }" @click="activeView = 'inventory'">
+        <button type="button" class="view-tab" :class="{ active: activeView === 'inventory' }" @click="switchToInventory">
           My Inventory <span v-if="totalOwned" class="tab-badge">{{ totalOwned }}</span>
+        </button>
+        <button type="button" class="view-tab" :class="{ active: activeView === 'offers' }" @click="switchToOffers">
+          Offers <span v-if="incomingOffers.length" class="tab-badge">{{ incomingOffers.length }}</span>
         </button>
       </div>
 
@@ -59,7 +62,7 @@
       </div>
 
       <!-- ═══ INVENTORY ═══════════════════════════════ -->
-      <div v-else class="case-grid">
+      <div v-else-if="activeView === 'inventory'" class="case-grid">
         <div v-if="!inventory.length" class="empty">Your inventory is empty — buy a case in the Shop first.</div>
         <div v-for="inv in inventory" :key="inv.case_id" class="case-card">
           <div class="case-icon"><CaseIcon /></div>
@@ -72,6 +75,21 @@
               :disabled="opening || inv.count < q"
               @click="openCases(caseById(inv.case_id), q)"
             >{{ opening ? '…' : `Open ×${q}` }}</button>
+          </div>
+
+          <button type="button" class="odds-toggle" @click="sendFormOpenId = sendFormOpenId === inv.case_id ? null : inv.case_id">
+            {{ sendFormOpenId === inv.case_id ? 'Hide gift/sell ▲' : 'Gift or sell ▼' }}
+          </button>
+          <div v-if="sendFormOpenId === inv.case_id" class="send-form">
+            <div class="send-mode-toggle">
+              <button type="button" class="qty-preset" :class="{ active: sendMode === 'gift' }" @click="sendMode = 'gift'">Gift</button>
+              <button type="button" class="qty-preset" :class="{ active: sendMode === 'sale' }" @click="sendMode = 'sale'">Sell</button>
+            </div>
+            <input v-model="sendWalletId" type="text" placeholder="Recipient Wallet ID" class="qty-input send-input" />
+            <input v-model.number="sendQuantity" type="number" min="1" :max="inv.count" placeholder="Qty" class="qty-input send-input-small" />
+            <input v-if="sendMode === 'sale'" v-model.number="sendPrice" type="number" min="1" placeholder="Price MC" class="qty-input send-input-small" />
+            <button class="mini-btn" :disabled="sendBusy" @click="submitSend(inv)">{{ sendBusy ? '…' : (sendMode === 'gift' ? 'Send Gift' : 'Send Offer') }}</button>
+            <p v-if="sendError" class="case-hint">{{ sendError }}</p>
           </div>
 
           <button
@@ -87,6 +105,46 @@
                 <span class="spent">-{{ h.coins_spent }}</span>
                 <span class="won">+{{ h.coins_won }} MC</span>
               </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ OFFERS ═══════════════════════════════ -->
+      <div v-else class="offers-view">
+        <h3 class="offers-heading">Incoming</h3>
+        <div v-if="!incomingOffers.length" class="empty">No incoming offers.</div>
+        <div v-else class="offers-list">
+          <div v-for="o in incomingOffers" :key="o.id" class="offer-row">
+            <CaseIcon :size="40" />
+            <div class="offer-info">
+              <span class="offer-title">{{ o.offer_type === 'gift' ? 'Gift' : 'Sale offer' }}: {{ o.quantity }}× {{ o.case_name }}</span>
+              <span class="offer-sub">
+                From {{ o.sender_username ? '@' + o.sender_username : o.sender_wallet_id }}
+                <template v-if="o.offer_type === 'sale'"> — {{ o.price_coins }} MC</template>
+              </span>
+            </div>
+            <div class="offer-actions">
+              <button class="mini-btn" :disabled="offerBusyId === o.id" @click="respondToOffer(o, 'accept')">Accept</button>
+              <button class="mini-btn danger" :disabled="offerBusyId === o.id" @click="respondToOffer(o, 'decline')">Decline</button>
+            </div>
+          </div>
+        </div>
+
+        <h3 class="offers-heading">Outgoing</h3>
+        <div v-if="!outgoingOffers.length" class="empty">No outgoing offers.</div>
+        <div v-else class="offers-list">
+          <div v-for="o in outgoingOffers" :key="o.id" class="offer-row">
+            <CaseIcon :size="40" />
+            <div class="offer-info">
+              <span class="offer-title">{{ o.offer_type === 'gift' ? 'Gift' : 'Sale offer' }}: {{ o.quantity }}× {{ o.case_name }}</span>
+              <span class="offer-sub">
+                To {{ o.receiver_username ? '@' + o.receiver_username : o.receiver_wallet_id }}
+                <template v-if="o.offer_type === 'sale'"> — {{ o.price_coins }} MC</template>
+              </span>
+            </div>
+            <div class="offer-actions">
+              <button class="mini-btn danger" :disabled="offerBusyId === o.id" @click="respondToOffer(o, 'cancel')">Cancel</button>
             </div>
           </div>
         </div>
@@ -153,10 +211,83 @@ const oddsOpenId = ref(null)
 const historyOpenId = ref(null)
 const history = ref([])
 const inventory = ref([]) // [{ case_id, case_name, count }]
-const activeView = ref('shop') // 'shop' | 'inventory'
+const activeView = ref('shop') // 'shop' | 'inventory' | 'offers'
 
 function caseById(id) {
   return cases.value.find(c => c.id === id)
+}
+
+function switchToInventory() {
+  activeView.value = 'inventory'
+  loadInventory()
+}
+function switchToOffers() {
+  activeView.value = 'offers'
+  loadOffers()
+}
+
+// ── Gift / sell (P2P case offers) ──────────────────────────────
+const sendFormOpenId = ref(null)
+const sendMode = ref('gift') // 'gift' | 'sale'
+const sendWalletId = ref('')
+const sendQuantity = ref(1)
+const sendPrice = ref(null)
+const sendBusy = ref(false)
+const sendError = ref('')
+
+const incomingOffers = ref([])
+const outgoingOffers = ref([])
+const offerBusyId = ref(null)
+
+async function loadOffers() {
+  try {
+    const [incoming, outgoing] = await Promise.all([
+      casesAPI.listOffers('incoming'),
+      casesAPI.listOffers('outgoing'),
+    ])
+    incomingOffers.value = incoming
+    outgoingOffers.value = outgoing
+  } catch (e) {
+    // Not critical to the page.
+  }
+}
+
+async function submitSend(inv) {
+  if (!sendWalletId.value.trim() || sendBusy.value) return
+  if (sendMode.value === 'sale' && !sendPrice.value) { sendError.value = 'Enter a price.'; return }
+
+  sendBusy.value = true
+  sendError.value = ''
+  try {
+    if (sendMode.value === 'gift') {
+      await casesAPI.gift(sendWalletId.value.trim(), inv.case_id, sendQuantity.value || 1)
+    } else {
+      await casesAPI.sell(sendWalletId.value.trim(), inv.case_id, sendQuantity.value || 1, sendPrice.value)
+    }
+    sendFormOpenId.value = null
+    sendWalletId.value = ''
+    sendQuantity.value = 1
+    sendPrice.value = null
+    await loadInventory()
+  } catch (e) {
+    sendError.value = e.response?.data?.detail || 'Could not send that offer.'
+  } finally {
+    sendBusy.value = false
+  }
+}
+
+async function respondToOffer(offer, action) {
+  offerBusyId.value = offer.id
+  try {
+    if (action === 'accept') await casesAPI.acceptOffer(offer.id)
+    else if (action === 'decline') await casesAPI.declineOffer(offer.id)
+    else await casesAPI.cancelOffer(offer.id)
+    await Promise.all([loadOffers(), loadInventory()])
+  } catch (e) {
+    console.warn('[Cases] offer action failed:', e.response?.data?.detail)
+  } finally {
+    offerBusyId.value = null
+  }
 }
 
 const totalOwned = computed(() => inventory.value.reduce((sum, i) => sum + i.count, 0))
@@ -329,6 +460,7 @@ onMounted(async () => {
   await loadCases()
   await loadInventory()
   loadHistory()
+  loadOffers()
 })
 </script>
 
@@ -533,6 +665,39 @@ export default { components: { CoinIcon, CaseIcon } }
 .history-amounts { display: flex; gap: 8px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .spent { color: var(--danger); }
 .won { color: var(--success); }
+
+/* ── Gift / sell form ─────────────────────────────── */
+.send-form {
+  margin-top: 14px; padding: 12px; background: var(--bg); border-radius: 10px;
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center;
+}
+.send-mode-toggle { display: flex; gap: 6px; width: 100%; justify-content: center; }
+.send-input { width: auto; flex: 1; min-width: 140px; }
+.send-input-small { width: 64px; }
+
+.mini-btn {
+  background: linear-gradient(160deg, var(--bg-elevated), var(--bg)); border: 1px solid var(--line); color: var(--text-dim);
+  padding: 7px 14px; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,.18);
+  transition: border-color .15s, color .15s, transform .15s, box-shadow .15s;
+}
+.mini-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); box-shadow: 0 4px 14px -4px rgba(255,154,0,.4); transform: translateY(-1px); }
+.mini-btn:disabled { opacity: .5; cursor: not-allowed; }
+.mini-btn.danger:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); box-shadow: 0 4px 14px -4px rgba(235,75,75,.4); }
+
+/* ── Offers ─────────────────────────────── */
+.offers-view { max-width: 640px; margin: 0 auto; }
+.offers-heading { font-size: 13px; font-weight: 800; color: var(--text); margin: 24px 0 12px; text-transform: uppercase; letter-spacing: .04em; }
+.offers-heading:first-child { margin-top: 0; }
+.offers-list { display: flex; flex-direction: column; gap: 8px; }
+.offer-row {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--bg-elevated); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px;
+}
+.offer-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.offer-title { font-size: 13px; font-weight: 700; color: var(--text); }
+.offer-sub { font-size: 11.5px; color: var(--text-dim); }
+.offer-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
 /* ── Reveal modal ─────────────────────────────── */
 .modal-backdrop {
