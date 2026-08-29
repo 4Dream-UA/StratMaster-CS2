@@ -37,7 +37,7 @@ from backend.app.services.wallet import get_wallet_by_id
 
 router = APIRouter()
 
-VALID_OPEN_QUANTITIES = (1, 2, 5)
+VALID_OPEN_QUANTITIES = (1, 3, 5)
 
 
 @router.get("/cases", response_model=List[CaseOut])
@@ -110,7 +110,7 @@ async def buy_case(case_id: uuid.UUID, payload: CaseBuyRequest, db: DBSession, c
 )
 async def open_inventory_cases(payload: CaseOpenBulkRequest, db: DBSession, current_user: CurrentUser):
     if payload.quantity not in VALID_OPEN_QUANTITIES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Quantity must be 1, 2 or 5")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Quantity must be 1, 3 or 5")
 
     case_ = await db.get(CaseModel, payload.case_id)
     if case_ is None:
@@ -202,7 +202,7 @@ async def case_opening_history(db: DBSession, current_user: CurrentUser):
 def _offer_link() -> str | None:
     if not settings.webapp_url:
         return None
-    return f"{settings.webapp_url.rstrip('/')}/cases?tab=offers"
+    return f"{settings.webapp_url.rstrip('/')}/user?tab=cases&sub=offers"
 
 
 async def _escrow_cases(db, user_id: uuid.UUID, case_id: uuid.UUID, quantity: int) -> None:

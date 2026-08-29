@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
-from typing import Optional
-from pydantic import BaseModel, Field
+from typing import Literal, Optional
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class WalletResponse(BaseModel):
@@ -23,6 +23,7 @@ class UserResponse(BaseModel):
     id: uuid.UUID
     telegram_id: int
     username: str | None
+    display_name: str | None = None
     avatar_url: str | None = None
     is_admin: bool
     created_at: datetime
@@ -43,6 +44,7 @@ class UserAdminOut(BaseModel):
     id: uuid.UUID
     telegram_id: int
     username: str | None
+    display_name: str | None = None
     avatar_url: str | None = None
     is_admin: bool
     is_banned: bool = False
@@ -77,6 +79,31 @@ class AdminGrantSubscriptionRequest(BaseModel):
 
 class UpdateAvatarRequest(BaseModel):
     avatar_url: str | None = None
+
+
+class SetNicknameRequest(BaseModel):
+    nickname: str | None = Field(None, max_length=32)
+
+    @field_validator("nickname")
+    @classmethod
+    def _blank_becomes_none(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        return v or None
+
+
+class AdminSetPremiumRequest(BaseModel):
+    """Sets the wallet's premium expiry to an ABSOLUTE value (now + duration),
+    overwriting whatever time was left — unlike /subscription, which extends."""
+    unit: Literal["forever", "month", "hour", "minute"]
+    amount: int | None = Field(None, ge=1, le=1000)
+
+    @model_validator(mode="after")
+    def _amount_required_unless_forever(self):
+        if self.unit != "forever" and self.amount is None:
+            raise ValueError("amount is required unless unit is 'forever'")
+        return self
 
 
 class BlockedUserOut(BaseModel):

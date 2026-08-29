@@ -1,6 +1,6 @@
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -37,8 +37,10 @@ from backend.app.schemas.strategy import (
 )
 from backend.app.schemas.user import (
     AdminGrantSubscriptionRequest,
+    AdminSetPremiumRequest,
     SetAdminRequest,
     SetBannedRequest,
+    SetNicknameRequest,
     SetTradeBannedRequest,
     UserAdminOut,
     UsersListResponse,
@@ -46,7 +48,7 @@ from backend.app.schemas.user import (
 from backend.app.schemas.wallet import TransactionsListResponse
 from backend.app.services.notifications import notify_favorited_map_users
 from backend.app.services.referral import generate_promo_code
-from backend.app.services.subscription import extend_subscription
+from backend.app.services.subscription import LIFETIME_YEARS, extend_subscription
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -432,6 +434,71 @@ async def admin_set_user_trade_banned(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     user.is_trade_banned = payload.is_trade_banned
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+@router.patch("/admin/users/{user_id}/nickname", response_model=UserAdminOut)
+async def admin_set_user_nickname(user_id: uuid.UUID, payload: SetNicknameRequest, db: DBSession, admin_user: AdminUser):
+    result = await db.execute(
+        select(UserModel).options(selectinload(UserModel.wallet)).where(UserModel.id == user_id)
+    )
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    user.display_name = payload.nickname
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+@router.delete("/admin/users/{user_id}/avatar", response_model=UserAdminOut)
+async def admin_clear_user_avatar(user_id: uuid.UUID, db: DBSession, admin_user: AdminUser):
+    result = await db.execute(
+        select(UserModel).options(selectinload(UserModel.wallet)).where(UserModel.id == user_id)
+    )
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    user.avatar_url = None
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+@router.patch("/admin/users/{user_id}/premium", response_model=UserAdminOut)
+async def admin_set_user_premium(user_id: uuid.UUID, payload: AdminSetPremiumRequest, db: DBSession, admin_user: AdminUser):
+    """Sets the expiry to an ABSOLUTE now + duration, overwriting whatever
+    was left — unlike /subscription (extend_subscription), which stacks on
+    top of the current expiry. E.g. a user with a month left gets set to
+    exactly 1 minute if the admin picks unit=minute, amount=1."""
+    result = await db.execute(
+        select(UserModel).options(selectinload(UserModel.wallet)).where(UserModel.id == user_id)
+    )
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    now = datetime.now(timezone.utc)
+    wallet = user.wallet
+    if payload.unit == "forever":
+        wallet.is_lifetime = True
+        wallet.subscription_expires_at = now + timedelta(days=365 * LIFETIME_YEARS)
+        wallet.last_plan_months = None
+    else:
+        wallet.is_lifetime = False
+        delta = {
+            "month": timedelta(days=30 * payload.amount),
+            "hour": timedelta(hours=payload.amount),
+            "minute": timedelta(minutes=payload.amount),
+        }[payload.unit]
+        wallet.subscription_expires_at = now + delta
+        wallet.last_plan_months = payload.amount if payload.unit == "month" else None
+    wallet.reminder_sent_for_expiry = None
+
     await db.commit()
     await db.refresh(user)
     return user

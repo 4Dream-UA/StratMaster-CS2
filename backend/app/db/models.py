@@ -86,6 +86,10 @@ class UserModel(Base):
     )
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True, nullable=False)
     username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Player-chosen display name — shown big/primary everywhere, with the
+    # Telegram @username as a small secondary line. Falls back to username
+    # (or telegram_id) when unset.
+    display_name: Mapped[str | None] = mapped_column(String(32), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Full account ban — enforced in get_current_user, locks every endpoint.

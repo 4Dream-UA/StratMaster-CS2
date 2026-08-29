@@ -50,6 +50,7 @@ async def _thread_preview(db, thread: ForumThreadModel) -> ForumThreadPreview:
         id=thread.id,
         title=thread.title,
         author_username=thread.user.username,
+        author_display_name=thread.user.display_name,
         author_avatar_url=thread.user.avatar_url,
         author_id=thread.user_id,
         author_is_admin=thread.user.is_admin,
@@ -205,9 +206,13 @@ def _post_out(p: ForumPostModel) -> ForumPostOut:
         snippet = p.reply_to.body[:REPLY_SNIPPET_LEN]
         if len(p.reply_to.body) > REPLY_SNIPPET_LEN:
             snippet += "…"
-        reply_to = ReplyToOut(id=p.reply_to.id, author_username=p.reply_to.user.username, body_snippet=snippet)
+        reply_to = ReplyToOut(
+            id=p.reply_to.id, author_username=p.reply_to.user.username,
+            author_display_name=p.reply_to.user.display_name, body_snippet=snippet,
+        )
     return ForumPostOut(
-        id=p.id, author_username=p.user.username, author_avatar_url=p.user.avatar_url, author_id=p.user_id,
+        id=p.id, author_username=p.user.username, author_display_name=p.user.display_name,
+        author_avatar_url=p.user.avatar_url, author_id=p.user_id,
         author_is_admin=p.user.is_admin, body=p.body, reply_to=reply_to, created_at=p.created_at,
     )
 

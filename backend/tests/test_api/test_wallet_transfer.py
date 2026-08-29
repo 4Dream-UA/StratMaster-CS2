@@ -213,3 +213,68 @@ async def test_admin_cannot_ban_own_account(client, db_session, auth_as):
     auth_as(admin)
     resp = await client.patch(f"/api/admin/users/{admin.id}/ban", json={"is_banned": True})
     assert resp.status_code == 400
+
+
+# ─────────────────────────────────────────────
+#  Admin per-player overrides: nickname, avatar, absolute premium set
+# ─────────────────────────────────────────────
+
+async def test_admin_can_set_and_clear_a_users_nickname(client, db_session, auth_as):
+    admin = await make_user(db_session, is_admin=True)
+    target = await make_user(db_session)
+    auth_as(admin)
+
+    resp = await client.patch(f"/api/admin/users/{target.id}/nickname", json={"nickname": "Top Fragger"})
+    assert resp.status_code == 200
+    assert resp.json()["display_name"] == "Top Fragger"
+
+    cleared = await client.patch(f"/api/admin/users/{target.id}/nickname", json={"nickname": None})
+    assert cleared.json()["display_name"] is None
+
+
+async def test_admin_can_clear_a_users_avatar(client, db_session, auth_as):
+    admin = await make_user(db_session, is_admin=True)
+    target = await make_user(db_session, subscribed=True)
+    auth_as(target)
+    await client.patch("/api/me/avatar", json={"avatar_url": "/uploads/x.png"})
+
+    auth_as(admin)
+    resp = await client.delete(f"/api/admin/users/{target.id}/avatar")
+    assert resp.status_code == 200
+    assert resp.json()["avatar_url"] is None
+
+
+async def test_admin_set_premium_forever_grants_lifetime(client, db_session, auth_as):
+    admin = await make_user(db_session, is_admin=True)
+    target = await make_user(db_session)
+    auth_as(admin)
+
+    resp = await client.patch(f"/api/admin/users/{target.id}/premium", json={"unit": "forever"})
+    assert resp.status_code == 200
+    assert resp.json()["wallet"]["is_lifetime"] is True
+
+
+async def test_admin_set_premium_overwrites_existing_time_left(client, db_session, auth_as):
+    """A user with a month left set to 1 minute ends up with ~1 minute, not
+    31 days — /premium is an absolute set, unlike /subscription which extends."""
+    admin = await make_user(db_session, is_admin=True)
+    target = await make_user(db_session, subscribed=True)  # already has time left
+    auth_as(admin)
+
+    resp = await client.patch(f"/api/admin/users/{target.id}/premium", json={"unit": "minute", "amount": 1})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["wallet"]["is_lifetime"] is False
+    from datetime import datetime, timezone
+    expiry = datetime.fromisoformat(body["wallet"]["subscription_expires_at"].replace("Z", "+00:00"))
+    remaining_seconds = (expiry - datetime.now(timezone.utc)).total_seconds()
+    assert 0 < remaining_seconds < 120  # ~1 minute, nowhere near a month
+
+
+async def test_admin_set_premium_requires_amount_unless_forever(client, db_session, auth_as):
+    admin = await make_user(db_session, is_admin=True)
+    target = await make_user(db_session)
+    auth_as(admin)
+
+    resp = await client.patch(f"/api/admin/users/{target.id}/premium", json={"unit": "hour"})
+    assert resp.status_code == 422

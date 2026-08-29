@@ -21,12 +21,14 @@ class ReplyToOut(BaseModel):
     doesn't need a second lookup just to show "replying to @x: ...."."""
     id: uuid.UUID
     author_username: str | None = None
+    author_display_name: str | None = None
     body_snippet: str
 
 
 class ForumPostOut(BaseModel):
     id: uuid.UUID
     author_username: str | None = None
+    author_display_name: str | None = None
     author_avatar_url: str | None = None
     author_id: uuid.UUID
     author_is_admin: bool = False
@@ -39,6 +41,7 @@ class ForumThreadPreview(BaseModel):
     id: uuid.UUID
     title: str
     author_username: str | None = None
+    author_display_name: str | None = None
     author_avatar_url: str | None = None
     author_id: uuid.UUID
     author_is_admin: bool = False

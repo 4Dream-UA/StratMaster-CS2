@@ -19,3 +19,15 @@ async def test_non_premium_user_cannot_set_avatar(client, db_session, auth_as):
 
     resp = await client.patch("/api/me/avatar", json={"avatar_url": "/uploads/x.png"})
     assert resp.status_code == 403
+
+
+async def test_any_user_can_set_and_clear_nickname(client, db_session, auth_as):
+    user = await make_user(db_session)  # no subscription — nickname isn't premium-gated
+    auth_as(user)
+
+    resp = await client.patch("/api/me/nickname", json={"nickname": "  Zywoo Fan  "})
+    assert resp.status_code == 200
+    assert resp.json()["display_name"] == "Zywoo Fan"
+
+    cleared = await client.patch("/api/me/nickname", json={"nickname": "   "})
+    assert cleared.json()["display_name"] is None

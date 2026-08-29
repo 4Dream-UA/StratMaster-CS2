@@ -73,11 +73,11 @@ async def test_open_rejects_invalid_quantity(client, db_session, auth_as):
     case_ = await make_case(db_session)
     user = await make_user(db_session, balance=1000)
     auth_as(user)
-    await client.post(f"/api/cases/{case_.id}/buy", json={"quantity": 3})
+    await client.post(f"/api/cases/{case_.id}/buy", json={"quantity": 4})
 
-    resp = await client.post("/api/cases/inventory/open", json={"case_id": str(case_.id), "quantity": 3})
+    resp = await client.post("/api/cases/inventory/open", json={"case_id": str(case_.id), "quantity": 4})
     assert resp.status_code == 400
-    assert "must be 1, 2 or 5" in resp.json()["detail"]
+    assert "must be 1, 3 or 5" in resp.json()["detail"]
 
 
 async def test_buy_then_open_x1_resolves_reward_and_clears_inventory(client, db_session, auth_as):
@@ -120,13 +120,13 @@ async def test_opening_records_one_history_row_per_case(client, db_session, auth
     user = await make_user(db_session, balance=1000)
     auth_as(user)
 
-    await client.post(f"/api/cases/{case_.id}/buy", json={"quantity": 2})
-    await client.post("/api/cases/inventory/open", json={"case_id": str(case_.id), "quantity": 2})
+    await client.post(f"/api/cases/{case_.id}/buy", json={"quantity": 3})
+    await client.post("/api/cases/inventory/open", json={"case_id": str(case_.id), "quantity": 3})
 
     history = await client.get("/api/cases/openings/history")
     assert history.status_code == 200
     openings = history.json()["openings"]
-    assert len(openings) == 2
+    assert len(openings) == 3
     assert all(o["case_name"] == case_.name and o["coins_spent"] == 49 for o in openings)
 
 

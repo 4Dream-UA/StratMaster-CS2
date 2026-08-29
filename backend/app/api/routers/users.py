@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 from backend.app.api.deps import CurrentUser, DBSession, PremiumUser, TelegramUser
 from backend.app.core.rate_limit import rate_limit
 from backend.app.db.models import TransactionModel, UserModel, WalletModel
-from backend.app.schemas.user import AuthRequest, UpdateAvatarRequest, UserResponse
+from backend.app.schemas.user import AuthRequest, SetNicknameRequest, UpdateAvatarRequest, UserResponse
 from backend.app.services.referral import generate_wallet_id
 
 router = APIRouter()
@@ -112,6 +112,16 @@ async def update_avatar(payload: UpdateAvatarRequest, db: DBSession, current_use
     URL to the account. avatar_url=None clears back to the generated
     initials avatar."""
     current_user.avatar_url = payload.avatar_url
+    await db.commit()
+    await db.refresh(current_user)
+    return current_user
+
+
+@router.patch("/me/nickname", response_model=UserResponse)
+async def update_nickname(payload: SetNicknameRequest, db: DBSession, current_user: CurrentUser):
+    """Open to every user, not just premium — the display name is a free
+    cosmetic, unlike avatar uploads which cost storage."""
+    current_user.display_name = payload.nickname
     await db.commit()
     await db.refresh(current_user)
     return current_user
