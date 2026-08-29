@@ -8,36 +8,40 @@
         <p>Spend MasterCoins for a shot at winning more back.</p>
       </section>
 
+      <div class="view-tabs">
+        <button type="button" class="view-tab" :class="{ active: activeView === 'shop' }" @click="activeView = 'shop'">Shop</button>
+        <button type="button" class="view-tab" :class="{ active: activeView === 'inventory' }" @click="activeView = 'inventory'">
+          My Inventory <span v-if="totalOwned" class="tab-badge">{{ totalOwned }}</span>
+        </button>
+      </div>
+
       <div v-if="loading" class="loader-row"><div class="spinner"></div></div>
       <div v-else-if="!cases.length" class="empty">No cases available right now.</div>
 
-      <div v-else class="case-grid">
+      <!-- ═══ SHOP ═══════════════════════════════ -->
+      <div v-else-if="activeView === 'shop'" class="case-grid">
         <div v-for="c in cases" :key="c.id" class="case-card">
           <div class="case-icon"><CaseIcon /></div>
           <h3>{{ c.name }}</h3>
           <p class="case-cost"><CoinIcon :size="16" /> {{ c.cost_coins }} <span>MC</span></p>
 
-          <div class="buy-row">
-            <button
-              class="mini-btn buy-btn" :disabled="buying || (wallet?.balance_coins ?? 0) < c.cost_coins"
-              @click="buyCase(c, 1)"
-            >Buy 1</button>
-            <button
-              class="mini-btn buy-btn" :disabled="buying || (wallet?.balance_coins ?? 0) < c.cost_coins * 5"
-              @click="buyCase(c, 5)"
-            >Buy 5</button>
+          <div class="qty-picker">
+            <button type="button" class="qty-btn" @click="setQty(c.id, qty(c.id) - 1)">−</button>
+            <input type="number" class="qty-input" min="1" max="99" :value="qty(c.id)" @input="setQty(c.id, $event.target.valueAsNumber)" />
+            <button type="button" class="qty-btn" @click="setQty(c.id, qty(c.id) + 1)">+</button>
           </div>
-          <p v-if="(wallet?.balance_coins ?? 0) < c.cost_coins" class="case-hint">Not enough MasterCoins</p>
-
-          <p class="inventory-line">You own <strong>{{ inventoryCount(c.id) }}</strong></p>
-
-          <div class="open-row">
+          <div class="qty-presets">
             <button
-              v-for="q in [1, 2, 5]" :key="q" class="btn-primary open-btn"
-              :disabled="opening || inventoryCount(c.id) < q"
-              @click="openCases(c, q)"
-            >{{ opening ? '…' : `Open ×${q}` }}</button>
+              v-for="n in [1, 3, 5, 9]" :key="n" type="button" class="qty-preset"
+              :class="{ active: qty(c.id) === n }" @click="setQty(c.id, n)"
+            >{{ n }}</button>
           </div>
+
+          <button
+            class="btn-primary buy-btn" :disabled="buying || (wallet?.balance_coins ?? 0) < c.cost_coins * qty(c.id)"
+            @click="buyCase(c, qty(c.id))"
+          >{{ buying ? 'Buying…' : `Buy ${qty(c.id)} for ${c.cost_coins * qty(c.id)} MC` }}</button>
+          <p v-if="(wallet?.balance_coins ?? 0) < c.cost_coins * qty(c.id)" class="case-hint">Not enough MasterCoins</p>
 
           <button type="button" class="odds-toggle" @click="oddsOpenId = oddsOpenId === c.id ? null : c.id">
             {{ oddsOpenId === c.id ? 'Hide odds ▲' : 'View odds ▼' }}
@@ -51,16 +55,33 @@
               <span class="odds-tile-coins">{{ r.coins }}</span>
             </div>
           </div>
+        </div>
+      </div>
 
-          <!-- ── Per-case history spoiler (last 10) ─────────── -->
+      <!-- ═══ INVENTORY ═══════════════════════════════ -->
+      <div v-else class="case-grid">
+        <div v-if="!inventory.length" class="empty">Your inventory is empty — buy a case in the Shop first.</div>
+        <div v-for="inv in inventory" :key="inv.case_id" class="case-card">
+          <div class="case-icon"><CaseIcon /></div>
+          <h3>{{ inv.case_name }}</h3>
+          <p class="inventory-line">You own <strong>{{ inv.count }}</strong></p>
+
+          <div class="open-row">
+            <button
+              v-for="q in [1, 2, 5]" :key="q" class="btn-primary open-btn"
+              :disabled="opening || inv.count < q"
+              @click="openCases(caseById(inv.case_id), q)"
+            >{{ opening ? '…' : `Open ×${q}` }}</button>
+          </div>
+
           <button
-            v-if="historyFor(c.id).length" type="button" class="odds-toggle"
-            @click="historyOpenId = historyOpenId === c.id ? null : c.id"
+            v-if="historyFor(inv.case_id).length" type="button" class="odds-toggle"
+            @click="historyOpenId = historyOpenId === inv.case_id ? null : inv.case_id"
           >
-            {{ historyOpenId === c.id ? 'Hide recent openings ▲' : 'Recent openings ▼' }}
+            {{ historyOpenId === inv.case_id ? 'Hide recent openings ▲' : 'Recent openings ▼' }}
           </button>
-          <div v-if="historyOpenId === c.id" class="history-list">
-            <div v-for="h in historyFor(c.id)" :key="h.id" class="history-row">
+          <div v-if="historyOpenId === inv.case_id" class="history-list">
+            <div v-for="h in historyFor(inv.case_id)" :key="h.id" class="history-row">
               <span class="history-time">{{ formatHistoryTime(h.created_at) }}</span>
               <span class="history-amounts">
                 <span class="spent">-{{ h.coins_spent }}</span>
@@ -114,7 +135,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '../store/user'
 import { casesAPI } from '../api/cases'
@@ -132,6 +153,24 @@ const oddsOpenId = ref(null)
 const historyOpenId = ref(null)
 const history = ref([])
 const inventory = ref([]) // [{ case_id, case_name, count }]
+const activeView = ref('shop') // 'shop' | 'inventory'
+
+function caseById(id) {
+  return cases.value.find(c => c.id === id)
+}
+
+const totalOwned = computed(() => inventory.value.reduce((sum, i) => sum + i.count, 0))
+
+// Per-case buy quantity, defaulting to 1 — the quick-pick chips (1/3/5/9)
+// and +/- stepper both write into this same map.
+const buyQty = ref({})
+function qty(caseId) {
+  return buyQty.value[caseId] ?? 1
+}
+function setQty(caseId, value) {
+  const n = Math.max(1, Math.min(99, Math.round(value) || 1))
+  buyQty.value[caseId] = n
+}
 
 function inventoryCount(caseId) {
   return inventory.value.find(i => i.case_id === caseId)?.count ?? 0
@@ -220,6 +259,7 @@ async function buyCase(c, quantity) {
     const res = await casesAPI.buy(c.id, quantity)
     if (wallet.value) wallet.value.balance_coins = res.new_balance
     await loadInventory()
+    activeView.value = 'inventory'
   } catch (e) {
     errorMsg.value = e.response?.data?.detail || 'Could not buy the case — please try again.'
   } finally {
@@ -228,7 +268,7 @@ async function buyCase(c, quantity) {
 }
 
 async function openCases(c, quantity) {
-  if (opening.value) return
+  if (opening.value || !c) return
   if (inventoryCount(c.id) < quantity) return
 
   opening.value = true
@@ -384,6 +424,23 @@ export default { components: { CoinIcon, CaseIcon } }
 .accent { color: var(--accent); }
 .page-header p { font-size: 13.5px; color: var(--text-dim); margin-top: 8px; }
 
+.view-tabs {
+  display: flex; justify-content: center; gap: 8px; margin-bottom: 28px;
+}
+.view-tab {
+  display: flex; align-items: center; gap: 7px;
+  padding: 10px 22px; border-radius: 99px;
+  background: var(--bg-elevated); border: 1.5px solid var(--line);
+  color: var(--text-dim); font-size: 13px; font-weight: 700; cursor: pointer;
+  transition: all .15s;
+}
+.view-tab:hover { border-color: rgba(255,154,0,.5); color: var(--text); }
+.view-tab.active { background: rgba(255,154,0,.12); border-color: var(--accent); color: var(--accent); }
+.tab-badge {
+  background: var(--accent); color: #14140f; font-size: 10.5px; font-weight: 900;
+  padding: 1px 7px; border-radius: 99px;
+}
+
 .loader-row { display: flex; justify-content: center; padding: 60px 0; }
 .spinner {
   width: 32px; height: 32px; border: 2.5px solid var(--line);
@@ -415,8 +472,31 @@ export default { components: { CoinIcon, CaseIcon } }
 .mini-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); box-shadow: 0 4px 14px -4px rgba(255,154,0,.4); transform: translateY(-1px); }
 .mini-btn:active:not(:disabled) { transform: translateY(0); }
 
-.buy-row { display: flex; gap: 8px; }
-.buy-btn { flex: 1; padding: 10px; font-size: 12.5px; }
+.qty-picker { display: flex; align-items: stretch; justify-content: center; gap: 6px; margin-bottom: 8px; }
+.qty-btn {
+  width: 34px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line);
+  color: var(--text-dim); font-size: 16px; font-weight: 700; cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+.qty-btn:hover { border-color: var(--accent); color: var(--accent); }
+.qty-input {
+  width: 64px; text-align: center; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 8px; color: var(--text); font-size: 14px; font-weight: 800;
+  -moz-appearance: textfield;
+}
+.qty-input::-webkit-outer-spin-button, .qty-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.qty-input:focus { outline: none; border-color: var(--accent); }
+
+.qty-presets { display: flex; justify-content: center; gap: 6px; margin-bottom: 14px; }
+.qty-preset {
+  padding: 4px 11px; border-radius: 99px; background: var(--bg); border: 1px solid var(--line);
+  color: var(--text-dim); font-size: 11.5px; font-weight: 700; cursor: pointer;
+  transition: all .15s;
+}
+.qty-preset:hover { border-color: var(--accent); color: var(--accent); }
+.qty-preset.active { background: rgba(255,154,0,.14); border-color: var(--accent); color: var(--accent); }
+
+.buy-btn { width: 100%; padding: 12px; font-size: 12.5px; }
 .buy-btn:disabled { opacity: .5; cursor: not-allowed; }
 .case-hint { font-size: 11px; color: var(--danger); margin-top: 6px; }
 
