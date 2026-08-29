@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 from backend.app.api import deps
 from backend.app.core.redis import get_redis
 from backend.app.db.database import Base, get_db
-from backend.app.db.models import UserModel
+from backend.app.db.models import ForumCategoryModel, UserModel
 from backend.app.main_api import app
 
 # DB 15 — isolated from whatever the app itself uses (DB 0), so rate-limit
@@ -40,6 +40,17 @@ async def _schema():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+
+    # Fixed reference data, seeded once for the whole session — not in
+    # ALL_TABLES, so per-test truncation never touches it (mirrors how the
+    # real app seeds these two categories once via migration, not per-request).
+    async with TestSessionLocal() as session:
+        session.add_all([
+            ForumCategoryModel(key="lounge", name="Lounge", description="Off-topic chat for premium players."),
+            ForumCategoryModel(key="support", name="Support", description="Your own private ticket with the team."),
+        ])
+        await session.commit()
+
     yield
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)

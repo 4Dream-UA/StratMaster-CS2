@@ -485,3 +485,61 @@ class CaseOpeningModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     case: Mapped["CaseModel"] = relationship("CaseModel")
+
+
+# ─────────────────────────────────────────────
+#  Forum — premium-only. Two categories seeded by migration: "lounge"
+#  (open discussion, any premium user can start/reply to any thread) and
+#  "support" (each non-admin user gets exactly one private thread, visible
+#  only to them and admins — a ticket, not a public board).
+# ─────────────────────────────────────────────
+
+class ForumCategoryModel(Base):
+    __tablename__ = "forum_categories"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    key: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)  # "lounge" | "support"
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    description: Mapped[str] = mapped_column(String(256), nullable=False)
+
+
+class ForumThreadModel(Base):
+    __tablename__ = "forum_threads"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    category_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("forum_categories.id", ondelete="CASCADE"), nullable=False
+    )
+    # The thread starter — for "support" this is also who the ticket is
+    # scoped to (only them + admins can see it).
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    category: Mapped["ForumCategoryModel"] = relationship("ForumCategoryModel")
+    user: Mapped["UserModel"] = relationship("UserModel")
+    posts: Mapped[list["ForumPostModel"]] = relationship(
+        "ForumPostModel", back_populates="thread", cascade="all, delete-orphan", order_by="ForumPostModel.created_at"
+    )
+
+
+class ForumPostModel(Base):
+    __tablename__ = "forum_posts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    thread_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("forum_threads.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    thread: Mapped["ForumThreadModel"] = relationship("ForumThreadModel", back_populates="posts")
+    user: Mapped["UserModel"] = relationship("UserModel")
