@@ -420,7 +420,7 @@ function onImageClick(event) {
 .te-desc { font-size: 12px; color: var(--text-dim); }
 .te-empty { font-size: 12.5px; color: var(--text-dim); padding: 12px 0; }
 
-.te-mode-toggle { display: flex; gap: 6px; margin-bottom: 12px; }
+.te-mode-toggle { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .te-mode-btn {
   padding: 6px 13px; border-radius: 99px; background: var(--bg-elevated); border: 1.5px solid var(--line);
   color: var(--text-dim); font-size: 12px; font-weight: 700; cursor: pointer; transition: all .15s;
@@ -430,9 +430,18 @@ function onImageClick(event) {
 .te-hint-drag { font-size: 11.5px; color: var(--text-dim); margin: -6px 0 10px; }
 
 .te-canvas-wrap { position: relative; border-radius: 10px; overflow: hidden; margin-bottom: 14px; line-height: 0; }
-.te-image { width: 100%; height: auto; display: block; cursor: crosshair; }
+/* touch-action: none on the drawable surface stops the browser's own
+   pan/scroll gesture from hijacking a single-finger drag — without it,
+   touch drawing/dragging on mobile just scrolls the page instead. */
+.te-image { width: 100%; height: auto; display: block; cursor: crosshair; touch-action: none; }
 .te-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.te-handle { pointer-events: all; cursor: grab; }
+.te-handle {
+  pointer-events: all; cursor: grab; touch-action: none;
+  /* Transparent stroke widens the hit area well past the visible dot —
+     the SVG-drawn circles are far too small to tap accurately on mobile,
+     but a visibly bigger dot would clutter the map. */
+  stroke: transparent; stroke-width: 3.5;
+}
 .te-handle:active { cursor: grabbing; }
 .te-point-num {
   pointer-events: none; font-size: 2.1px; font-weight: 700; fill: #14140f;
