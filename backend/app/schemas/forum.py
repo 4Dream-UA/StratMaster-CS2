@@ -26,6 +26,7 @@ class ForumThreadPreview(BaseModel):
     author_username: str | None = None
     author_id: uuid.UUID
     author_is_admin: bool = False
+    is_pinned: bool = False
     post_count: int
     updated_at: datetime
 
@@ -40,6 +41,7 @@ class ForumThreadDetail(BaseModel):
     category_key: str
     title: str
     author_id: uuid.UUID
+    is_pinned: bool = False
     posts: list[ForumPostOut]
 
 
@@ -50,3 +52,15 @@ class CreateThreadRequest(BaseModel):
 
 class CreatePostRequest(BaseModel):
     body: str = Field(..., min_length=1, max_length=4000)
+
+
+class UpdateThreadRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=128)
+
+
+class UpdatePostRequest(BaseModel):
+    body: str = Field(..., min_length=1, max_length=4000)
+
+
+class PinThreadRequest(BaseModel):
+    is_pinned: bool

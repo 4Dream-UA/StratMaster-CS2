@@ -17,8 +17,31 @@ export const forumAPI = {
     const response = await apiClient.get(`/api/forum/threads/${id}`)
     return response.data
   },
+  async updateThread(id, title) {
+    const response = await apiClient.patch(`/api/forum/threads/${id}`, { title })
+    return response.data
+  },
+  async pinThread(id, isPinned) {
+    const response = await apiClient.patch(`/api/forum/threads/${id}/pin`, { is_pinned: isPinned })
+    return response.data
+  },
+  async deleteThread(id) {
+    await apiClient.delete(`/api/forum/threads/${id}`)
+  },
   async addPost(id, body) {
     const response = await apiClient.post(`/api/forum/threads/${id}/posts`, { body })
     return response.data
+  },
+  async updatePost(id, body) {
+    const response = await apiClient.patch(`/api/forum/posts/${id}`, { body })
+    return response.data
+  },
+  async uploadImage(file) {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await apiClient.post('/api/forum/uploads', formData, {
+      headers: { 'Content-Type': undefined },
+    })
+    return response.data  // { url }
   },
 }

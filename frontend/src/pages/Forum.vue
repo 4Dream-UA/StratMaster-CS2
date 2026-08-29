@@ -28,30 +28,36 @@
         <div v-if="loadingCategories" class="loading-row">Loading…</div>
         <div v-else class="category-grid">
           <button v-for="cat in categories" :key="cat.key" class="category-card" @click="openCategory(cat)">
-            <span class="category-icon"><LoungeIcon v-if="cat.key === 'lounge'" /><SupportIcon v-else /></span>
+            <span class="category-icon-badge"><LoungeIcon v-if="cat.key === 'lounge'" /><SupportIcon v-else /></span>
             <h3>{{ cat.name }}</h3>
             <p>{{ cat.description }}</p>
+            <span class="category-arrow">→</span>
           </button>
         </div>
       </template>
 
-      <!-- ═══ THREAD LIST (Lounge, or Support-as-admin) ═══════════════════════ -->
+      <!-- ═══ THREAD LIST ═══════════════════════ -->
       <template v-else-if="view === 'threads'">
         <section class="page-head row">
           <div>
             <span class="eyebrow">{{ activeCategory?.name }}</span>
             <h1>{{ activeCategory?.key === 'support' ? 'Support Tickets' : 'Threads' }}</h1>
           </div>
-          <button v-if="activeCategory?.key === 'lounge'" class="btn-primary" @click="openNewThreadForm">+ New Thread</button>
+          <button class="btn-primary" @click="openNewThreadForm">
+            {{ activeCategory?.key === 'support' ? '+ New Ticket' : '+ New Thread' }}
+          </button>
         </section>
 
         <section v-if="newThreadOpen" class="form-card">
-          <h3>New thread</h3>
-          <input v-model="newThreadTitle" type="text" placeholder="Title" class="thread-input" />
-          <textarea v-model="newThreadBody" rows="4" placeholder="What's on your mind?" class="thread-input"></textarea>
+          <h3>{{ activeCategory?.key === 'support' ? 'New ticket' : 'New thread' }}</h3>
+          <input
+            v-model="newThreadTitle" type="text" class="thread-input"
+            :placeholder="activeCategory?.key === 'support' ? 'What do you need help with?' : 'Title'"
+          />
+          <MarkdownComposer v-model="newThreadBody" placeholder="Write your message… supports **bold**, *italic*, `code` and images" />
           <div class="form-actions">
             <button class="btn-primary" :disabled="!newThreadTitle.trim() || !newThreadBody.trim() || posting" @click="submitNewThread">
-              {{ posting ? 'Posting…' : 'Post Thread' }}
+              {{ posting ? 'Posting…' : (activeCategory?.key === 'support' ? 'Open Ticket' : 'Post Thread') }}
             </button>
             <button class="mini-btn" @click="newThreadOpen = false">Cancel</button>
           </div>
@@ -61,17 +67,20 @@
         <section class="list-card">
           <div v-if="loadingThreads" class="loading-row">Loading…</div>
           <div v-else-if="!threads.length" class="empty">
-            {{ activeCategory?.key === 'support' ? 'No tickets yet.' : 'No threads yet — start the first one.' }}
+            {{ activeCategory?.key === 'support' ? 'No tickets yet — open one if you need help.' : 'No threads yet — start the first one.' }}
           </div>
           <div v-else class="thread-list">
-            <button v-for="t in threads" :key="t.id" class="thread-row" @click="openThread(t.id)">
-              <Avatar :username="t.author_username" :is-admin="t.author_is_admin" :size="38" />
-              <div class="thread-row-main">
-                <h4>{{ activeCategory?.key === 'support' ? (t.author_username ? '@' + t.author_username : 'Ticket') : t.title }}</h4>
-                <span class="thread-row-meta">{{ t.author_username ? '@' + t.author_username + ' · ' : '' }}{{ t.post_count }} {{ t.post_count === 1 ? 'post' : 'posts' }}</span>
-              </div>
-              <span class="thread-row-arrow">→</span>
-            </button>
+            <ThreadRow
+              v-for="t in pinnedThreads" :key="t.id" :thread="t"
+              :can-pin="isAdmin" :can-modify="canModifyThread(t)"
+              @open="openThread(t.id)" @toggle-pin="togglePin(t)" @remove="removeThreadRow(t)"
+            />
+            <div v-if="pinnedThreads.length && otherThreads.length" class="thread-divider"><span>Other threads</span></div>
+            <ThreadRow
+              v-for="t in otherThreads" :key="t.id" :thread="t"
+              :can-pin="isAdmin" :can-modify="canModifyThread(t)"
+              @open="openThread(t.id)" @toggle-pin="togglePin(t)" @remove="removeThreadRow(t)"
+            />
           </div>
         </section>
 
@@ -81,14 +90,33 @@
       <!-- ═══ THREAD DETAIL ═══════════════════════ -->
       <template v-else-if="view === 'thread'">
         <section class="page-head">
-          <span class="eyebrow">{{ activeCategory?.name }}</span>
-          <h1>{{ activeThread?.title }}</h1>
+          <span class="eyebrow">
+            {{ activeCategory?.name }}
+            <span v-if="activeThread?.is_pinned" class="pinned-tag">📌 Pinned</span>
+          </span>
+
+          <div v-if="!titleEditing" class="thread-title-row">
+            <h1>{{ activeThread?.title }}</h1>
+            <div v-if="canModifyActiveThread" class="thread-actions">
+              <button class="icon-btn" title="Edit title" @click="startEditTitle">✎</button>
+              <button v-if="isAdmin" class="icon-btn" :title="activeThread?.is_pinned ? 'Unpin' : 'Pin'" @click="toggleActiveThreadPin">📌</button>
+              <button class="icon-btn danger" title="Delete thread" @click="deleteActiveThread">🗑</button>
+            </div>
+          </div>
+          <div v-else class="thread-title-edit">
+            <input v-model="titleDraft" type="text" class="thread-input" />
+            <button class="mini-btn" @click="saveTitle">Save</button>
+            <button class="mini-btn" @click="titleEditing = false">Cancel</button>
+          </div>
         </section>
 
         <div v-if="loadingThread" class="loading-row">Loading…</div>
         <template v-else-if="activeThread">
           <div class="post-list">
-            <div v-for="p in activeThread.posts" :key="p.id" class="post-card" :class="{ mine: p.author_id === currentUserId }">
+            <div
+              v-for="p in activeThread.posts" :key="p.id" class="post-card"
+              :class="{ mine: p.author_id === currentUserId, staff: p.author_is_admin }"
+            >
               <div class="post-sidebar">
                 <Avatar :username="p.author_username" :is-admin="p.author_is_admin" :size="46" />
                 <span class="post-username">{{ p.author_username ? '@' + p.author_username : 'Player' }}</span>
@@ -97,8 +125,17 @@
               <div class="post-main">
                 <div class="post-head">
                   <span class="post-time">{{ formatTime(p.created_at) }}</span>
+                  <button v-if="canModifyPost(p) && editingPostId !== p.id" class="icon-btn small" title="Edit" @click="startEditPost(p)">✎</button>
                 </div>
-                <p class="post-body">{{ p.body }}</p>
+
+                <template v-if="editingPostId === p.id">
+                  <MarkdownComposer v-model="editingPostBody" :rows="3" />
+                  <div class="form-actions">
+                    <button class="mini-btn" @click="saveEditPost">Save</button>
+                    <button class="mini-btn" @click="editingPostId = null">Cancel</button>
+                  </div>
+                </template>
+                <div v-else class="post-body" v-html="renderMarkdown(p.body)"></div>
               </div>
             </div>
           </div>
@@ -106,7 +143,7 @@
           <div class="reply-box">
             <div class="reply-box-row">
               <Avatar :username="user?.username" :is-admin="isAdmin" :size="38" />
-              <textarea v-model="replyBody" rows="3" placeholder="Write a reply…" class="thread-input"></textarea>
+              <MarkdownComposer v-model="replyBody" :rows="3" placeholder="Write a reply…" />
             </div>
             <button class="btn-primary reply-btn" :disabled="!replyBody.trim() || posting" @click="submitReply">
               {{ posting ? 'Sending…' : 'Reply' }}
@@ -126,17 +163,19 @@ import { ref, computed, onMounted, h } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '../store/user'
 import { forumAPI } from '../api/forum'
+import { renderMarkdown } from '../utils/markdown'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
 import Pagination from '../components/Pagination.vue'
+import MarkdownComposer from '../components/MarkdownComposer.vue'
 
 const LoungeIcon = {
-  render: () => h('svg', { viewBox: '0 0 24 24', width: 28, height: 28, fill: 'none' }, [
+  render: () => h('svg', { viewBox: '0 0 24 24', width: 24, height: 24, fill: 'none' }, [
     h('path', { d: 'M4 8h14l-3.5-3.5M20 16H6l3.5 3.5', stroke: 'var(--accent)', 'stroke-width': 1.6, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }),
   ]),
 }
 const SupportIcon = {
-  render: () => h('svg', { viewBox: '0 0 24 24', width: 28, height: 28, fill: 'none' }, [
+  render: () => h('svg', { viewBox: '0 0 24 24', width: 24, height: 24, fill: 'none' }, [
     h('path', { d: 'M12 4a5 5 0 015 5c0 2.5-2 3.5-3 4.5s-1 1.5-1 2.5', stroke: 'var(--accent)', 'stroke-width': 1.6, 'stroke-linecap': 'round' }),
     h('circle', { cx: 12, cy: 19, r: 1.2, fill: 'var(--accent)' }),
   ]),
@@ -173,9 +212,44 @@ const Avatar = {
   },
 }
 
+// One thread-list row — a separate render-function component (not a
+// template partial) purely so the pin/delete icon buttons can
+// event.stopPropagation() cleanly without fighting the row's own click.
+const ThreadRow = {
+  props: { thread: Object, canPin: Boolean, canModify: Boolean },
+  emits: ['open', 'toggle-pin', 'remove'],
+  render() {
+    const t = this.thread
+    const actions = []
+    if (this.canPin) {
+      actions.push(h('button', {
+        class: 'icon-btn small', title: t.is_pinned ? 'Unpin' : 'Pin',
+        onClick: (e) => { e.stopPropagation(); this.$emit('toggle-pin') },
+      }, '📌'))
+    }
+    if (this.canModify) {
+      actions.push(h('button', {
+        class: 'icon-btn small danger', title: 'Delete',
+        onClick: (e) => { e.stopPropagation(); this.$emit('remove') },
+      }, '🗑'))
+    }
+    return h('button', { class: ['thread-row', { pinned: t.is_pinned }], onClick: () => this.$emit('open') }, [
+      h(Avatar, { username: t.author_username, isAdmin: t.author_is_admin, size: 38 }),
+      h('div', { class: 'thread-row-main' }, [
+        h('h4', [t.is_pinned ? h('span', { class: 'pin-dot' }, '📌 ') : null, t.title]),
+        h('span', { class: 'thread-row-meta' },
+          `${t.author_username ? '@' + t.author_username + ' · ' : ''}${t.post_count} ${t.post_count === 1 ? 'post' : 'posts'}`),
+      ]),
+      actions.length ? h('div', { class: 'thread-row-actions' }, actions) : null,
+      h('span', { class: 'thread-row-arrow' }, '→'),
+    ])
+  },
+}
+
 const userStore = useUserStore()
 const { user, wallet } = storeToRefs(userStore)
 const currentUserId = computed(() => user.value?.id)
+const isAdmin = computed(() => !!user.value?.is_admin)
 
 const hasActiveAccess = computed(() => {
   if (wallet.value?.is_lifetime) return true
@@ -193,6 +267,8 @@ const loadingThreads = ref(false)
 const PAGE_SIZE = 5
 const threadsPage = ref(1)
 const threadsTotal = ref(0)
+const pinnedThreads = computed(() => threads.value.filter(t => t.is_pinned))
+const otherThreads = computed(() => threads.value.filter(t => !t.is_pinned))
 
 const newThreadOpen = ref(false)
 const newThreadTitle = ref('')
@@ -204,30 +280,31 @@ const replyBody = ref('')
 const posting = ref(false)
 const errorMsg = ref('')
 
+const titleEditing = ref(false)
+const titleDraft = ref('')
+const editingPostId = ref(null)
+const editingPostBody = ref('')
+
 const backLabel = computed(() => {
-  if (view.value === 'thread') return activeCategory.value?.key === 'support' ? 'Back' : 'Threads'
+  if (view.value === 'thread') return 'Threads'
   if (view.value === 'threads') return 'Forum'
   return 'Home'
 })
 
 function onBack() {
   errorMsg.value = ''
-  if (view.value === 'thread') {
-    if (activeCategory.value?.key === 'support' && !isAdmin.value) {
-      view.value = 'categories'
-    } else {
-      view.value = 'threads'
-    }
-    return
-  }
-  if (view.value === 'threads') {
-    view.value = 'categories'
-    return
-  }
+  if (view.value === 'thread') { view.value = 'threads'; return }
+  if (view.value === 'threads') { view.value = 'categories'; return }
   window.history.length > 1 ? window.history.back() : (window.location.href = '/')
 }
 
-const isAdmin = computed(() => !!user.value?.is_admin)
+function canModifyThread(t) {
+  return isAdmin.value || t.author_id === currentUserId.value
+}
+function canModifyPost(p) {
+  return isAdmin.value || p.author_id === currentUserId.value
+}
+const canModifyActiveThread = computed(() => activeThread.value && canModifyThread(activeThread.value))
 
 async function loadCategories() {
   loadingCategories.value = true
@@ -259,20 +336,6 @@ async function openCategory(cat) {
   errorMsg.value = ''
   threadsPage.value = 1
   newThreadOpen.value = false
-
-  if (cat.key === 'support' && !isAdmin.value) {
-    // Regular users only ever have one ticket — skip straight to it.
-    loadingThread.value = true
-    view.value = 'thread'
-    try {
-      const res = await forumAPI.listThreads('support')
-      await openThread(res.threads[0].id)
-    } finally {
-      loadingThread.value = false
-    }
-    return
-  }
-
   view.value = 'threads'
   await loadThreads(cat.key)
 }
@@ -304,6 +367,8 @@ async function openThread(id) {
   errorMsg.value = ''
   loadingThread.value = true
   view.value = 'thread'
+  titleEditing.value = false
+  editingPostId.value = null
   try {
     activeThread.value = await forumAPI.getThread(id)
   } finally {
@@ -325,6 +390,56 @@ async function submitReply() {
   }
 }
 
+function startEditTitle() {
+  titleDraft.value = activeThread.value.title
+  titleEditing.value = true
+}
+async function saveTitle() {
+  if (!titleDraft.value.trim()) return
+  try {
+    activeThread.value = await forumAPI.updateThread(activeThread.value.id, titleDraft.value.trim())
+    titleEditing.value = false
+  } catch (e) {
+    errorMsg.value = e.response?.data?.detail || 'Could not update the title.'
+  }
+}
+
+async function toggleActiveThreadPin() {
+  activeThread.value = await forumAPI.pinThread(activeThread.value.id, !activeThread.value.is_pinned)
+}
+
+async function deleteActiveThread() {
+  if (!confirm('Delete this thread? This can\'t be undone.')) return
+  await forumAPI.deleteThread(activeThread.value.id)
+  view.value = 'threads'
+  await loadThreads(activeCategory.value.key)
+}
+
+async function togglePin(t) {
+  const updated = await forumAPI.pinThread(t.id, !t.is_pinned)
+  t.is_pinned = updated.is_pinned
+}
+
+async function removeThreadRow(t) {
+  if (!confirm(`Delete "${t.title}"? This can't be undone.`)) return
+  await forumAPI.deleteThread(t.id)
+  await loadThreads(activeCategory.value.key)
+}
+
+function startEditPost(p) {
+  editingPostId.value = p.id
+  editingPostBody.value = p.body
+}
+async function saveEditPost() {
+  if (!editingPostBody.value.trim()) return
+  try {
+    activeThread.value = await forumAPI.updatePost(editingPostId.value, editingPostBody.value.trim())
+    editingPostId.value = null
+  } catch (e) {
+    errorMsg.value = e.response?.data?.detail || 'Could not update the post.'
+  }
+}
+
 function formatTime(iso) {
   const d = new Date(iso)
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -339,7 +454,7 @@ onMounted(async () => {
 
 <style scoped>
 .forum-page { min-height: 100vh; background: var(--bg); }
-.forum-content { max-width: 720px; padding: 32px 20px 140px; }
+.forum-content { max-width: 760px; padding: 32px 20px 140px; }
 
 .back-btn {
   display: inline-flex; align-items: center; gap: 6px;
@@ -362,8 +477,12 @@ onMounted(async () => {
 .page-head { margin-bottom: 24px; }
 .page-head.row { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
 .eyebrow {
-  display: block; font-size: 11px; font-weight: 800; letter-spacing: .08em;
+  display: flex; align-items: center; gap: 10px; font-size: 11px; font-weight: 800; letter-spacing: .08em;
   text-transform: uppercase; color: var(--accent); margin-bottom: 6px;
+}
+.pinned-tag {
+  font-size: 10px; font-weight: 800; letter-spacing: 0; text-transform: none;
+  background: rgba(255,154,0,.14); color: var(--accent); padding: 2px 8px; border-radius: 99px;
 }
 .page-head h1 { font-size: clamp(22px, 4vw, 30px); font-weight: 900; color: var(--text); }
 
@@ -372,14 +491,21 @@ onMounted(async () => {
 /* ── Categories ─────────────────────────────── */
 .category-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
 .category-card {
-  background: var(--bg-elevated); border: 1px solid var(--line);
+  position: relative;
+  background: linear-gradient(160deg, rgba(255,154,0,0.05), var(--bg-elevated) 55%);
+  border: 1px solid var(--line);
   border-radius: var(--radius-lg); padding: 24px; text-align: left;
   cursor: pointer; transition: border-color .2s, transform .2s;
 }
 .category-card:hover { border-color: rgba(255,154,0,.5); transform: translateY(-2px); }
-.category-icon { display: block; margin-bottom: 10px; }
+.category-icon-badge {
+  display: flex; align-items: center; justify-content: center;
+  width: 46px; height: 46px; border-radius: 12px; margin-bottom: 12px;
+  background: rgba(255,154,0,.12); border: 1px solid rgba(255,154,0,.25);
+}
 .category-card h3 { font-size: 16px; font-weight: 800; color: var(--text); margin-bottom: 6px; }
 .category-card p { font-size: 12.5px; color: var(--text-dim); line-height: 1.5; }
+.category-arrow { position: absolute; top: 22px; right: 22px; color: var(--text-dim); font-size: 16px; }
 
 /* ── Thread list ─────────────────────────────── */
 .list-card, .form-card {
@@ -391,12 +517,39 @@ onMounted(async () => {
 .thread-row {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   width: 100%; text-align: left; background: var(--bg); border: 1px solid var(--line);
-  border-radius: 10px; padding: 14px 16px; cursor: pointer; transition: border-color .15s;
+  border-radius: 10px; padding: 14px 16px; cursor: pointer; transition: border-color .15s, background .15s;
 }
 .thread-row:hover { border-color: var(--accent); }
-.thread-row-main h4 { font-size: 13.5px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+.thread-row.pinned { border-color: rgba(255,154,0,.35); background: rgba(255,154,0,.04); }
+.thread-row-main { flex: 1; min-width: 0; }
+.thread-row-main h4 {
+  font-size: 13.5px; font-weight: 700; color: var(--text); margin-bottom: 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .thread-row-meta { font-size: 11.5px; color: var(--text-dim); }
+.thread-row-actions { display: flex; gap: 2px; flex-shrink: 0; }
 .thread-row-arrow { color: var(--text-dim); flex-shrink: 0; }
+
+.thread-divider {
+  display: flex; align-items: center; gap: 10px; margin: 6px 0;
+  font-size: 10.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim);
+}
+.thread-divider::before, .thread-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+
+.icon-btn {
+  background: var(--bg); border: 1px solid var(--line); color: var(--text-dim);
+  width: 30px; height: 30px; border-radius: 8px; font-size: 13px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  transition: border-color .15s, color .15s;
+}
+.icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+.icon-btn.danger:hover { border-color: var(--danger); color: var(--danger); }
+.icon-btn.small { width: 26px; height: 26px; font-size: 11px; }
+
+.thread-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.thread-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.thread-title-edit { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.thread-title-edit .thread-input { flex: 1; min-width: 160px; margin-bottom: 0; }
 
 .thread-input {
   width: 100%; padding: 10px 12px; margin-bottom: 10px;
@@ -405,7 +558,7 @@ onMounted(async () => {
 }
 .thread-input:focus { outline: none; border-color: var(--accent); }
 
-.form-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.form-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
 .mini-btn {
   background: var(--bg); border: 1px solid var(--line); color: var(--text-dim);
   padding: 8px 14px; border-radius: 7px; font-size: 12.5px; font-weight: 700; cursor: pointer;
@@ -422,6 +575,7 @@ onMounted(async () => {
   border-radius: 12px; padding: 14px 16px;
 }
 .post-card.mine { border-color: rgba(255,154,0,.35); background: rgba(255,154,0,.05); }
+.post-card.staff { border-left: 3px solid var(--accent); }
 
 /* Forum-style left sidebar: avatar, username, role — arizona-rp layout */
 .post-sidebar {
@@ -433,16 +587,19 @@ onMounted(async () => {
 .post-role.admin { color: var(--accent); }
 
 .post-main { flex: 1; min-width: 0; }
-.post-head { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 6px; }
-.post-time { font-size: 11px; color: var(--text-dim); }
+.post-head { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-bottom: 6px; }
+.post-time { font-size: 11px; color: var(--text-dim); margin-right: auto; }
 .post-body { font-size: 13.5px; color: var(--text); line-height: 1.6; white-space: pre-wrap; }
+.post-body :deep(.md-img) { max-width: 100%; border-radius: 8px; margin: 6px 0; display: block; }
+.post-body :deep(a) { color: var(--accent); }
+.post-body :deep(code) { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 
 .reply-box {
   background: var(--bg-elevated); border: 1px solid var(--line);
   border-radius: var(--radius-lg); padding: 16px;
 }
 .reply-box-row { display: flex; gap: 12px; align-items: flex-start; }
-.reply-box-row .thread-input { margin-bottom: 0; }
+.reply-box-row :deep(.md-composer) { flex: 1; min-width: 0; }
 .reply-btn { width: 100%; padding: 11px; margin-top: 10px; }
 
 /* ── Generated avatar ─────────────────────────────── */
