@@ -23,7 +23,8 @@
           <div v-for="p in thread.posts" :key="p.id" class="post-card" :class="{ staff: p.author_is_admin }">
             <div class="post-sidebar">
               <Avatar :username="p.author_username" :avatar-url="p.author_avatar_url" :is-admin="p.author_is_admin" :size="46" />
-              <span class="post-username">{{ p.author_username ? '@' + p.author_username : 'Player' }}</span>
+              <span class="post-username">{{ p.author_display_name || (p.author_username ? '@' + p.author_username : 'Player') }}</span>
+              <span v-if="p.author_display_name && p.author_username" class="post-username-sub">@{{ p.author_username }}</span>
             </div>
             <div class="post-main">
               <div class="post-head"><span class="post-time">{{ formatTime(p.created_at) }}</span></div>
@@ -135,6 +136,7 @@ onMounted(async () => {
 .post-card.staff { border-left: 3px solid var(--accent); }
 .post-sidebar { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 76px; flex-shrink: 0; text-align: center; }
 .post-username { font-size: 11px; font-weight: 700; color: var(--text); word-break: break-word; }
+.post-username-sub { font-size: 9.5px; color: var(--text-dim); word-break: break-word; margin-top: -2px; }
 .post-main { flex: 1; min-width: 0; }
 .post-head { margin-bottom: 6px; }
 .post-time { font-size: 11px; color: var(--text-dim); }
@@ -143,13 +145,17 @@ onMounted(async () => {
 .post-body :deep(a) { color: var(--accent); }
 .post-body :deep(code) { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 
-.thread-avatar {
+/* Avatar is a plain render()-function component, not an SFC — Vue only
+   stamps the scope attribute onto its root, so nested selectors need an
+   ancestor-prefixed :deep() (a bare `:deep(.x)` glues the scope attribute
+   onto .x itself and matches nothing). */
+.shared-thread-content :deep(.thread-avatar) {
   position: relative; flex-shrink: 0; border-radius: 50%; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
   color: #fff; font-weight: 800; text-shadow: 0 1px 2px rgba(0,0,0,.35); user-select: none;
 }
-.thread-avatar-img { width: 100%; height: 100%; object-fit: cover; }
-.thread-avatar-admin { box-shadow: 0 0 0 2px var(--accent); }
+.shared-thread-content :deep(.thread-avatar-img) { width: 100%; height: 100%; object-fit: cover; }
+.shared-thread-content :deep(.thread-avatar-admin) { box-shadow: 0 0 0 2px var(--accent); }
 
 .cta-row {
   margin-top: 28px; display: flex; align-items: center; justify-content: space-between;

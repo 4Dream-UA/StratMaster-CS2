@@ -3,12 +3,7 @@
     <Header />
 
     <div class="wrap forum-content">
-      <button class="back-btn" @click="onBack">
-        <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
-          <path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        {{ backLabel }}
-      </button>
+      <Breadcrumbs :items="breadcrumbItems" />
 
       <!-- ═══ NOT PREMIUM ═══════════════════════ -->
       <section v-if="!hasActiveAccess" class="upsell-card">
@@ -149,7 +144,8 @@
             >
               <div class="post-sidebar">
                 <Avatar :username="p.author_username" :avatar-url="p.author_avatar_url" :is-admin="p.author_is_admin" :size="46" />
-                <span class="post-username">{{ p.author_username ? '@' + p.author_username : 'Player' }}</span>
+                <span class="post-username">{{ p.author_display_name || (p.author_username ? '@' + p.author_username : 'Player') }}</span>
+                <span v-if="p.author_display_name && p.author_username" class="post-username-sub">@{{ p.author_username }}</span>
                 <span class="post-role" :class="{ admin: p.author_is_admin }">{{ p.author_is_admin ? 'Admin' : 'Player' }}</span>
               </div>
               <div class="post-main">
@@ -160,7 +156,7 @@
                 </div>
 
                 <div v-if="p.reply_to" class="post-quote">
-                  <span class="post-quote-author">{{ p.reply_to.author_username ? '@' + p.reply_to.author_username : 'Player' }}</span>
+                  <span class="post-quote-author">{{ p.reply_to.author_display_name || (p.reply_to.author_username ? '@' + p.reply_to.author_username : 'Player') }}</span>
                   {{ p.reply_to.body_snippet }}
                 </div>
 
@@ -178,7 +174,7 @@
 
           <div v-if="!activeThread.is_closed || isAdmin" class="reply-box">
             <div v-if="replyingTo" class="replying-banner">
-              Replying to <strong>{{ replyingTo.author_username ? '@' + replyingTo.author_username : 'Player' }}</strong>
+              Replying to <strong>{{ replyingTo.author_display_name || (replyingTo.author_username ? '@' + replyingTo.author_username : 'Player') }}</strong>
               <button class="link-btn" @click="replyingTo = null">cancel</button>
             </div>
             <div class="reply-box-row">
@@ -209,6 +205,7 @@ import { renderMarkdown } from '../utils/markdown'
 import { botDeepLink } from '../config'
 import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
+import Breadcrumbs from '../components/Breadcrumbs.vue'
 import Pagination from '../components/Pagination.vue'
 import MarkdownComposer from '../components/MarkdownComposer.vue'
 
@@ -311,6 +308,10 @@ function hashHue(str) {
   for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash)
   return Math.abs(hash) % 360
 }
+// Nickname takes priority over the Telegram @username everywhere in the forum.
+function authorLabel(a) {
+  return a.author_display_name || (a.author_username ? '@' + a.author_username : '')
+}
 const Avatar = {
   props: {
     username: { type: String, default: null },
@@ -374,7 +375,7 @@ const ThreadRow = {
           t.title,
         ]),
         h('span', { class: 'thread-row-meta' },
-          `${t.author_username ? '@' + t.author_username + ' · ' : ''}${t.post_count} ${t.post_count === 1 ? 'post' : 'posts'}`),
+          `${authorLabel(t) ? authorLabel(t) + ' · ' : ''}${t.post_count} ${t.post_count === 1 ? 'post' : 'posts'}`),
       ]),
       actions.length ? h('div', { class: 'thread-row-actions' }, actions) : null,
       h('span', { class: 'thread-row-arrow' }, '→'),
@@ -433,18 +434,30 @@ const categoryDraft = ref({ name: '', description: '' })
 const route = useRoute()
 const router = useRouter()
 
-const backLabel = computed(() => {
-  if (view.value === 'thread') return 'Threads'
-  if (view.value === 'threads') return 'Forum'
-  return 'Home'
-})
-
-function onBack() {
+function goToCategories() {
   errorMsg.value = ''
-  if (view.value === 'thread') { view.value = 'threads'; return }
-  if (view.value === 'threads') { view.value = 'categories'; return }
-  window.history.length > 1 ? window.history.back() : (window.location.href = '/')
+  view.value = 'categories'
 }
+function goToThreads() {
+  errorMsg.value = ''
+  view.value = 'threads'
+}
+
+const breadcrumbItems = computed(() => {
+  const items = [{ label: 'Home', to: '/' }]
+  if (view.value === 'categories') {
+    items.push({ label: 'Forum' })
+    return items
+  }
+  items.push({ label: 'Forum', onClick: goToCategories })
+  if (view.value === 'threads') {
+    items.push({ label: activeCategory.value?.name || 'Threads' })
+    return items
+  }
+  items.push({ label: activeCategory.value?.name || 'Threads', onClick: goToThreads })
+  items.push({ label: activeThread.value?.title || 'Thread' })
+  return items
+})
 
 function canModifyThread(t) {
   return isAdmin.value || t.author_id === currentUserId.value
@@ -671,15 +684,6 @@ onMounted(async () => {
 .forum-page { min-height: 100vh; background: var(--bg); }
 .forum-content { max-width: 760px; padding: 32px 20px 140px; }
 
-.back-btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: var(--bg-elevated); border: 1px solid var(--line);
-  color: var(--text-dim); padding: 8px 16px; border-radius: 8px;
-  font-size: 13px; font-weight: 600; cursor: pointer;
-  transition: border-color .2s, color .2s; margin-bottom: 28px;
-}
-.back-btn:hover { border-color: var(--accent); color: var(--accent); }
-
 .upsell-card {
   background: linear-gradient(160deg, rgba(255,154,0,0.08), var(--bg-elevated) 60%);
   border: 1px solid rgba(255,154,0,0.3); border-radius: var(--radius-lg);
@@ -700,7 +704,7 @@ onMounted(async () => {
   font-size: 10px; font-weight: 800; letter-spacing: 0; text-transform: none;
   background: rgba(255,154,0,.14); color: var(--accent); padding: 2px 8px; border-radius: 99px;
 }
-.pin-dot { color: var(--accent); margin-right: 4px; vertical-align: -1px; }
+.forum-content :deep(.pin-dot) { color: var(--accent); margin-right: 4px; vertical-align: -1px; flex-shrink: 0; }
 .closed-tag {
   display: inline-flex; align-items: center; gap: 4px;
   font-size: 10px; font-weight: 800; letter-spacing: 0; text-transform: none;
@@ -757,14 +761,21 @@ onMounted(async () => {
 .thread-row:hover { border-color: var(--accent); }
 .thread-row.pinned { border-color: rgba(255,154,0,.35); background: rgba(255,154,0,.04); }
 .thread-row.closed { opacity: .65; }
-.thread-row-main { flex: 1; min-width: 0; }
-.thread-row-main h4 {
+/* ThreadRow is a plain render()-function component, not an SFC — Vue only
+   stamps the parent's scoped data-v attribute onto its ROOT element, so
+   anything nested inside its own render (all of these) needs :deep() with
+   an ancestor prefix (a bare `:deep(.x)` still gets the scope attribute
+   glued directly onto .x and matches nothing) or the rule silently never
+   applies and the row collapses to content width. */
+.forum-content :deep(.thread-row-main) { flex: 1; min-width: 0; }
+.forum-content :deep(.thread-row-main h4) {
   font-size: 13.5px; font-weight: 700; color: var(--text); margin-bottom: 4px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: flex; align-items: center; gap: 2px;
 }
-.thread-row-meta { font-size: 11.5px; color: var(--text-dim); }
-.thread-row-actions { display: flex; gap: 2px; flex-shrink: 0; }
-.thread-row-arrow { color: var(--text-dim); flex-shrink: 0; }
+.forum-content :deep(.thread-row-meta) { font-size: 11.5px; color: var(--text-dim); }
+.forum-content :deep(.thread-row-actions) { display: flex; gap: 2px; flex-shrink: 0; }
+.forum-content :deep(.thread-row-arrow) { color: var(--text-dim); flex-shrink: 0; }
 
 .thread-divider {
   display: flex; align-items: center; gap: 10px; margin: 6px 0;
@@ -826,6 +837,7 @@ onMounted(async () => {
   width: 76px; flex-shrink: 0; text-align: center;
 }
 .post-username { font-size: 11px; font-weight: 700; color: var(--text); word-break: break-word; }
+.post-username-sub { font-size: 9.5px; color: var(--text-dim); word-break: break-word; margin-top: -2px; }
 .post-role { font-size: 9.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--text-dim); }
 .post-role.admin { color: var(--accent); }
 
@@ -863,15 +875,22 @@ onMounted(async () => {
 .reply-btn { width: 100%; padding: 11px; margin-top: 10px; }
 
 /* ── Generated avatar ─────────────────────────────── */
-.forum-avatar {
+/* Avatar is a plain render()-function component, used both directly in
+   this template AND nested inside ThreadRow (another plain component) —
+   in the nested case Vue never stamps ANY of Avatar's own output with a
+   scope attribute (parent scoping only reaches one component level deep),
+   so every rule here needs an ancestor-prefixed :deep() to reliably match
+   in both cases — a bare `:deep(.x)` glues the scope attribute onto .x
+   itself and matches nothing. */
+.forum-content :deep(.forum-avatar) {
   position: relative; flex-shrink: 0; border-radius: 50%; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
   color: #fff; font-weight: 800; text-shadow: 0 1px 2px rgba(0,0,0,.35);
   user-select: none;
 }
-.forum-avatar-img { width: 100%; height: 100%; object-fit: cover; }
-.forum-avatar-admin { box-shadow: 0 0 0 2px var(--accent); }
-.forum-avatar-badge {
+.forum-content :deep(.forum-avatar-img) { width: 100%; height: 100%; object-fit: cover; }
+.forum-content :deep(.forum-avatar-admin) { box-shadow: 0 0 0 2px var(--accent); }
+.forum-content :deep(.forum-avatar-badge) {
   position: absolute; bottom: -2px; right: -2px;
   width: 16px; height: 16px; border-radius: 50%;
   background: var(--accent); color: #14140f;
