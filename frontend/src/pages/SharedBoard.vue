@@ -28,6 +28,7 @@
           :image-url="board.map_cover_image_url"
           :grenades="board.grenades"
           :player-paths="board.paths"
+          :annotations="board.annotations"
         />
 
         <div class="cta-row">

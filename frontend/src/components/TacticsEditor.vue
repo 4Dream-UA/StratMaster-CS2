@@ -11,12 +11,18 @@
       <div class="te-mode-toggle">
         <button type="button" class="te-mode-btn" :class="{ active: mode === 'paths' }" @click="setMode('paths')">Player Paths</button>
         <button type="button" class="te-mode-btn" :class="{ active: mode === 'grenades' }" @click="setMode('grenades')">Grenade Trajectories</button>
+        <button type="button" class="te-mode-btn" :class="{ active: mode === 'draw' }" @click="setMode('draw')">Draw</button>
+        <button type="button" class="te-mode-btn" :class="{ active: mode === 'notes' }" @click="setMode('notes')">Notes</button>
+        <button type="button" class="te-mode-btn" :class="{ active: mode === 'bomb' }" @click="setMode('bomb')">C4</button>
       </div>
 
       <p class="te-hint-drag">Drag a point to move it. Click a point (without dragging) to delete it.</p>
 
       <div class="te-canvas-wrap">
-        <img :src="imageUrl" alt="" class="te-image" @click="onImageClick" ref="imgRef" />
+        <img
+          :src="imageUrl" alt="" class="te-image" ref="imgRef"
+          @click="onImageClick" @pointerdown="onImagePointerDown"
+        />
         <svg class="te-overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
           <!-- existing grenade trajectories -->
           <g v-for="(g, i) in grenades" :key="'g'+i">
@@ -59,6 +65,28 @@
             </g>
           </g>
 
+          <!-- freehand drawings -->
+          <polyline
+            v-for="(d, di) in annotations.drawings" :key="'draw'+di"
+            :points="pointsAttr(d.points)" fill="none" :stroke="d.color" stroke-width="0.7"
+            stroke-linecap="round" stroke-linejoin="round"
+          />
+
+          <!-- text notes -->
+          <g v-for="(n, ni) in annotations.notes" :key="'note'+ni">
+            <circle
+              :cx="n.x" :cy="n.y" r="1.4" fill="#ffd23f"
+              class="te-handle" @pointerdown="startNoteDrag($event, n)"
+            />
+            <text :x="n.x" :y="n.y - 2.4" class="te-note-text" text-anchor="middle">{{ n.text || '…' }}</text>
+          </g>
+
+          <!-- C4 marker -->
+          <g v-if="annotations.bomb" :transform="`translate(${annotations.bomb.x},${annotations.bomb.y})`">
+            <circle r="1.9" fill="#ff3b3b" class="te-handle" @pointerdown="startBombDrag($event)" />
+            <text text-anchor="middle" dominant-baseline="central" class="te-bomb-label">C4</text>
+          </g>
+
           <defs>
             <marker id="te-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
               <path d="M0,0 L6,3 L0,6 z" fill="#ffcc44" />
@@ -83,7 +111,7 @@
       </div>
 
       <!-- ═══ PLAYER PATHS ═══ -->
-      <div v-else class="te-panel">
+      <div v-else-if="mode === 'paths'" class="te-panel">
         <div v-for="p in playerPaths" :key="p._key" class="te-path-card">
           <div class="te-path-head">
             <input v-model="p.label" type="text" placeholder="Label (e.g. Entry)" class="te-input te-path-label" />
@@ -105,6 +133,37 @@
         </div>
         <button type="button" class="te-mini-btn" @click="addPath">+ Add player path</button>
       </div>
+
+      <!-- ═══ DRAW ═══ -->
+      <div v-else-if="mode === 'draw'" class="te-panel">
+        <p class="te-hint">Click and drag on the map to draw a line.</p>
+        <label class="te-draw-color-row">
+          <span>Line color</span>
+          <input v-model="activeDrawColor" type="color" class="te-color" />
+        </label>
+        <p v-if="!annotations.drawings.length" class="te-hint">No lines yet.</p>
+        <div v-for="(d, di) in annotations.drawings" :key="di" class="te-grenade-row">
+          <span class="te-color-swatch" :style="{ background: d.color }"></span>
+          <span class="te-grenade-label">Line {{ di + 1 }} ({{ d.points.length }} pts)</span>
+          <button type="button" class="te-mini-btn danger" @click="removeDrawing(d)">Remove</button>
+        </div>
+      </div>
+
+      <!-- ═══ NOTES ═══ -->
+      <div v-else-if="mode === 'notes'" class="te-panel">
+        <p class="te-hint">Click the map to drop a note. Drag to move it, click it again (no drag) to delete.</p>
+        <p v-if="!annotations.notes.length" class="te-hint">No notes yet.</p>
+        <div v-for="(n, ni) in annotations.notes" :key="ni" class="te-path-card">
+          <input v-model="n.text" type="text" placeholder="Note text…" class="te-input te-path-label" />
+        </div>
+      </div>
+
+      <!-- ═══ C4 ═══ -->
+      <div v-else-if="mode === 'bomb'" class="te-panel">
+        <p class="te-hint">Click the map to place the C4 marker — placing again just moves it.</p>
+        <p v-if="!annotations.bomb" class="te-hint">Not placed yet.</p>
+        <button v-else type="button" class="te-mini-btn danger" @click="annotations.bomb = null">Remove C4 marker</button>
+      </div>
     </template>
   </div>
 </template>
@@ -117,6 +176,8 @@ const props = defineProps({
   imageUrl: { type: String, default: null },
   grenades: { type: Array, required: true }, // mutated in place (from_x/from_y/to_x/to_y)
   playerPaths: { type: Array, required: true }, // mutated in place
+  // { drawings: [{points:[{x,y}], color}], notes: [{x,y,text}], bomb: {x,y}|null } — mutated in place
+  annotations: { type: Object, default: () => ({ drawings: [], notes: [], bomb: null }) },
 })
 
 const mode = ref('paths')
@@ -200,6 +261,24 @@ function startGrenadeDrag(event, grenade, end) {
   window.addEventListener('pointerup', onDragEnd)
 }
 
+function startNoteDrag(event, note) {
+  event.stopPropagation()
+  drag.value = { kind: 'note', note }
+  dragMoved = false
+  dragStartClient = { x: event.clientX, y: event.clientY }
+  window.addEventListener('pointermove', onDragMove)
+  window.addEventListener('pointerup', onDragEnd)
+}
+
+function startBombDrag(event) {
+  event.stopPropagation()
+  drag.value = { kind: 'bomb' }
+  dragMoved = false
+  dragStartClient = { x: event.clientX, y: event.clientY }
+  window.addEventListener('pointermove', onDragMove)
+  window.addEventListener('pointerup', onDragEnd)
+}
+
 function onDragMove(event) {
   if (!drag.value) return
   if (!dragMoved) {
@@ -212,14 +291,20 @@ function onDragMove(event) {
   const coords = coordsFromEvent(event)
   if (!coords) return
   const { x, y } = coords
-  if (drag.value.kind === 'waypoint') {
-    const wp = drag.value.path.waypoints[drag.value.index]
+  const d = drag.value
+  if (d.kind === 'waypoint') {
+    const wp = d.path.waypoints[d.index]
     wp.x = x
     wp.y = y
-  } else {
-    const g = drag.value.grenade
-    if (drag.value.end === 'from') { g.from_x = x; g.from_y = y }
-    else { g.to_x = x; g.to_y = y }
+  } else if (d.kind === 'grenade') {
+    if (d.end === 'from') { d.grenade.from_x = x; d.grenade.from_y = y }
+    else { d.grenade.to_x = x; d.grenade.to_y = y }
+  } else if (d.kind === 'note') {
+    d.note.x = x
+    d.note.y = y
+  } else if (d.kind === 'bomb') {
+    props.annotations.bomb.x = x
+    props.annotations.bomb.y = y
   }
 }
 
@@ -233,7 +318,9 @@ function onDragEnd() {
   if (!dragMoved) {
     // A plain click (no drag) on an existing point — delete it.
     if (d.kind === 'waypoint') d.path.waypoints.splice(d.index, 1)
-    else clearTrajectory(d.grenade)
+    else if (d.kind === 'grenade') clearTrajectory(d.grenade)
+    else if (d.kind === 'note') removeNote(d.note)
+    else if (d.kind === 'bomb') props.annotations.bomb = null
   }
 }
 
@@ -242,11 +329,61 @@ onBeforeUnmount(() => {
   window.removeEventListener('pointerup', onDragEnd)
 })
 
+// ── Freehand drawing ───────────────────────────────────
+const activeDrawColor = ref('#ff3b3b')
+let activeDrawing = null
+
+function onImagePointerDown(event) {
+  if (mode.value !== 'draw') return
+  const coords = coordsFromEvent(event)
+  if (!coords) return
+  activeDrawing = { points: [coords], color: activeDrawColor.value }
+  props.annotations.drawings.push(activeDrawing)
+  window.addEventListener('pointermove', onDrawMove)
+  window.addEventListener('pointerup', onDrawEnd)
+}
+function onDrawMove(event) {
+  if (!activeDrawing) return
+  const coords = coordsFromEvent(event)
+  if (!coords) return
+  const last = activeDrawing.points[activeDrawing.points.length - 1]
+  // Skip near-duplicate points so a slow drag doesn't bloat the array.
+  if (Math.hypot(coords.x - last.x, coords.y - last.y) < 0.6) return
+  activeDrawing.points.push(coords)
+}
+function onDrawEnd() {
+  window.removeEventListener('pointermove', onDrawMove)
+  window.removeEventListener('pointerup', onDrawEnd)
+  if (activeDrawing && activeDrawing.points.length < 2) {
+    // A tap with no real movement — discard rather than leave a 1-point dot.
+    const idx = props.annotations.drawings.indexOf(activeDrawing)
+    if (idx !== -1) props.annotations.drawings.splice(idx, 1)
+  }
+  activeDrawing = null
+}
+function removeDrawing(d) {
+  const idx = props.annotations.drawings.indexOf(d)
+  if (idx !== -1) props.annotations.drawings.splice(idx, 1)
+}
+function removeNote(n) {
+  const idx = props.annotations.notes.indexOf(n)
+  if (idx !== -1) props.annotations.notes.splice(idx, 1)
+}
+
 // ── Click on the image itself: add a new point ────────────────────────
 function onImageClick(event) {
   const coords = coordsFromEvent(event)
   if (!coords) return
   const { x: clampedX, y: clampedY } = coords
+
+  if (mode.value === 'notes') {
+    props.annotations.notes.push({ x: clampedX, y: clampedY, text: '' })
+    return
+  }
+  if (mode.value === 'bomb') {
+    props.annotations.bomb = { x: clampedX, y: clampedY }
+    return
+  }
 
   if (mode.value === 'grenades' && activeGrenadeIdx.value !== -1) {
     const g = props.grenades[activeGrenadeIdx.value]
@@ -301,6 +438,15 @@ function onImageClick(event) {
   pointer-events: none; font-size: 2.1px; font-weight: 700; fill: #14140f;
   font-family: inherit; user-select: none;
 }
+.te-note-text {
+  pointer-events: none; font-size: 2.6px; font-weight: 700; fill: #ffd23f;
+  font-family: inherit; user-select: none; paint-order: stroke;
+  stroke: #14140f; stroke-width: 0.5px;
+}
+.te-bomb-label {
+  pointer-events: none; font-size: 1.6px; font-weight: 800; fill: #fff;
+  font-family: inherit; user-select: none;
+}
 
 .te-panel { display: flex; flex-direction: column; gap: 10px; }
 .te-hint { font-size: 12px; color: var(--text-dim); }
@@ -339,4 +485,7 @@ function onImageClick(event) {
 .te-waypoint-unit { font-size: 11px; color: var(--text-dim); }
 .te-waypoint-remove { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 12px; margin-left: auto; }
 .te-waypoint-remove:hover { color: var(--danger); }
+
+.te-draw-color-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--text-dim); }
+.te-color-swatch { width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0; border: 1px solid var(--line); }
 </style>

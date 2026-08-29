@@ -169,6 +169,7 @@
             :image-url="form.images[0]?.image_url || null"
             :grenades="form.grenades"
             :player-paths="form.player_paths"
+            :annotations="form.annotations"
           />
 
           <div class="form-actions">
@@ -237,6 +238,7 @@ function blankForm() {
     images: [],
     grenades: [],
     player_paths: [],
+    annotations: { drawings: [], notes: [], bomb: null },
   }
 }
 const form = reactive(blankForm())
@@ -320,6 +322,13 @@ function openEdit(strategy) {
       waypoints: p.waypoints.map(w => ({ x: w.x, y: w.y, t: w.t })),
       order: p.order,
     })),
+    annotations: strategy.annotations
+      ? {
+          drawings: (strategy.annotations.drawings || []).map(d => ({ points: d.points.map(pt => ({ ...pt })), color: d.color })),
+          notes: (strategy.annotations.notes || []).map(n => ({ ...n })),
+          bomb: strategy.annotations.bomb ? { ...strategy.annotations.bomb } : null,
+        }
+      : { drawings: [], notes: [], bomb: null },
   })
   editingId.value = strategy.id
   errorMsg.value = ''

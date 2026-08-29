@@ -126,6 +126,7 @@
           :image-url="mainImage.image_url"
           :grenades="strategy.grenades || []"
           :player-paths="strategy.player_paths || []"
+          :annotations="strategy.annotations"
         />
         <div v-else class="image-container">
           <img :src="mainImage.image_url" alt="Strategy map" class="main-image" />
@@ -280,12 +281,14 @@ const mainImage = computed(() => {
 })
 
 // Only swap in the animated player when there's actually something to
-// animate — a strategy with no paths/trajectories keeps the plain image.
+// animate — a strategy with no paths/trajectories/annotations keeps the plain image.
 const hasTacticsAnimation = computed(() => {
   const paths = strategy.value?.player_paths || []
   const grenades = strategy.value?.grenades || []
+  const a = strategy.value?.annotations
   return paths.some(p => p.waypoints?.length >= 2) ||
-    grenades.some(g => g.from_x != null && g.to_x != null)
+    grenades.some(g => g.from_x != null && g.to_x != null) ||
+    !!(a && (a.drawings?.length || a.notes?.length || a.bomb))
 })
 
 const timingImages = computed(() => {

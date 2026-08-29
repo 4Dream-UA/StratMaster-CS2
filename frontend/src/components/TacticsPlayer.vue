@@ -31,6 +31,26 @@
         <g v-for="p in playerPaths" :key="'dot'+p.label" :transform="`translate(${positionAt(p.waypoints, currentTime).x},${positionAt(p.waypoints, currentTime).y})`">
           <circle r="1.8" :fill="p.color" stroke="#111213" stroke-width="0.3" />
         </g>
+
+        <!-- freehand drawings -->
+        <polyline
+          v-for="(d, di) in annotations.drawings" :key="'draw'+di"
+          :points="d.points.map(pt => `${pt.x},${pt.y}`).join(' ')"
+          fill="none" :stroke="d.color" stroke-width="0.7"
+          stroke-linecap="round" stroke-linejoin="round"
+        />
+
+        <!-- text notes -->
+        <g v-for="(n, ni) in annotations.notes" :key="'note'+ni">
+          <circle :cx="n.x" :cy="n.y" r="1.4" fill="#ffd23f" />
+          <text v-if="n.text" :x="n.x" :y="n.y - 2.4" class="tp-note-text" text-anchor="middle">{{ n.text }}</text>
+        </g>
+
+        <!-- C4 marker -->
+        <g v-if="annotations.bomb" :transform="`translate(${annotations.bomb.x},${annotations.bomb.y})`">
+          <circle r="1.9" fill="#ff3b3b" />
+          <text text-anchor="middle" dominant-baseline="central" class="tp-bomb-label">C4</text>
+        </g>
       </svg>
 
       <div v-if="playerPaths.length" class="tp-legend">
@@ -80,6 +100,7 @@ const props = defineProps({
   imageUrl: { type: String, required: true },
   grenades: { type: Array, default: () => [] },
   playerPaths: { type: Array, default: () => [] },
+  annotations: { type: Object, default: () => ({ drawings: [], notes: [], bomb: null }) },
 })
 
 // ── Export current view as a PNG ──────────────────────────────────
@@ -264,6 +285,12 @@ onUnmounted(() => { if (rafId) cancelAnimationFrame(rafId) })
 }
 .tp-legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: #fff; }
 .tp-legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+.tp-note-text {
+  font-size: 2.6px; font-weight: 700; fill: #ffd23f; font-family: inherit;
+  paint-order: stroke; stroke: #14140f; stroke-width: 0.5px;
+}
+.tp-bomb-label { font-size: 1.6px; font-weight: 800; fill: #fff; font-family: inherit; }
 
 .tp-controls {
   display: flex; align-items: center; gap: 12px;

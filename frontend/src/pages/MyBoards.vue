@@ -114,12 +114,14 @@
               :image-url="selectedMapImage"
               :grenades="form.grenades"
               :player-paths="form.paths"
+              :annotations="form.annotations"
             />
             <TacticsEditor
               v-else
               :image-url="selectedMapImage"
               :grenades="form.grenades"
               :player-paths="form.paths"
+              :annotations="form.annotations"
             />
           </template>
 
@@ -232,7 +234,7 @@ const collabError = ref('')
 const shareLinkUrl = computed(() => shareToken.value ? botDeepLink(`board_${shareToken.value}`) : '')
 
 function blankForm() {
-  return { map_id: null, title: '', paths: [], grenades: [] }
+  return { map_id: null, title: '', paths: [], grenades: [], annotations: { drawings: [], notes: [], bomb: null } }
 }
 const form = reactive(blankForm())
 let pathKeySeq = 0
@@ -309,6 +311,13 @@ async function openEdit(boardPreview) {
       waypoints: p.waypoints.map(w => ({ x: w.x, y: w.y, t: w.t })),
       order: p.order,
     })),
+    annotations: board.annotations
+      ? {
+          drawings: (board.annotations.drawings || []).map(d => ({ points: d.points.map(pt => ({ ...pt })), color: d.color })),
+          notes: (board.annotations.notes || []).map(n => ({ ...n })),
+          bomb: board.annotations.bomb ? { ...board.annotations.bomb } : null,
+        }
+      : { drawings: [], notes: [], bomb: null },
   })
   editingId.value = board.id
   errorMsg.value = ''
@@ -373,6 +382,7 @@ async function save() {
       paths: form.paths
         .filter(p => p.label?.trim() && p.waypoints.length >= 2)
         .map(({ _key, ...p }) => p),
+      annotations: form.annotations,
     }
     if (editingId.value) {
       await boardsAPI.update(editingId.value, payload)
