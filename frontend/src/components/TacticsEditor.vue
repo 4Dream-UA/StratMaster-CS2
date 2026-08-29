@@ -21,7 +21,7 @@
       <div class="te-canvas-wrap">
         <img
           :src="imageUrl" alt="" class="te-image" ref="imgRef"
-          @click="onImageClick" @pointerdown="onImagePointerDown"
+          @click="onImageClick" @pointerdown="onImagePointerDown" @load="onImageLoad"
         />
         <svg class="te-overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
           <!-- existing grenade trajectories -->
@@ -32,23 +32,23 @@
               :stroke="i === activeGrenadeIdx ? '#ffcc44' : 'rgba(255,154,0,0.8)'" stroke-width="0.6"
               marker-end="url(#te-arrow)"
             />
-            <circle
-              v-if="hasTrajectory(g)" :cx="g.from_x" :cy="g.from_y" r="1.3" fill="#ff9a00"
+            <ellipse
+              v-if="hasTrajectory(g)" :cx="g.from_x" :cy="g.from_y" :rx="rx(1.3)" ry="1.3" fill="#ff9a00"
               class="te-handle" @pointerdown="startGrenadeDrag($event, g, 'from')"
             />
             <!-- effect zone at the landing point — sized per grenade type -->
-            <circle
-              v-if="hasTrajectory(g)" :cx="g.to_x" :cy="g.to_y" :r="grenadeEffectRadius(g.grenade_type)"
+            <ellipse
+              v-if="hasTrajectory(g)" :cx="g.to_x" :cy="g.to_y" :rx="rx(grenadeEffectRadius(g.grenade_type))" :ry="grenadeEffectRadius(g.grenade_type)"
               :fill="grenadeColor(g.grenade_type)" fill-opacity="0.16" :stroke="grenadeColor(g.grenade_type)" stroke-width="0.3"
               class="te-zone"
             />
-            <circle
-              v-if="hasTrajectory(g)" :cx="g.to_x" :cy="g.to_y" r="1.1" :fill="grenadeColor(g.grenade_type)"
+            <ellipse
+              v-if="hasTrajectory(g)" :cx="g.to_x" :cy="g.to_y" :rx="rx(1.1)" ry="1.1" :fill="grenadeColor(g.grenade_type)"
               class="te-handle" @pointerdown="startGrenadeDrag($event, g, 'to')"
             />
           </g>
           <!-- pending grenade placement -->
-          <circle v-if="pendingFrom" :cx="pendingFrom.x" :cy="pendingFrom.y" r="1.3" fill="#ffcc44" />
+          <ellipse v-if="pendingFrom" :cx="pendingFrom.x" :cy="pendingFrom.y" :rx="rx(1.3)" ry="1.3" fill="#ffcc44" />
 
           <!-- player paths -->
           <g v-for="p in playerPaths" :key="p._key">
@@ -57,8 +57,8 @@
               fill="none" :stroke="p.color" stroke-width="0.6" stroke-dasharray="1.6,1"
             />
             <g v-for="(w, wi) in p.waypoints" :key="wi">
-              <circle
-                :cx="w.x" :cy="w.y" r="1.6" :fill="p.color"
+              <ellipse
+                :cx="w.x" :cy="w.y" :rx="rx(1.6)" ry="1.6" :fill="p.color"
                 class="te-handle" @pointerdown="startWaypointDrag($event, p, wi)"
               />
               <text :x="w.x" :y="w.y" class="te-point-num" text-anchor="middle" dominant-baseline="central">{{ wi + 1 }}</text>
@@ -74,8 +74,8 @@
 
           <!-- text notes -->
           <g v-for="(n, ni) in annotations.notes" :key="'note'+ni">
-            <circle
-              :cx="n.x" :cy="n.y" r="1.4" fill="#ffd23f"
+            <ellipse
+              :cx="n.x" :cy="n.y" :rx="rx(1.4)" ry="1.4" fill="#ffd23f"
               class="te-handle" @pointerdown="startNoteDrag($event, n)"
             />
             <text :x="n.x" :y="n.y - 2.4" class="te-note-text" text-anchor="middle">{{ n.text || '…' }}</text>
@@ -83,7 +83,7 @@
 
           <!-- C4 marker -->
           <g v-if="annotations.bomb" :transform="`translate(${annotations.bomb.x},${annotations.bomb.y})`">
-            <circle r="1.9" fill="#ff3b3b" class="te-handle" @pointerdown="startBombDrag($event)" />
+            <ellipse :rx="rx(1.9)" ry="1.9" fill="#ff3b3b" class="te-handle" @pointerdown="startBombDrag($event)" />
             <text text-anchor="middle" dominant-baseline="central" class="te-bomb-label">C4</text>
           </g>
 
@@ -169,7 +169,7 @@
 </template>
 
 <script setup>
-import { ref, onBeforeUnmount } from 'vue'
+import { ref, onBeforeUnmount, watch, nextTick } from 'vue'
 import { grenadeTypeLabel, grenadeColor, grenadeEffectRadius } from '../utils/grenadeLabels'
 
 const props = defineProps({
@@ -182,6 +182,28 @@ const props = defineProps({
 
 const mode = ref('paths')
 const imgRef = ref(null)
+
+// The overlay SVG uses viewBox="0 0 100 100" with preserveAspectRatio="none"
+// so x/y percentages line up with the image regardless of its own aspect
+// ratio — necessary for position, but it non-uniformly scales anything with
+// a plain radius, squashing every circular marker into an oval on any
+// non-square map. rx(r) compensates by widening/narrowing the x-radius so
+// <ellipse :rx="rx(r)" :ry="r"> renders as a true circle in real pixels.
+const imgAspect = ref(1)
+function onImageLoad() {
+  if (imgRef.value?.naturalWidth && imgRef.value?.naturalHeight) {
+    imgAspect.value = imgRef.value.naturalWidth / imgRef.value.naturalHeight
+  }
+}
+function rx(r) {
+  return r / imgAspect.value
+}
+// The @load listener can miss an already-cached image (fires before Vue's
+// handler is wired up in some browsers) — this catches that case whenever
+// the image URL changes.
+watch(() => props.imageUrl, () => {
+  nextTick(() => { if (imgRef.value?.complete) onImageLoad() })
+}, { immediate: true })
 
 function setMode(m) {
   mode.value = m

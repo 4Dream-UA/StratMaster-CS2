@@ -1,13 +1,13 @@
 <template>
   <div class="tactics-player">
     <div class="tp-canvas">
-      <img :src="imageUrl" alt="Strategy map" class="tp-image" />
+      <img :src="imageUrl" alt="Strategy map" class="tp-image" @load="onImageLoad" ref="imgRef" />
       <svg class="tp-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" ref="overlayRef">
         <!-- landed grenade markers (persist once thrown) -->
         <g v-for="(g, i) in trajectoryGrenades" :key="'land'+i">
           <g v-if="grenadeState(g, currentTime) === 'landed'" :transform="`translate(${g.to_x},${g.to_y})`" class="tp-landed">
-            <circle :r="grenadeEffectRadius(g.grenade_type)" :fill="grenadeColor(g.grenade_type)" fill-opacity="0.18" :stroke="grenadeColor(g.grenade_type)" stroke-width="0.4" />
-            <circle r="0.6" :fill="grenadeColor(g.grenade_type)" />
+            <ellipse :rx="rx(grenadeEffectRadius(g.grenade_type))" :ry="grenadeEffectRadius(g.grenade_type)" :fill="grenadeColor(g.grenade_type)" fill-opacity="0.18" :stroke="grenadeColor(g.grenade_type)" stroke-width="0.4" />
+            <ellipse :rx="rx(0.6)" ry="0.6" :fill="grenadeColor(g.grenade_type)" />
           </g>
         </g>
 
@@ -20,16 +20,16 @@
 
         <!-- flying grenades -->
         <g v-for="(g, i) in trajectoryGrenades" :key="'fly'+i">
-          <circle
+          <ellipse
             v-if="grenadeState(g, currentTime) === 'flying'"
             :cx="grenadeFlightPos(g, currentTime).x" :cy="grenadeFlightPos(g, currentTime).y"
-            r="1.1" :fill="grenadeColor(g.grenade_type)"
+            :rx="rx(1.1)" ry="1.1" :fill="grenadeColor(g.grenade_type)"
           />
         </g>
 
         <!-- player dots -->
         <g v-for="p in playerPaths" :key="'dot'+p.label" :transform="`translate(${positionAt(p.waypoints, currentTime).x},${positionAt(p.waypoints, currentTime).y})`">
-          <circle r="1.8" :fill="p.color" stroke="#111213" stroke-width="0.3" />
+          <ellipse :rx="rx(1.8)" ry="1.8" :fill="p.color" stroke="#111213" stroke-width="0.3" />
         </g>
 
         <!-- freehand drawings -->
@@ -42,13 +42,13 @@
 
         <!-- text notes -->
         <g v-for="(n, ni) in annotations.notes" :key="'note'+ni">
-          <circle :cx="n.x" :cy="n.y" r="1.4" fill="#ffd23f" />
+          <ellipse :cx="n.x" :cy="n.y" :rx="rx(1.4)" ry="1.4" fill="#ffd23f" />
           <text v-if="n.text" :x="n.x" :y="n.y - 2.4" class="tp-note-text" text-anchor="middle">{{ n.text }}</text>
         </g>
 
         <!-- C4 marker -->
         <g v-if="annotations.bomb" :transform="`translate(${annotations.bomb.x},${annotations.bomb.y})`">
-          <circle r="1.9" fill="#ff3b3b" />
+          <ellipse :rx="rx(1.9)" ry="1.9" fill="#ff3b3b" />
           <text text-anchor="middle" dominant-baseline="central" class="tp-bomb-label">C4</text>
         </g>
       </svg>
@@ -93,7 +93,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, onUnmounted, watch, nextTick } from 'vue'
 import { grenadeColor, grenadeEffectRadius } from '../utils/grenadeLabels'
 
 const props = defineProps({
@@ -102,6 +102,27 @@ const props = defineProps({
   playerPaths: { type: Array, default: () => [] },
   annotations: { type: Object, default: () => ({ drawings: [], notes: [], bomb: null }) },
 })
+
+// The overlay SVG uses viewBox="0 0 100 100" with preserveAspectRatio="none"
+// so x/y percentages line up with the image regardless of its own aspect
+// ratio — necessary for position, but it non-uniformly scales anything with
+// a plain radius, squashing every circular marker into an oval on any
+// non-square map. rx(r) compensates by widening/narrowing the x-radius so
+// <ellipse :rx="rx(r)" :ry="r"> renders as a true circle in real pixels.
+const imgRef = ref(null)
+const imgAspect = ref(1)
+function onImageLoad() {
+  if (imgRef.value?.naturalWidth && imgRef.value?.naturalHeight) {
+    imgAspect.value = imgRef.value.naturalWidth / imgRef.value.naturalHeight
+  }
+}
+function rx(r) {
+  return r / imgAspect.value
+}
+// The @load listener can miss an already-cached image — this catches that.
+watch(() => props.imageUrl, () => {
+  nextTick(() => { if (imgRef.value?.complete) onImageLoad() })
+}, { immediate: true })
 
 // ── Export current view as a PNG ──────────────────────────────────
 const overlayRef = ref(null)
