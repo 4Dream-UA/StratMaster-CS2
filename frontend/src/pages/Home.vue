@@ -50,8 +50,8 @@
         </div>
 
         <div class="cta-row fade-up delay-4">
-          <button class="btn-primary" @click="router.push('/pricing')">Get Premium Access</button>
-          <button class="btn-secondary" @click="scrollToMaps">Browse Strategies ↓</button>
+          <button class="btn-primary hero-cta" @click="router.push('/pricing')">Get Premium Access</button>
+          <button class="btn-secondary hero-cta" @click="scrollToMaps">Browse Strategies ↓</button>
         </div>
 
         <div class="trust-strip fade-up delay-5">
@@ -494,6 +494,7 @@ h1 {
 
 /* CTA row */
 .cta-row { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 36px; }
+.hero-cta { padding: 17px 36px; font-size: 15.5px; }
 
 /* Trust strip */
 .trust-strip { display: flex; gap: 0; flex-wrap: wrap; }

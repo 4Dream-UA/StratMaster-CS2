@@ -589,6 +589,7 @@ async function renewNow() {
       wallet.value.balance_coins = res.new_balance
       wallet.value.subscription_expires_at = res.subscription_expires_at
     }
+    flashCard()
     renewError.value = false
     renewMessage.value = `Renewed! ${res.coins_spent} MC charged.`
   } catch (e) {
@@ -652,6 +653,10 @@ const topupPolling = ref(false)
 const topupMessage = ref('')
 const topupSuccess = ref(false)
 const cardFlash = ref(false) // brief checkmark/glow flourish on the wallet card
+function flashCard() {
+  cardFlash.value = true
+  setTimeout(() => { cardFlash.value = false }, 2200)
+}
 let topupPollTimer = null
 
 function stopTopupPolling() {
@@ -697,8 +702,7 @@ async function buyCoins() {
           stopTopupPolling()
           topupSuccess.value = true
           topupMessage.value = `+${invoice.coins} MasterCoins added!`
-          cardFlash.value = true
-          setTimeout(() => { cardFlash.value = false }, 2200)
+          flashCard()
           await userStore.fetchMe()
         }
       } catch (e) { /* transient — keep polling */ }
@@ -736,6 +740,7 @@ async function sendCoins() {
     p2pSuccess.value = true
     p2pMessage.value = `Sent ${res.amount} MC to ${res.receiver_wallet_id}.`
     if (wallet.value) wallet.value.balance_coins = res.new_balance
+    flashCard()
     p2pWalletId.value = ''
     p2pAmount.value = null
   } catch (e) {
@@ -758,6 +763,7 @@ async function sendGift() {
     p2pSuccess.value = true
     p2pMessage.value = `Gifted ${plan} to ${res.receiver_wallet_id} — ${res.coins_spent} MC spent.`
     if (wallet.value) wallet.value.balance_coins = res.new_balance
+    flashCard()
     p2pWalletId.value = ''
   } catch (e) {
     p2pSuccess.value = false
@@ -875,6 +881,7 @@ async function redeemPromo() {
       promoMessage.value = `+${res.coins_awarded} MasterCoins added!`
       if (wallet.value) wallet.value.balance_coins = res.new_balance
     }
+    flashCard()
     promoCode.value = ''
   } catch (e) {
     promoSuccess.value = false
@@ -1188,7 +1195,7 @@ const TABS = [
   display: flex; align-items: center; justify-content: center; gap: 7px;
   width: 100%; margin-top: 14px;
   background: linear-gradient(160deg, #ffc266 0%, var(--accent) 48%, #cc7300 100%);
-  color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.28);
+  color: var(--text-dim); text-shadow: 0 1px 1px rgba(255,255,255,.18);
   border: 1px solid rgba(255,255,255,.14);
   font-size: 13.5px; font-weight: 700; padding: 12px 16px; border-radius: 10px;
   letter-spacing: .01em;
