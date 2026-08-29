@@ -84,6 +84,18 @@ export const adminAPI = {
     const response = await apiClient.delete(`/api/admin/users/${id}/avatar`)
     return response.data
   },
+  async setUserAvatar(id, avatarUrl) {
+    const response = await apiClient.patch(`/api/admin/users/${id}/avatar`, { avatar_url: avatarUrl })
+    return response.data
+  },
+  async uploadImage(file) {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await apiClient.post('/api/admin/uploads', formData, {
+      headers: { 'Content-Type': undefined },
+    })
+    return response.data  // { url }
+  },
   async setUserPremium(id, unit, amount = null) {
     const response = await apiClient.patch(`/api/admin/users/${id}/premium`, { unit, amount })
     return response.data

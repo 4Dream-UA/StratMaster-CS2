@@ -93,9 +93,15 @@
           </div>
 
           <!-- Avatar -->
-          <div v-if="selected.avatar_url" class="section">
+          <div class="section">
             <p class="section-label">Avatar</p>
-            <button class="mini-btn danger" :disabled="avatarBusy" @click="removeAvatar">{{ avatarBusy ? '…' : 'Remove avatar' }}</button>
+            <div class="inline-form">
+              <label class="mini-btn upload-label">
+                {{ avatarBusy ? 'Uploading…' : 'Upload new' }}
+                <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden :disabled="avatarBusy" @change="onAvatarFileChange" />
+              </label>
+              <button v-if="selected.avatar_url" class="mini-btn danger" :disabled="avatarBusy" @click="removeAvatar">Remove avatar</button>
+            </div>
           </div>
 
           <!-- Premium — absolute set, overwrites whatever time is left -->
@@ -224,6 +230,23 @@ async function removeAvatar() {
     patchSelected(updated)
   } catch (e) {
     console.warn('[Admin] could not clear avatar:', e.response?.data?.detail)
+  } finally {
+    avatarBusy.value = false
+  }
+}
+
+async function onAvatarFileChange(e) {
+  const file = e.target.files[0]
+  e.target.value = ''
+  if (!file || avatarBusy.value) return
+
+  avatarBusy.value = true
+  try {
+    const uploaded = await adminAPI.uploadImage(file)
+    const updated = await adminAPI.setUserAvatar(selected.value.id, uploaded.url)
+    patchSelected(updated)
+  } catch (e) {
+    console.warn('[Admin] could not upload avatar:', e.response?.data?.detail)
   } finally {
     avatarBusy.value = false
   }

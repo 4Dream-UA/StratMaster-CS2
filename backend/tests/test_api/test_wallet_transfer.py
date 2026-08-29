@@ -244,6 +244,18 @@ async def test_admin_can_clear_a_users_avatar(client, db_session, auth_as):
     assert resp.json()["avatar_url"] is None
 
 
+async def test_admin_can_set_a_users_avatar_directly(client, db_session, auth_as):
+    """Not just clearing — an admin can also set (e.g. after uploading a
+    replacement image) any player's avatar, even a non-premium one's."""
+    admin = await make_user(db_session, is_admin=True)
+    target = await make_user(db_session)  # no subscription
+    auth_as(admin)
+
+    resp = await client.patch(f"/api/admin/users/{target.id}/avatar", json={"avatar_url": "/uploads/new.png"})
+    assert resp.status_code == 200
+    assert resp.json()["avatar_url"] == "/uploads/new.png"
+
+
 async def test_admin_set_premium_forever_grants_lifetime(client, db_session, auth_as):
     admin = await make_user(db_session, is_admin=True)
     target = await make_user(db_session)

@@ -42,6 +42,7 @@ from backend.app.schemas.user import (
     SetBannedRequest,
     SetNicknameRequest,
     SetTradeBannedRequest,
+    UpdateAvatarRequest,
     UserAdminOut,
     UsersListResponse,
 )
@@ -464,6 +465,23 @@ async def admin_clear_user_avatar(user_id: uuid.UUID, db: DBSession, admin_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     user.avatar_url = None
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+@router.patch("/admin/users/{user_id}/avatar", response_model=UserAdminOut)
+async def admin_set_user_avatar(user_id: uuid.UUID, payload: UpdateAvatarRequest, db: DBSession, admin_user: AdminUser):
+    """Lets an admin set (not just clear) any player's avatar — e.g. after
+    uploading a replacement image via POST /admin/uploads."""
+    result = await db.execute(
+        select(UserModel).options(selectinload(UserModel.wallet)).where(UserModel.id == user_id)
+    )
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    user.avatar_url = payload.avatar_url
     await db.commit()
     await db.refresh(user)
     return user
