@@ -34,7 +34,6 @@
             >
               <CoinIcon :size="16" :color="tierFor(r.coins).border" />
               <span class="odds-tile-coins">{{ r.coins }}</span>
-              <span class="odds-tile-chance">{{ r.chance_percent }}%</span>
             </div>
           </div>
         </div>
@@ -320,7 +319,6 @@ export default { components: { CoinIcon, CaseIcon } }
   aspect-ratio: 1; border-radius: 8px; border: 1.5px solid;
 }
 .odds-tile-coins { font-size: 13px; font-weight: 800; color: var(--text); }
-.odds-tile-chance { font-size: 9.5px; font-weight: 700; color: var(--text-dim); }
 
 .history-card {
   background: var(--bg-elevated); border: 1px solid var(--line);
