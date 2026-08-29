@@ -65,6 +65,7 @@
           </div>
           <div v-else class="thread-list">
             <button v-for="t in threads" :key="t.id" class="thread-row" @click="openThread(t.id)">
+              <Avatar :username="t.author_username" :is-admin="t.author_is_admin" :size="38" />
               <div class="thread-row-main">
                 <h4>{{ activeCategory?.key === 'support' ? (t.author_username ? '@' + t.author_username : 'Ticket') : t.title }}</h4>
                 <span class="thread-row-meta">{{ t.author_username ? '@' + t.author_username + ' · ' : '' }}{{ t.post_count }} {{ t.post_count === 1 ? 'post' : 'posts' }}</span>
@@ -88,16 +89,25 @@
         <template v-else-if="activeThread">
           <div class="post-list">
             <div v-for="p in activeThread.posts" :key="p.id" class="post-card" :class="{ mine: p.author_id === currentUserId }">
-              <div class="post-head">
-                <span class="post-author">{{ p.author_username ? '@' + p.author_username : 'Player' }}</span>
-                <span class="post-time">{{ formatTime(p.created_at) }}</span>
+              <div class="post-sidebar">
+                <Avatar :username="p.author_username" :is-admin="p.author_is_admin" :size="46" />
+                <span class="post-username">{{ p.author_username ? '@' + p.author_username : 'Player' }}</span>
+                <span class="post-role" :class="{ admin: p.author_is_admin }">{{ p.author_is_admin ? 'Admin' : 'Player' }}</span>
               </div>
-              <p class="post-body">{{ p.body }}</p>
+              <div class="post-main">
+                <div class="post-head">
+                  <span class="post-time">{{ formatTime(p.created_at) }}</span>
+                </div>
+                <p class="post-body">{{ p.body }}</p>
+              </div>
             </div>
           </div>
 
           <div class="reply-box">
-            <textarea v-model="replyBody" rows="3" placeholder="Write a reply…" class="thread-input"></textarea>
+            <div class="reply-box-row">
+              <Avatar :username="user?.username" :is-admin="isAdmin" :size="38" />
+              <textarea v-model="replyBody" rows="3" placeholder="Write a reply…" class="thread-input"></textarea>
+            </div>
             <button class="btn-primary reply-btn" :disabled="!replyBody.trim() || posting" @click="submitReply">
               {{ posting ? 'Sending…' : 'Reply' }}
             </button>
@@ -130,6 +140,37 @@ const SupportIcon = {
     h('path', { d: 'M12 4a5 5 0 015 5c0 2.5-2 3.5-3 4.5s-1 1.5-1 2.5', stroke: 'var(--accent)', 'stroke-width': 1.6, 'stroke-linecap': 'round' }),
     h('circle', { cx: 12, cy: 19, r: 1.2, fill: 'var(--accent)' }),
   ]),
+}
+
+// Generated avatar — no photo storage on the backend, so every author gets
+// a deterministic colored circle (hashed from their username) with their
+// initial, plus a gold ring + star badge for admins.
+function hashHue(str) {
+  let hash = 0
+  for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash)
+  return Math.abs(hash) % 360
+}
+const Avatar = {
+  props: {
+    username: { type: String, default: null },
+    isAdmin: { type: Boolean, default: false },
+    size: { type: Number, default: 36 },
+  },
+  render() {
+    const label = this.username || '?'
+    const hue = hashHue(label)
+    return h('div', {
+      class: ['forum-avatar', { 'forum-avatar-admin': this.isAdmin }],
+      style: {
+        width: `${this.size}px`, height: `${this.size}px`,
+        background: `linear-gradient(160deg, hsl(${hue},65%,48%), hsl(${hue},65%,30%))`,
+        fontSize: `${Math.round(this.size * 0.42)}px`,
+      },
+    }, [
+      h('span', label.charAt(0).toUpperCase()),
+      this.isAdmin ? h('span', { class: 'forum-avatar-badge' }, '★') : null,
+    ])
+  },
 }
 
 const userStore = useUserStore()
@@ -376,12 +417,23 @@ onMounted(async () => {
 /* ── Thread detail ─────────────────────────────── */
 .post-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
 .post-card {
+  display: flex; gap: 14px;
   background: var(--bg-elevated); border: 1px solid var(--line);
   border-radius: 12px; padding: 14px 16px;
 }
 .post-card.mine { border-color: rgba(255,154,0,.35); background: rgba(255,154,0,.05); }
-.post-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
-.post-author { font-size: 12.5px; font-weight: 700; color: var(--accent); }
+
+/* Forum-style left sidebar: avatar, username, role — arizona-rp layout */
+.post-sidebar {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  width: 76px; flex-shrink: 0; text-align: center;
+}
+.post-username { font-size: 11px; font-weight: 700; color: var(--text); word-break: break-word; }
+.post-role { font-size: 9.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--text-dim); }
+.post-role.admin { color: var(--accent); }
+
+.post-main { flex: 1; min-width: 0; }
+.post-head { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 6px; }
 .post-time { font-size: 11px; color: var(--text-dim); }
 .post-body { font-size: 13.5px; color: var(--text); line-height: 1.6; white-space: pre-wrap; }
 
@@ -389,5 +441,23 @@ onMounted(async () => {
   background: var(--bg-elevated); border: 1px solid var(--line);
   border-radius: var(--radius-lg); padding: 16px;
 }
-.reply-btn { width: 100%; padding: 11px; }
+.reply-box-row { display: flex; gap: 12px; align-items: flex-start; }
+.reply-box-row .thread-input { margin-bottom: 0; }
+.reply-btn { width: 100%; padding: 11px; margin-top: 10px; }
+
+/* ── Generated avatar ─────────────────────────────── */
+.forum-avatar {
+  position: relative; flex-shrink: 0; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 800; text-shadow: 0 1px 2px rgba(0,0,0,.35);
+  user-select: none;
+}
+.forum-avatar-admin { box-shadow: 0 0 0 2px var(--accent); }
+.forum-avatar-badge {
+  position: absolute; bottom: -2px; right: -2px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--accent); color: #14140f;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; line-height: 1; border: 2px solid var(--bg-elevated);
+}
 </style>

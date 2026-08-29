@@ -57,6 +57,7 @@ async def _thread_preview(db, thread: ForumThreadModel) -> ForumThreadPreview:
         title=thread.title,
         author_username=thread.user.username,
         author_id=thread.user_id,
+        author_is_admin=thread.user.is_admin,
         post_count=post_count,
         updated_at=thread.updated_at,
     )
@@ -146,7 +147,10 @@ async def _get_thread_detail(db, thread_id: uuid.UUID, user) -> ForumThreadDetai
         title=thread.title,
         author_id=thread.user_id,
         posts=[
-            ForumPostOut(id=p.id, author_username=p.user.username, author_id=p.user_id, body=p.body, created_at=p.created_at)
+            ForumPostOut(
+                id=p.id, author_username=p.user.username, author_id=p.user_id,
+                author_is_admin=p.user.is_admin, body=p.body, created_at=p.created_at,
+            )
             for p in thread.posts
         ],
     )

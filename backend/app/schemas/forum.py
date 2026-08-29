@@ -15,6 +15,7 @@ class ForumPostOut(BaseModel):
     id: uuid.UUID
     author_username: str | None = None
     author_id: uuid.UUID
+    author_is_admin: bool = False
     body: str
     created_at: datetime
 
@@ -24,6 +25,7 @@ class ForumThreadPreview(BaseModel):
     title: str
     author_username: str | None = None
     author_id: uuid.UUID
+    author_is_admin: bool = False
     post_count: int
     updated_at: datetime
 
