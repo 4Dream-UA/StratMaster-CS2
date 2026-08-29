@@ -63,30 +63,39 @@
         </label>
       </section>
 
-      <!-- ── WALLET CARD ──────────────────────────────── -->
+      <!-- ── WALLET CARD (bank-card styling, same functionality) ──── -->
       <section class="wallet-card">
-        <div class="wallet-top">
-          <span class="wallet-label">Balance</span>
-          <div class="wallet-balance-row">
-            <span class="balance-num">{{ wallet?.balance_coins ?? 0 }}</span>
-            <span class="coin-unit">MasterCoins</span>
+        <div class="bank-card">
+          <div class="bank-card-sheen"></div>
+          <div class="bank-card-row-top">
+            <span class="bank-chip"><span></span><span></span><span></span></span>
+            <span class="bank-brand">STRAT<b>MASTER</b></span>
           </div>
-          <button type="button" class="topup-toggle" @click="openTopupModal">
-            <svg viewBox="0 0 20 20" width="15" height="15" fill="none">
-              <path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
-            </svg>
-            Top Up MasterCoins
-          </button>
+
+          <div class="bank-card-balance">
+            <span class="wallet-label">Balance</span>
+            <div class="wallet-balance-row">
+              <span class="balance-num">{{ wallet?.balance_coins ?? 0 }}</span>
+              <span class="coin-unit">MasterCoins</span>
+            </div>
+          </div>
+
+          <div class="bank-card-row-bottom">
+            <button type="button" class="bank-card-id" @click="copy(wallet?.wallet_id, 'wallet')">
+              <span class="wallet-id-label">Wallet ID</span>
+              <span class="wallet-id-val">{{ formattedWalletId }}</span>
+              <span class="wallet-id-copy">{{ copiedField === 'wallet' ? 'Copied' : 'Copy' }}</span>
+            </button>
+            <span v-if="hasActiveDiscount" class="discount-chip">-25% active</span>
+          </div>
         </div>
 
-        <div class="wallet-bottom">
-          <div class="wallet-id-chip" @click="copy(wallet?.wallet_id, 'wallet')">
-            <span class="wallet-id-label">WALLET ID:</span>
-            <span class="wallet-id-val">{{ wallet?.wallet_id ?? '—' }}</span>
-            <span class="wallet-id-copy">{{ copiedField === 'wallet' ? 'Copied' : 'Copy' }}</span>
-          </div>
-          <span v-if="hasActiveDiscount" class="discount-chip">-25% active</span>
-        </div>
+        <button type="button" class="topup-toggle" @click="openTopupModal">
+          <svg viewBox="0 0 20 20" width="15" height="15" fill="none">
+            <path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+          </svg>
+          Top Up MasterCoins
+        </button>
       </section>
 
       <!-- ── HOTBAR ───────────────────────────────────── -->
@@ -503,6 +512,14 @@ const hasActiveDiscount = computed(() => {
   return exp && new Date(exp) > new Date()
 })
 
+// Card-number-style grouping (XXXX XXXX XXXX XXXX) of the 16-char wallet
+// ID — purely cosmetic, the copy button still copies the ungrouped value.
+const formattedWalletId = computed(() => {
+  const id = wallet.value?.wallet_id
+  if (!id) return '—'
+  return id.match(/.{1,4}/g)?.join(' ') ?? id
+})
+
 const renewing = ref(false)
 const renewMessage = ref('')
 const renewError = ref(false)
@@ -698,6 +715,9 @@ function copy(text, field) {
   navigator.clipboard.writeText(text).then(() => {
     copiedField.value = field
     setTimeout(() => { copiedField.value = null }, 1800)
+  }).catch(() => {
+    // Clipboard permission denied/unavailable — nothing useful to do beyond
+    // not leaving an unhandled rejection; the user just sees "Copy" stay put.
   })
 }
 
@@ -893,19 +913,41 @@ const TABS = [
 }
 
 /* ── Wallet card ──────────────────────────────── */
-.wallet-card {
-  background: linear-gradient(160deg, rgba(255,154,0,0.07), var(--bg-elevated) 60%);
-  border: 1px solid rgba(255,154,0,0.25);
-  border-radius: var(--radius-lg);
-  padding: 20px;
-  margin-bottom: 16px;
+.wallet-card { margin-bottom: 16px; }
+
+/* ── Bank-card-styled balance display ─────────────────────────
+   Purely visual — same data (balance, wallet ID, discount, top-up)
+   as before, just laid out like a physical card. */
+.bank-card {
+  position: relative; overflow: hidden;
+  background: linear-gradient(135deg, #1a1710 0%, #2b2115 45%, #1a1710 100%);
+  border: 1px solid rgba(255,154,0,.3);
+  border-radius: 18px;
+  padding: 20px 22px;
+  box-shadow: 0 14px 34px -16px rgba(0,0,0,.65), inset 0 1px 0 rgba(255,255,255,.04);
+  aspect-ratio: 1.586 / 1;
+  display: flex; flex-direction: column; justify-content: space-between;
+}
+.bank-card-sheen {
+  position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(115deg, transparent 30%, rgba(255,154,0,.14) 48%, transparent 62%);
 }
 
-.wallet-top { margin-bottom: 16px; }
+.bank-card-row-top { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; }
+.bank-chip {
+  width: 34px; height: 25px; border-radius: 5px; flex-shrink: 0;
+  background: linear-gradient(155deg, #ffe2a3, #d9a441);
+  display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 0 5px;
+}
+.bank-chip span { display: block; height: 1px; background: rgba(0,0,0,.35); }
+.bank-brand { font-size: 11px; font-weight: 700; letter-spacing: .12em; color: rgba(255,255,255,.55); }
+.bank-brand b { color: var(--accent); font-weight: 900; }
+
+.bank-card-balance { position: relative; z-index: 1; }
 .wallet-label {
   display: block;
-  font-size: 11px; font-weight: 700; letter-spacing: .07em;
-  text-transform: uppercase; color: var(--text-dim);
+  font-size: 10.5px; font-weight: 700; letter-spacing: .09em;
+  text-transform: uppercase; color: rgba(255,255,255,.45);
   margin-bottom: 6px;
 }
 .wallet-balance-row { display: flex; align-items: baseline; gap: 8px; }
@@ -913,11 +955,39 @@ const TABS = [
   font-size: 32px; font-weight: 900; color: var(--accent);
   letter-spacing: -.02em; font-variant-numeric: tabular-nums;
 }
-.coin-unit { font-size: 12px; color: var(--text-dim); font-weight: 600; }
+.coin-unit { font-size: 12px; color: rgba(255,255,255,.45); font-weight: 600; }
+
+.bank-card-row-bottom { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.bank-card-id {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  background: none; border: none; cursor: pointer; padding: 0; min-width: 0; flex: 1;
+}
+.wallet-id-label {
+  font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  color: rgba(255,255,255,.4);
+}
+.wallet-id-val {
+  font-size: 14px; font-weight: 700; color: #fff; letter-spacing: .04em;
+  font-variant-numeric: tabular-nums; font-family: 'Courier New', monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+}
+.bank-card-id .wallet-id-copy {
+  font-size: 9.5px; font-weight: 700; color: var(--accent);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+
+.discount-chip {
+  flex-shrink: 0;
+  padding: 4px 11px; border-radius: 99px;
+  background: rgba(80,220,100,0.16);
+  border: 1px solid rgba(80,220,100,0.5);
+  color: var(--success);
+  font-size: 11px; font-weight: 700;
+}
 
 .topup-toggle {
   display: flex; align-items: center; justify-content: center; gap: 7px;
-  width: 100%; margin-top: 12px;
+  width: 100%; margin-top: 14px;
   background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 100%);
   color: #111213; border: none;
   font-size: 13.5px; font-weight: 800; padding: 12px 16px; border-radius: 10px;
@@ -926,42 +996,6 @@ const TABS = [
 }
 .topup-toggle:hover { transform: translateY(-1px); box-shadow: 0 10px 22px -8px rgba(255,154,0,.55); }
 .topup-toggle:active { transform: translateY(0); }
-
-.wallet-bottom {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding-top: 14px; border-top: 1px solid var(--line);
-}
-
-.wallet-id-chip {
-  display: flex; align-items: center; gap: 8px;
-  background: var(--bg); border: 1px solid var(--line);
-  border-radius: 10px; padding: 8px 12px;
-  cursor: pointer; transition: border-color .15s;
-  flex: 1; min-width: 0;
-}
-.wallet-id-chip:hover { border-color: var(--accent); }
-.wallet-id-label {
-  font-size: 10px; font-weight: 700; color: var(--text-dim);
-  text-transform: uppercase; flex-shrink: 0;
-}
-.wallet-id-val {
-  font-size: 13px; font-weight: 700; color: var(--text);
-  font-variant-numeric: tabular-nums;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1;
-}
-.wallet-id-copy {
-  font-size: 10.5px; font-weight: 700; color: var(--accent);
-  text-transform: uppercase; letter-spacing: .04em; flex-shrink: 0;
-}
-
-.discount-chip {
-  flex-shrink: 0;
-  padding: 4px 11px; border-radius: 99px;
-  background: rgba(80,220,100,0.12);
-  border: 1px solid rgba(80,220,100,0.4);
-  color: var(--success);
-  font-size: 11px; font-weight: 700;
-}
 
 /* ── Hotbar ───────────────────────────────────── */
 .hotbar {
