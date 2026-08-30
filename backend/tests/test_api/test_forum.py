@@ -693,3 +693,81 @@ async def test_hidden_username_shows_a_stable_anon_handle_instead_of_the_display
     quoted = reply2.json()["posts"][-1]["reply_to"]
     assert quoted["author_display_name"] == handle
     assert quoted["author_username"] is None
+
+
+# ─────────────────────────────────────────────
+#  Player-side content reporting
+# ─────────────────────────────────────────────
+
+async def test_reporting_a_post_shows_a_count_to_admins_only(client, db_session, auth_as):
+    author = await make_user(db_session, subscribed=True)
+    reporter = await make_user(db_session, subscribed=True)
+    admin = await make_user(db_session, subscribed=True, is_admin=True)
+    auth_as(author)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "spam link"})).json()
+    post_id = thread["posts"][0]["id"]
+
+    auth_as(reporter)
+    resp = await client.post(f"/api/forum/posts/{post_id}/report", json={"reason": "spam"})
+    assert resp.status_code == 204
+
+    posts = (await client.get(f"/api/forum/threads/{thread['id']}")).json()["posts"]
+    assert posts[0]["report_count"] == 0  # reporter isn't an admin
+
+    auth_as(admin)
+    posts = (await client.get(f"/api/forum/threads/{thread['id']}")).json()["posts"]
+    assert posts[0]["report_count"] == 1
+
+    reports = (await client.get(f"/api/forum/posts/{post_id}/reports")).json()
+    assert len(reports) == 1
+    assert reports[0]["reason"] == "spam"
+    assert reports[0]["reporter_username"] == reporter.username
+
+
+async def test_multiple_reports_on_the_same_post_stack_the_count(client, db_session, auth_as):
+    author = await make_user(db_session, subscribed=True)
+    r1 = await make_user(db_session, subscribed=True)
+    r2 = await make_user(db_session, subscribed=True)
+    admin = await make_user(db_session, subscribed=True, is_admin=True)
+    auth_as(author)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "..."})).json()
+    post_id = thread["posts"][0]["id"]
+
+    auth_as(r1)
+    await client.post(f"/api/forum/posts/{post_id}/report", json={"reason": None})
+    auth_as(r2)
+    await client.post(f"/api/forum/posts/{post_id}/report", json={"reason": "rude"})
+
+    auth_as(admin)
+    posts = (await client.get(f"/api/forum/threads/{thread['id']}")).json()["posts"]
+    assert posts[0]["report_count"] == 2
+
+
+async def test_dismissing_reports_clears_the_count(client, db_session, auth_as):
+    author = await make_user(db_session, subscribed=True)
+    reporter = await make_user(db_session, subscribed=True)
+    admin = await make_user(db_session, subscribed=True, is_admin=True)
+    auth_as(author)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "..."})).json()
+    post_id = thread["posts"][0]["id"]
+
+    auth_as(reporter)
+    await client.post(f"/api/forum/posts/{post_id}/report", json={"reason": "spam"})
+
+    auth_as(admin)
+    dismiss = await client.post(f"/api/forum/posts/{post_id}/reports/dismiss")
+    assert dismiss.status_code == 204
+
+    posts = (await client.get(f"/api/forum/threads/{thread['id']}")).json()["posts"]
+    assert posts[0]["report_count"] == 0
+    assert (await client.get(f"/api/forum/posts/{post_id}/reports")).json() == []
+
+
+async def test_non_admin_cannot_list_or_dismiss_reports(client, db_session, auth_as):
+    author = await make_user(db_session, subscribed=True)
+    auth_as(author)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "..."})).json()
+    post_id = thread["posts"][0]["id"]
+
+    assert (await client.get(f"/api/forum/posts/{post_id}/reports")).status_code == 403
+    assert (await client.post(f"/api/forum/posts/{post_id}/reports/dismiss")).status_code == 403

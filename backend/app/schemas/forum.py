@@ -57,10 +57,23 @@ class ForumPostOut(BaseModel):
     # is simply omitted from the list for everyone else.
     deleted_at: datetime | None = None
     deleted_by_username: str | None = None
+    # Count of unresolved reports — only ever populated for admins.
+    report_count: int = 0
 
 
 class ReactRequest(BaseModel):
     emoji: str
+
+
+class ReportPostRequest(BaseModel):
+    reason: str | None = Field(None, max_length=500)
+
+
+class ReportOut(BaseModel):
+    reporter_username: str | None = None
+    reporter_display_name: str | None = None
+    reason: str | None = None
+    created_at: datetime
 
 
 class PostEditOut(BaseModel):

@@ -662,6 +662,9 @@ class ForumPostModel(Base):
     edits: Mapped[list["ForumPostEditModel"]] = relationship(
         "ForumPostEditModel", cascade="all, delete-orphan", order_by="ForumPostEditModel.edited_at.desc()"
     )
+    reports: Mapped[list["ForumPostReportModel"]] = relationship(
+        "ForumPostReportModel", cascade="all, delete-orphan", order_by="ForumPostReportModel.created_at.desc()"
+    )
 
 
 class ForumPostEditModel(Base):
@@ -681,6 +684,27 @@ class ForumPostEditModel(Base):
     edited_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     editor: Mapped["UserModel | None"] = relationship("UserModel")
+
+
+class ForumPostReportModel(Base):
+    """A player flagging one post for admin review — separate from
+    deletion: reporting doesn't hide anything, it just surfaces the post
+    to admins (as a count on the post, visible only to them) until an
+    admin dismisses it."""
+    __tablename__ = "forum_post_reports"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    post_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("forum_posts.id", ondelete="CASCADE"), nullable=False
+    )
+    reporter_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    reporter: Mapped["UserModel"] = relationship("UserModel")
 
 
 # A curated palette a player can react to a post with — a user may react

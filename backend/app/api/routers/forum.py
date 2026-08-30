@@ -3,18 +3,20 @@ import re
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from backend.app.api.deps import AdminUser, DBSession, PremiumUser
 from backend.app.core.config import settings
+from backend.app.core.rate_limit import rate_limit
 from backend.app.db.models import (
     REACTION_EMOJIS,
     ForumCategoryModel,
     ForumPostEditModel,
     ForumPostModel,
     ForumPostReactionModel,
+    ForumPostReportModel,
     ForumThreadModel,
     ForumThreadWatcherModel,
     UserModel,
@@ -35,6 +37,8 @@ from backend.app.schemas.forum import (
     ReactorsListResponse,
     ReactRequest,
     ReplyToOut,
+    ReportOut,
+    ReportPostRequest,
     ShareTokenResponse,
     SharedThreadResponse,
     UpdateCategoryRequest,
@@ -225,7 +229,10 @@ async def list_threads(
     return ForumThreadsListResponse(total=total, threads=[await _thread_preview(db, t, user) for t in threads])
 
 
-@router.post("/forum/categories/{key}/threads", response_model=ForumThreadDetail, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/forum/categories/{key}/threads", response_model=ForumThreadDetail, status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit("forum_post", max_requests=10, window_seconds=60))],
+)
 async def create_thread(key: str, payload: CreateThreadRequest, db: DBSession, user: PremiumUser):
     category = await _get_category(db, key)
 
@@ -319,6 +326,7 @@ def _post_out(
         visible_to=visible_to,
         deleted_at=p.deleted_at if is_admin_viewer else None,
         deleted_by_username=(deleted_by.username if is_admin_viewer and deleted_by else None),
+        report_count=(sum(1 for r in p.reports if r.resolved_at is None) if is_admin_viewer else 0),
     )
 
 
@@ -346,6 +354,7 @@ async def _get_thread_detail(db, thread_id: uuid.UUID, user) -> ForumThreadDetai
             selectinload(ForumThreadModel.posts).selectinload(ForumPostModel.user),
             selectinload(ForumThreadModel.posts).selectinload(ForumPostModel.reply_to).selectinload(ForumPostModel.user),
             selectinload(ForumThreadModel.posts).selectinload(ForumPostModel.reactions),
+            selectinload(ForumThreadModel.posts).selectinload(ForumPostModel.reports),
         )
         .where(ForumThreadModel.id == thread_id)
     )
@@ -424,7 +433,10 @@ async def close_thread(thread_id: uuid.UUID, payload: CloseThreadRequest, db: DB
     return await _get_thread_detail(db, thread_id, user)
 
 
-@router.post("/forum/threads/{thread_id}/watch", response_model=WatchResponse)
+@router.post(
+    "/forum/threads/{thread_id}/watch", response_model=WatchResponse,
+    dependencies=[Depends(rate_limit("forum_watch", max_requests=30, window_seconds=60))],
+)
 async def toggle_watch(thread_id: uuid.UUID, db: DBSession, user: PremiumUser):
     thread = await _get_thread_or_404(db, thread_id)
     if not _can_access_thread(thread, thread.category, user):
@@ -473,7 +485,10 @@ async def _notify_mentions(db, thread: ForumThreadModel, poster, body: str, alre
         await send_telegram_message(target.telegram_id, f"📣 {poster_name} mentioned you in <b>{thread.title}</b>", web_app_url=link)
 
 
-@router.post("/forum/threads/{thread_id}/posts", response_model=ForumThreadDetail, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/forum/threads/{thread_id}/posts", response_model=ForumThreadDetail, status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit("forum_post", max_requests=20, window_seconds=60))],
+)
 async def add_post(thread_id: uuid.UUID, payload: CreatePostRequest, db: DBSession, user: PremiumUser):
     thread = await _get_thread_or_404(db, thread_id)
     if not _can_access_thread(thread, thread.category, user):
@@ -518,7 +533,10 @@ async def add_post(thread_id: uuid.UUID, payload: CreatePostRequest, db: DBSessi
     return await _get_thread_detail(db, thread_id, user)
 
 
-@router.patch("/forum/posts/{post_id}", response_model=ForumThreadDetail)
+@router.patch(
+    "/forum/posts/{post_id}", response_model=ForumThreadDetail,
+    dependencies=[Depends(rate_limit("forum_post", max_requests=20, window_seconds=60))],
+)
 async def update_post(post_id: uuid.UUID, payload: UpdatePostRequest, db: DBSession, user: PremiumUser):
     result = await db.execute(
         select(ForumPostModel)
@@ -540,7 +558,10 @@ async def update_post(post_id: uuid.UUID, payload: UpdatePostRequest, db: DBSess
     return await _get_thread_detail(db, post.thread_id, user)
 
 
-@router.post("/forum/posts/{post_id}/react", response_model=ForumThreadDetail)
+@router.post(
+    "/forum/posts/{post_id}/react", response_model=ForumThreadDetail,
+    dependencies=[Depends(rate_limit("forum_react", max_requests=60, window_seconds=60))],
+)
 async def react_to_post(post_id: uuid.UUID, payload: ReactRequest, db: DBSession, user: PremiumUser):
     """Toggles one of a fixed emoji set on a post — sending the same emoji
     again removes it. Allowed even on a closed thread; closing only stops
@@ -574,6 +595,57 @@ async def react_to_post(post_id: uuid.UUID, payload: ReactRequest, db: DBSession
     return await _get_thread_detail(db, post.thread_id, user)
 
 
+@router.post(
+    "/forum/posts/{post_id}/report", status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(rate_limit("forum_report", max_requests=10, window_seconds=60))],
+)
+async def report_post(post_id: uuid.UUID, payload: ReportPostRequest, db: DBSession, user: PremiumUser):
+    """Flags a post for admin review — doesn't hide it or notify anyone in
+    real time, just surfaces a report count to admins on the post itself
+    (see ForumPostOut.report_count) until dismissed."""
+    result = await db.execute(
+        select(ForumPostModel)
+        .options(selectinload(ForumPostModel.thread).selectinload(ForumThreadModel.category))
+        .where(ForumPostModel.id == post_id)
+    )
+    post = result.scalar_one_or_none()
+    if post is None or not _can_access_thread(post.thread, post.thread.category, user):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
+    db.add(ForumPostReportModel(post_id=post_id, reporter_id=user.id, reason=payload.reason))
+    await db.commit()
+
+
+@router.get("/forum/posts/{post_id}/reports", response_model=list[ReportOut])
+async def list_post_reports(post_id: uuid.UUID, db: DBSession, admin_user: AdminUser):
+    result = await db.execute(
+        select(ForumPostReportModel)
+        .options(selectinload(ForumPostReportModel.reporter))
+        .where(ForumPostReportModel.post_id == post_id, ForumPostReportModel.resolved_at.is_(None))
+        .order_by(ForumPostReportModel.created_at.desc())
+    )
+    return [
+        ReportOut(
+            reporter_username=r.reporter.username, reporter_display_name=r.reporter.display_name,
+            reason=r.reason, created_at=r.created_at,
+        )
+        for r in result.scalars().all()
+    ]
+
+
+@router.post("/forum/posts/{post_id}/reports/dismiss", status_code=status.HTTP_204_NO_CONTENT)
+async def dismiss_post_reports(post_id: uuid.UUID, db: DBSession, admin_user: AdminUser):
+    result = await db.execute(
+        select(ForumPostReportModel).where(
+            ForumPostReportModel.post_id == post_id, ForumPostReportModel.resolved_at.is_(None)
+        )
+    )
+    now = datetime.now(timezone.utc)
+    for report in result.scalars().all():
+        report.resolved_at = now
+    await db.commit()
+
+
 async def _get_post_or_404(db, post_id: uuid.UUID, user) -> ForumPostModel:
     result = await db.execute(
         select(ForumPostModel)
@@ -586,7 +658,10 @@ async def _get_post_or_404(db, post_id: uuid.UUID, user) -> ForumPostModel:
     return post
 
 
-@router.delete("/forum/posts/{post_id}", response_model=ForumThreadDetail)
+@router.delete(
+    "/forum/posts/{post_id}", response_model=ForumThreadDetail,
+    dependencies=[Depends(rate_limit("forum_post", max_requests=20, window_seconds=60))],
+)
 async def delete_post(post_id: uuid.UUID, db: DBSession, user: PremiumUser):
     """Soft delete — the author (or an admin) can remove their own message
     from view, but the row and its body stick around until an admin
@@ -678,7 +753,10 @@ async def get_post_reactors(
 #  Sharing: public link
 # ─────────────────────────────────────────────
 
-@router.post("/forum/threads/{thread_id}/share", response_model=ShareTokenResponse)
+@router.post(
+    "/forum/threads/{thread_id}/share", response_model=ShareTokenResponse,
+    dependencies=[Depends(rate_limit("forum_share", max_requests=10, window_seconds=60))],
+)
 async def create_share_link(thread_id: uuid.UUID, db: DBSession, user: PremiumUser):
     thread = await _get_thread_or_404(db, thread_id)
     if not _can_access_thread(thread, thread.category, user) or not _can_modify(thread.user_id, user):

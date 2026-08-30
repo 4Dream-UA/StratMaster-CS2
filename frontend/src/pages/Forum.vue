@@ -174,10 +174,15 @@
                   <span v-if="p.visible_to?.length" class="whisper-tag" :title="'Only visible to: ' + p.visible_to.map(v => v.username ? '@' + v.username : v.display_name).join(', ')">
                     🔒 Whisper
                   </span>
+                  <button
+                    v-if="isAdmin && p.report_count" type="button" class="report-badge" title="View reports"
+                    @click="openReportsPopup(p)"
+                  >🚩 {{ p.report_count }}</button>
                   <button v-if="!activeThread.is_closed || isAdmin" class="icon-btn small" title="Reply" @click="startReplyTo(p)"><ReplyIcon :size="11" /></button>
                   <button class="icon-btn small" :title="copiedPostId === p.id ? 'Copied!' : 'Copy link to this message'" @click="sharePost(p)"><ShareIcon :size="11" /></button>
                   <button v-if="canModifyPost(p) && editingPostId !== p.id && !p.deleted_at" class="icon-btn small" title="Edit" @click="startEditPost(p)"><EditIcon :size="11" /></button>
                   <button v-if="canModifyPost(p) && !p.deleted_at" class="icon-btn small danger" title="Delete" @click="deletePost(p)"><TrashIcon :size="11" /></button>
+                  <button v-if="!canModifyPost(p) && !p.deleted_at" class="icon-btn small" title="Report" @click="openReportPrompt(p)"><FlagIcon :size="11" /></button>
                 </div>
 
                 <div v-if="p.deleted_at" class="deleted-banner">
@@ -330,6 +335,41 @@
       </div>
     </div>
 
+    <!-- ═══ Report popup (player) ═══════════════════════ -->
+    <div v-if="reportPost" class="modal-backdrop" @click.self="closeReportPrompt">
+      <div class="modal">
+        <button class="modal-close" @click="closeReportPrompt">✕</button>
+        <h3 class="modal-title">Report this message</h3>
+        <p class="modal-hint">Tell the admins what's wrong with it — optional, but it helps.</p>
+        <textarea v-model="reportReason" class="thread-input" rows="3" placeholder="What's wrong with this message? (optional)"></textarea>
+        <div class="form-actions">
+          <button class="btn-primary" :disabled="reportBusy || reportSent" @click="submitReport">
+            {{ reportSent ? 'Reported!' : reportBusy ? 'Sending…' : 'Report' }}
+          </button>
+          <button class="mini-btn" @click="closeReportPrompt">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Reports popup (admin) ═══════════════════════ -->
+    <div v-if="reportsPopupPost" class="modal-backdrop" @click.self="closeReportsPopup">
+      <div class="modal">
+        <button class="modal-close" @click="closeReportsPopup">✕</button>
+        <h3 class="modal-title">Reports</h3>
+        <div v-if="reportsLoading" class="loading-row">Loading…</div>
+        <div v-else class="edit-history-list">
+          <div v-for="(r, i) in reportsList" :key="i" class="edit-history-row">
+            <p class="edit-history-meta">{{ r.reporter_display_name || (r.reporter_username ? '@' + r.reporter_username : 'Someone') }} · {{ formatTime(r.created_at) }}</p>
+            <p class="edit-history-body">{{ r.reason || '(no reason given)' }}</p>
+          </div>
+          <p v-if="!reportsList.length" class="favorites-placeholder">No reports.</p>
+        </div>
+        <div class="form-actions">
+          <button class="mini-btn" @click="dismissReports">Dismiss all</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ═══ Public profile popup ═══════════════════════ -->
     <PublicProfileModal v-if="profileModalOpen" :user-id="profileUserId" @close="profileModalOpen = false" />
 
@@ -433,6 +473,14 @@ const ReplyIcon = {
   render() {
     return h('svg', { viewBox: '0 0 24 24', width: this.size, height: this.size, fill: 'none', style: { flexShrink: 0 } }, [
       h('path', { d: 'M9 6L3 12l6 6M3 12h11a6 6 0 016 6v1', stroke: 'currentColor', 'stroke-width': 1.6, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }),
+    ])
+  },
+}
+const FlagIcon = {
+  props: { size: { type: Number, default: 13 } },
+  render() {
+    return h('svg', { viewBox: '0 0 24 24', width: this.size, height: this.size, fill: 'none', style: { flexShrink: 0 } }, [
+      h('path', { d: 'M5 4v16M5 4h11l-2 3.5L16 11H5', stroke: 'currentColor', 'stroke-width': 1.6, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }),
     ])
   },
 }
@@ -1005,6 +1053,56 @@ async function permanentlyDeletePost(post) {
   activeThread.value = await forumAPI.getThread(activeThread.value.id)
 }
 
+// ── Report a post (player) ─────────────────────────────────────────
+const reportPost = ref(null)
+const reportReason = ref('')
+const reportBusy = ref(false)
+const reportSent = ref(false)
+function openReportPrompt(post) {
+  reportPost.value = post
+  reportReason.value = ''
+  reportSent.value = false
+}
+function closeReportPrompt() {
+  reportPost.value = null
+}
+async function submitReport() {
+  if (!reportPost.value || reportBusy.value) return
+  reportBusy.value = true
+  try {
+    await forumAPI.reportPost(reportPost.value.id, reportReason.value.trim() || null)
+    reportSent.value = true
+    setTimeout(closeReportPrompt, 1200)
+  } catch (e) {
+    errorMsg.value = e.response?.data?.detail || 'Could not send that report.'
+  } finally {
+    reportBusy.value = false
+  }
+}
+
+// ── View reports on a post (admin) ───────────────────────────────────
+const reportsPopupPost = ref(null)
+const reportsList = ref([])
+const reportsLoading = ref(false)
+async function openReportsPopup(post) {
+  reportsPopupPost.value = post
+  reportsLoading.value = true
+  try {
+    reportsList.value = await forumAPI.getPostReports(post.id)
+  } finally {
+    reportsLoading.value = false
+  }
+}
+function closeReportsPopup() {
+  reportsPopupPost.value = null
+}
+async function dismissReports() {
+  if (!reportsPopupPost.value) return
+  await forumAPI.dismissPostReports(reportsPopupPost.value.id)
+  activeThread.value = await forumAPI.getThread(activeThread.value.id)
+  closeReportsPopup()
+}
+
 // ── Share a specific message: reuses the thread's share link (creating
 // one if it doesn't exist yet) with a #post-<id> anchor. ──────────────
 const copiedPostId = ref(null)
@@ -1316,6 +1414,11 @@ onMounted(async () => {
 }
 .modal-close:hover { border-color: var(--accent); color: var(--accent); }
 .modal-title { font-size: 17px; font-weight: 800; color: var(--text); margin-bottom: 14px; }
+.modal-hint { font-size: 12px; color: var(--text-dim); margin: -8px 0 12px; }
+.report-badge {
+  background: rgba(235,75,75,.12); border: 1px solid rgba(235,75,75,.35); color: var(--danger);
+  border-radius: 99px; padding: 3px 9px; font-size: 11px; font-weight: 800; cursor: pointer;
+}
 
 .reactor-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .reactor-tab {
