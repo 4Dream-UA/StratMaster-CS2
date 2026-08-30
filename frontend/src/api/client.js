@@ -24,15 +24,23 @@ apiClient.interceptors.request.use((config) => {
 // a custom HTTPException) return `detail` as a list of {loc, msg, type}
 // objects instead, which Vue then renders as raw JSON/[object Object]
 // instead of a message. Normalizing it here fixes every call site at once
-// instead of touching each one.
+// instead of touching each one. Exported separately (rather than inlined
+// in the interceptor) so it's unit-testable without mocking axios.
+export function normalizeErrorDetail(detail) {
+  if (Array.isArray(detail)) {
+    return detail.map((d) => d?.msg || String(d)).join('; ') || 'Invalid request.'
+  }
+  if (detail && typeof detail === 'object') {
+    return detail.msg || 'Invalid request.'
+  }
+  return detail
+}
+
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    const detail = error.response?.data?.detail
-    if (Array.isArray(detail)) {
-      error.response.data.detail = detail.map((d) => d?.msg || String(d)).join('; ') || 'Invalid request.'
-    } else if (detail && typeof detail === 'object') {
-      error.response.data.detail = detail.msg || 'Invalid request.'
+    if (error.response?.data && 'detail' in error.response.data) {
+      error.response.data.detail = normalizeErrorDetail(error.response.data.detail)
     }
     return Promise.reject(error)
   },
