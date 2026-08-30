@@ -19,6 +19,19 @@ class WalletResponse(BaseModel):
         from_attributes = True
 
 
+class ProfileInfo(BaseModel):
+    """Every field optional and player-filled — filling one in is the
+    opt-in to showing it on the public profile popup."""
+    location: str | None = Field(None, max_length=64)
+    telegram: str | None = Field(None, max_length=64)
+    instagram: str | None = Field(None, max_length=64)
+    discord: str | None = Field(None, max_length=64)
+    faceit: str | None = Field(None, max_length=64)
+    steam: str | None = Field(None, max_length=128)
+    whatsapp: str | None = Field(None, max_length=64)
+    twitch: str | None = Field(None, max_length=64)
+
+
 class UserResponse(BaseModel):
     id: uuid.UUID
     telegram_id: int
@@ -26,11 +39,37 @@ class UserResponse(BaseModel):
     display_name: str | None = None
     avatar_url: str | None = None
     is_admin: bool
+    hide_username_on_forum: bool = False
+    profile_info: ProfileInfo | None = None
     created_at: datetime
     wallet: WalletResponse
 
     class Config:
         from_attributes = True
+
+
+class UpdateProfileInfoRequest(ProfileInfo):
+    pass
+
+
+class UpdateForumPrivacyRequest(BaseModel):
+    hide_username_on_forum: bool
+
+
+class PublicProfileResponse(BaseModel):
+    id: uuid.UUID
+    username: str | None = None
+    display_name: str | None = None
+    avatar_url: str | None = None
+    is_admin: bool
+    profile_info: ProfileInfo | None = None
+
+
+class UserSearchResult(BaseModel):
+    id: uuid.UUID
+    username: str | None = None
+    display_name: str | None = None
+    avatar_url: str | None = None
 
 
 class AuthRequest(BaseModel):
@@ -49,6 +88,7 @@ class UserAdminOut(BaseModel):
     is_admin: bool
     is_banned: bool = False
     is_trade_banned: bool = False
+    profile_info: ProfileInfo | None = None
     created_at: datetime
     wallet: WalletResponse
 

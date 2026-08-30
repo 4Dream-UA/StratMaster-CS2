@@ -448,3 +448,218 @@ async def test_rejects_an_unsupported_emoji(client, db_session, auth_as):
 
     resp = await client.post(f"/api/forum/posts/{post_id}/react", json={"emoji": "🍕"})
     assert resp.status_code == 400
+
+
+# ─────────────────────────────────────────────
+#  Edit history
+# ─────────────────────────────────────────────
+
+async def test_editing_a_post_records_the_previous_body_and_who_edited_it(client, db_session, auth_as):
+    author = await make_user(db_session, subscribed=True)
+    admin = await make_user(db_session, subscribed=True, is_admin=True)
+    auth_as(author)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "Original"})).json()
+    post_id = thread["posts"][0]["id"]
+
+    resp = await client.patch(f"/api/forum/posts/{post_id}", json={"body": "Edited by author"})
+    post = resp.json()["posts"][0]
+    assert post["edited_at"] is not None
+    assert post["edited_by_admin"] is False
+
+    auth_as(admin)
+    resp = await client.patch(f"/api/forum/posts/{post_id}", json={"body": "Edited by admin"})
+    post = resp.json()["posts"][0]
+    assert post["edited_by_admin"] is True
+
+    history = await client.get(f"/api/forum/posts/{post_id}/edits")
+    assert history.status_code == 200
+    bodies = [e["previous_body"] for e in history.json()]
+    assert bodies == ["Edited by author", "Original"]
+    assert history.json()[0]["editor_is_admin"] is True
+
+
+async def test_non_admin_cannot_view_edit_history(client, db_session, auth_as):
+    author = await make_user(db_session, subscribed=True)
+    auth_as(author)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "Hi"})).json()
+    post_id = thread["posts"][0]["id"]
+    await client.patch(f"/api/forum/posts/{post_id}", json={"body": "Edited"})
+
+    resp = await client.get(f"/api/forum/posts/{post_id}/edits")
+    assert resp.status_code == 403
+
+
+# ─────────────────────────────────────────────
+#  Soft delete / restore / permanent delete
+# ─────────────────────────────────────────────
+
+async def test_author_can_delete_own_post_hidden_from_others_visible_to_admin(client, db_session, auth_as):
+    author = await make_user(db_session, subscribed=True)
+    other = await make_user(db_session, subscribed=True)
+    admin = await make_user(db_session, subscribed=True, is_admin=True)
+    auth_as(author)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "Reply below"})).json()
+    reply = (await client.post(f"/api/forum/threads/{thread['id']}/posts", json={"body": "delete me"})).json()
+    post_id = reply["posts"][-1]["id"]
+
+    resp = await client.delete(f"/api/forum/posts/{post_id}")
+    assert resp.status_code == 200
+
+    auth_as(other)
+    posts = (await client.get(f"/api/forum/threads/{thread['id']}")).json()["posts"]
+    assert all(p["id"] != post_id for p in posts)
+
+    auth_as(admin)
+    posts = (await client.get(f"/api/forum/threads/{thread['id']}")).json()["posts"]
+    deleted = next(p for p in posts if p["id"] == post_id)
+    assert deleted["deleted_at"] is not None
+    assert deleted["deleted_by_username"] == author.username
+    assert deleted["body"] == "delete me"
+
+
+async def test_cannot_delete_someone_elses_post(client, db_session, auth_as):
+    author = await make_user(db_session, subscribed=True)
+    other = await make_user(db_session, subscribed=True)
+    auth_as(author)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "Hi"})).json()
+    post_id = thread["posts"][0]["id"]
+
+    auth_as(other)
+    resp = await client.delete(f"/api/forum/posts/{post_id}")
+    assert resp.status_code == 403
+
+
+async def test_admin_can_restore_a_deleted_post(client, db_session, auth_as):
+    author = await make_user(db_session, subscribed=True)
+    admin = await make_user(db_session, subscribed=True, is_admin=True)
+    auth_as(author)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "Hi"})).json()
+    post_id = thread["posts"][0]["id"]
+    await client.delete(f"/api/forum/posts/{post_id}")
+
+    auth_as(admin)
+    resp = await client.post(f"/api/forum/posts/{post_id}/restore")
+    assert resp.status_code == 200
+    post = next(p for p in resp.json()["posts"] if p["id"] == post_id)
+    assert post["deleted_at"] is None
+
+    auth_as(author)
+    posts = (await client.get(f"/api/forum/threads/{thread['id']}")).json()["posts"]
+    assert any(p["id"] == post_id for p in posts)
+
+
+async def test_admin_can_permanently_erase_a_deleted_post_but_not_a_live_one(client, db_session, auth_as):
+    author = await make_user(db_session, subscribed=True)
+    admin = await make_user(db_session, subscribed=True, is_admin=True)
+    auth_as(author)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "Hi"})).json()
+    reply = (await client.post(f"/api/forum/threads/{thread['id']}/posts", json={"body": "temp"})).json()
+    post_id = reply["posts"][-1]["id"]
+
+    auth_as(admin)
+    live_attempt = await client.delete(f"/api/forum/posts/{post_id}/permanent")
+    assert live_attempt.status_code == 400
+
+    await client.delete(f"/api/forum/posts/{post_id}")
+    resp = await client.delete(f"/api/forum/posts/{post_id}/permanent")
+    assert resp.status_code == 204
+
+    posts = (await client.get(f"/api/forum/threads/{thread['id']}")).json()["posts"]
+    assert all(p["id"] != post_id for p in posts)
+
+
+# ─────────────────────────────────────────────
+#  Whisper / private-to-specific-players posts
+# ─────────────────────────────────────────────
+
+async def test_whisper_post_only_visible_to_addressed_players_author_and_admins(client, db_session, auth_as):
+    author = await make_user(db_session, subscribed=True)
+    addressed = await make_user(db_session, subscribed=True)
+    outsider = await make_user(db_session, subscribed=True)
+    admin = await make_user(db_session, subscribed=True, is_admin=True)
+    auth_as(author)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "Hi"})).json()
+
+    resp = await client.post(
+        f"/api/forum/threads/{thread['id']}/posts",
+        json={"body": "psst", "visible_to_user_ids": [str(addressed.id)]},
+    )
+    assert resp.status_code == 201
+    whisper_id = resp.json()["posts"][-1]["id"]
+
+    auth_as(outsider)
+    posts = (await client.get(f"/api/forum/threads/{thread['id']}")).json()["posts"]
+    assert all(p["id"] != whisper_id for p in posts)
+
+    auth_as(addressed)
+    posts = (await client.get(f"/api/forum/threads/{thread['id']}")).json()["posts"]
+    assert any(p["id"] == whisper_id for p in posts)
+
+    auth_as(admin)
+    posts = (await client.get(f"/api/forum/threads/{thread['id']}")).json()["posts"]
+    mine = next(p for p in posts if p["id"] == whisper_id)
+    assert mine["visible_to"][0]["id"] == str(addressed.id)
+
+
+async def test_whisper_to_a_nonexistent_player_is_rejected(client, db_session, auth_as):
+    author = await make_user(db_session, subscribed=True)
+    auth_as(author)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "Hi"})).json()
+    resp = await client.post(
+        f"/api/forum/threads/{thread['id']}/posts",
+        json={"body": "psst", "visible_to_user_ids": ["00000000-0000-0000-0000-000000000000"]},
+    )
+    assert resp.status_code == 400
+
+
+# ─────────────────────────────────────────────
+#  Reactor listing
+# ─────────────────────────────────────────────
+
+async def test_reactor_listing_is_paginated_and_filtered_by_emoji(client, db_session, auth_as):
+    author = await make_user(db_session, subscribed=True)
+    r1 = await make_user(db_session, subscribed=True)
+    r2 = await make_user(db_session, subscribed=True)
+    auth_as(author)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "Hi"})).json()
+    post_id = thread["posts"][0]["id"]
+
+    auth_as(r1)
+    await client.post(f"/api/forum/posts/{post_id}/react", json={"emoji": "🔥"})
+    auth_as(r2)
+    await client.post(f"/api/forum/posts/{post_id}/react", json={"emoji": "🔥"})
+    await client.post(f"/api/forum/posts/{post_id}/react", json={"emoji": "👍"})
+
+    resp = await client.get(f"/api/forum/posts/{post_id}/reactions", params={"emoji": "🔥", "limit": 1})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 2
+    assert len(body["reactors"]) == 1
+
+    resp2 = await client.get(f"/api/forum/posts/{post_id}/reactions", params={"emoji": "👍"})
+    assert resp2.json()["total"] == 1
+
+
+# ─────────────────────────────────────────────
+#  Hidden username
+# ─────────────────────────────────────────────
+
+async def test_hidden_username_is_masked_from_other_players_but_not_admins_or_self(client, db_session, auth_as):
+    author = await make_user(db_session, subscribed=True)
+    other = await make_user(db_session, subscribed=True)
+    admin = await make_user(db_session, subscribed=True, is_admin=True)
+    auth_as(author)
+    await client.patch("/api/me/forum-privacy", json={"hide_username_on_forum": True})
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "Hi"})).json()
+
+    auth_as(other)
+    posts = (await client.get(f"/api/forum/threads/{thread['id']}")).json()["posts"]
+    assert posts[0]["author_username"] is None
+
+    auth_as(author)
+    posts = (await client.get(f"/api/forum/threads/{thread['id']}")).json()["posts"]
+    assert posts[0]["author_username"] == author.username
+
+    auth_as(admin)
+    posts = (await client.get(f"/api/forum/threads/{thread['id']}")).json()["posts"]
+    assert posts[0]["author_username"] == author.username

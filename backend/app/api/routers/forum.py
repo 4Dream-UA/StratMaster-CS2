@@ -1,3 +1,4 @@
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -10,10 +11,12 @@ from backend.app.core.config import settings
 from backend.app.db.models import (
     REACTION_EMOJIS,
     ForumCategoryModel,
+    ForumPostEditModel,
     ForumPostModel,
     ForumPostReactionModel,
     ForumThreadModel,
     ForumThreadWatcherModel,
+    UserModel,
 )
 from backend.app.schemas.forum import (
     CloseThreadRequest,
@@ -25,7 +28,10 @@ from backend.app.schemas.forum import (
     ForumThreadPreview,
     ForumThreadsListResponse,
     PinThreadRequest,
+    PostEditOut,
     ReactionSummary,
+    ReactorOut,
+    ReactorsListResponse,
     ReactRequest,
     ReplyToOut,
     ShareTokenResponse,
@@ -33,6 +39,7 @@ from backend.app.schemas.forum import (
     UpdateCategoryRequest,
     UpdatePostRequest,
     UpdateThreadRequest,
+    VisibleToUserOut,
     WatchResponse,
 )
 from backend.app.services.notifications import send_telegram_message
@@ -41,6 +48,7 @@ from backend.app.services.referral import generate_share_token
 router = APIRouter()
 
 REPLY_SNIPPET_LEN = 80
+MENTION_RE = re.compile(r"@([a-zA-Z0-9_]{3,32})")
 
 
 async def _get_category(db, key: str) -> ForumCategoryModel:
@@ -51,14 +59,20 @@ async def _get_category(db, key: str) -> ForumCategoryModel:
     return category
 
 
-async def _thread_preview(db, thread: ForumThreadModel) -> ForumThreadPreview:
+def _visible_username(author: UserModel, viewer: UserModel) -> str | None:
+    if author.hide_username_on_forum and not viewer.is_admin and author.id != viewer.id:
+        return None
+    return author.username
+
+
+async def _thread_preview(db, thread: ForumThreadModel, viewer: UserModel) -> ForumThreadPreview:
     post_count = (
         await db.execute(select(func.count()).select_from(ForumPostModel).where(ForumPostModel.thread_id == thread.id))
     ).scalar() or 0
     return ForumThreadPreview(
         id=thread.id,
         title=thread.title,
-        author_username=thread.user.username,
+        author_username=_visible_username(thread.user, viewer),
         author_display_name=thread.user.display_name,
         author_avatar_url=thread.user.avatar_url,
         author_id=thread.user_id,
@@ -188,7 +202,7 @@ async def list_threads(
     result = await db.execute(query.limit(limit).offset(offset))
     threads = result.scalars().all()
 
-    return ForumThreadsListResponse(total=total, threads=[await _thread_preview(db, t) for t in threads])
+    return ForumThreadsListResponse(total=total, threads=[await _thread_preview(db, t, user) for t in threads])
 
 
 @router.post("/forum/categories/{key}/threads", response_model=ForumThreadDetail, status_code=status.HTTP_201_CREATED)
@@ -224,7 +238,21 @@ def _reaction_summary(p: ForumPostModel, viewer_id: uuid.UUID | None) -> list[Re
     ]
 
 
-def _post_out(p: ForumPostModel, viewer_id: uuid.UUID | None = None) -> ForumPostOut:
+def _post_visible_to(p: ForumPostModel, viewer: UserModel) -> bool:
+    """Whisper posts are only shown to the players they were addressed to,
+    plus the author and any admin — everyone else shouldn't even know the
+    post exists, not just have its body hidden."""
+    if not p.visible_to_user_ids:
+        return True
+    if viewer.is_admin or p.user_id == viewer.id:
+        return True
+    return str(viewer.id) in p.visible_to_user_ids
+
+
+def _post_out(
+    p: ForumPostModel, viewer: UserModel | None = None, users_by_id: dict[uuid.UUID, UserModel] | None = None,
+) -> ForumPostOut:
+    users_by_id = users_by_id or {}
     reply_to = None
     if p.reply_to is not None:
         snippet = p.reply_to.body[:REPLY_SNIPPET_LEN]
@@ -234,12 +262,49 @@ def _post_out(p: ForumPostModel, viewer_id: uuid.UUID | None = None) -> ForumPos
             id=p.reply_to.id, author_username=p.reply_to.user.username,
             author_display_name=p.reply_to.user.display_name, body_snippet=snippet,
         )
+
+    viewer_id = viewer.id if viewer is not None else None
+    is_admin_viewer = viewer is not None and viewer.is_admin
+    is_author_viewer = viewer is not None and viewer.id == p.user_id
+    author_username = (None if p.user.hide_username_on_forum else p.user.username) if viewer is None else _visible_username(p.user, viewer)
+
+    visible_to = []
+    if (is_admin_viewer or is_author_viewer) and p.visible_to_user_ids:
+        for uid_str in p.visible_to_user_ids:
+            u = users_by_id.get(uuid.UUID(uid_str))
+            if u is not None:
+                visible_to.append(VisibleToUserOut(id=u.id, username=u.username, display_name=u.display_name))
+
+    deleted_by = users_by_id.get(p.deleted_by_id) if p.deleted_by_id else None
+
     return ForumPostOut(
-        id=p.id, author_username=p.user.username, author_display_name=p.user.display_name,
+        id=p.id, author_username=author_username, author_display_name=p.user.display_name,
         author_avatar_url=p.user.avatar_url, author_id=p.user_id,
-        author_is_admin=p.user.is_admin, body=p.body, reply_to=reply_to,
+        author_is_admin=p.user.is_admin,
+        body="[deleted]" if p.deleted_at and not is_admin_viewer else p.body,
+        reply_to=reply_to,
         reactions=_reaction_summary(p, viewer_id), created_at=p.created_at,
+        edited_at=p.edited_at, edited_by_admin=bool(p.edited_by_id and p.edited_by_id != p.user_id),
+        visible_to=visible_to,
+        deleted_at=p.deleted_at if is_admin_viewer else None,
+        deleted_by_username=(deleted_by.username if is_admin_viewer and deleted_by else None),
     )
+
+
+async def _users_lookup_for_posts(db, posts: list[ForumPostModel]) -> dict[uuid.UUID, UserModel]:
+    """Batch-fetch every user referenced only by ID on these posts (whisper
+    recipients, who-deleted-this) — a handful of extra rows beat N+1
+    queries per post."""
+    ids: set[uuid.UUID] = set()
+    for p in posts:
+        if p.deleted_by_id:
+            ids.add(p.deleted_by_id)
+        for uid_str in (p.visible_to_user_ids or []):
+            ids.add(uuid.UUID(uid_str))
+    if not ids:
+        return {}
+    result = await db.execute(select(UserModel).where(UserModel.id.in_(ids)))
+    return {u.id: u for u in result.scalars().all()}
 
 
 async def _get_thread_detail(db, thread_id: uuid.UUID, user) -> ForumThreadDetail:
@@ -257,6 +322,9 @@ async def _get_thread_detail(db, thread_id: uuid.UUID, user) -> ForumThreadDetai
     if thread is None or not _can_access_thread(thread, thread.category, user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found")
 
+    visible_posts = [p for p in thread.posts if _post_visible_to(p, user) and (not p.deleted_at or user.is_admin)]
+    users_by_id = await _users_lookup_for_posts(db, visible_posts)
+
     return ForumThreadDetail(
         id=thread.id,
         category_key=thread.category.key,
@@ -266,7 +334,7 @@ async def _get_thread_detail(db, thread_id: uuid.UUID, user) -> ForumThreadDetai
         is_closed=thread.is_closed,
         is_watching=await _is_watching(db, thread.id, user.id),
         share_token=thread.share_token,
-        posts=[_post_out(p, user.id) for p in thread.posts],
+        posts=[_post_out(p, user, users_by_id) for p in visible_posts],
     )
 
 
@@ -357,6 +425,23 @@ async def delete_thread(thread_id: uuid.UUID, db: DBSession, user: PremiumUser):
     await db.commit()
 
 
+async def _notify_mentions(db, thread: ForumThreadModel, poster, body: str, already_notified: set[uuid.UUID]) -> None:
+    """Best-effort: @username pings send the same kind of Telegram nudge as
+    a direct reply, minus anyone already notified for this post (the reply
+    target, or the poster themselves)."""
+    handles = set(MENTION_RE.findall(body))
+    if not handles:
+        return
+    result = await db.execute(select(UserModel).where(UserModel.username.in_(handles)))
+    mentioned = [u for u in result.scalars().all() if u.id != poster.id and u.id not in already_notified]
+    if not mentioned:
+        return
+    link = _thread_link(thread.id)
+    poster_name = f"@{poster.username}" if poster.username else "Someone"
+    for target in mentioned:
+        await send_telegram_message(target.telegram_id, f"📣 {poster_name} mentioned you in <b>{thread.title}</b>", web_app_url=link)
+
+
 @router.post("/forum/threads/{thread_id}/posts", response_model=ForumThreadDetail, status_code=status.HTTP_201_CREATED)
 async def add_post(thread_id: uuid.UUID, payload: CreatePostRequest, db: DBSession, user: PremiumUser):
     thread = await _get_thread_or_404(db, thread_id)
@@ -376,15 +461,28 @@ async def add_post(thread_id: uuid.UUID, payload: CreatePostRequest, db: DBSessi
         if reply_to_post is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="That message isn't in this thread")
 
+    visible_to_ids: list[str] | None = None
+    if payload.visible_to_user_ids:
+        result = await db.execute(select(UserModel.id).where(UserModel.id.in_(payload.visible_to_user_ids)))
+        found = {row[0] for row in result.all()}
+        missing = set(payload.visible_to_user_ids) - found
+        if missing:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="One of those players couldn't be found")
+        visible_to_ids = [str(uid) for uid in payload.visible_to_user_ids]
+
     db.add(ForumPostModel(
         thread_id=thread.id, user_id=user.id, body=payload.body,
-        reply_to_post_id=payload.reply_to_post_id,
+        reply_to_post_id=payload.reply_to_post_id, visible_to_user_ids=visible_to_ids,
     ))
     thread.updated_at = datetime.now(timezone.utc)
     await _auto_watch(db, thread.id, user.id)
     await db.commit()
 
+    already_notified = {user.id}
+    if reply_to_post is not None:
+        already_notified.add(reply_to_post.user_id)
     await _notify_new_post(db, thread, user, reply_to_post)
+    await _notify_mentions(db, thread, user, payload.body, already_notified)
 
     return await _get_thread_detail(db, thread_id, user)
 
@@ -402,7 +500,10 @@ async def update_post(post_id: uuid.UUID, payload: UpdatePostRequest, db: DBSess
     if not _can_modify(post.user_id, user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can't edit this post")
 
+    db.add(ForumPostEditModel(post_id=post.id, editor_id=user.id, previous_body=post.body))
     post.body = payload.body
+    post.edited_at = datetime.now(timezone.utc)
+    post.edited_by_id = user.id
     await db.commit()
 
     return await _get_thread_detail(db, post.thread_id, user)
@@ -440,6 +541,106 @@ async def react_to_post(post_id: uuid.UUID, payload: ReactRequest, db: DBSession
     await db.commit()
 
     return await _get_thread_detail(db, post.thread_id, user)
+
+
+async def _get_post_or_404(db, post_id: uuid.UUID, user) -> ForumPostModel:
+    result = await db.execute(
+        select(ForumPostModel)
+        .options(selectinload(ForumPostModel.thread).selectinload(ForumThreadModel.category))
+        .where(ForumPostModel.id == post_id)
+    )
+    post = result.scalar_one_or_none()
+    if post is None or not _can_access_thread(post.thread, post.thread.category, user):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+    return post
+
+
+@router.delete("/forum/posts/{post_id}", response_model=ForumThreadDetail)
+async def delete_post(post_id: uuid.UUID, db: DBSession, user: PremiumUser):
+    """Soft delete — the author (or an admin) can remove their own message
+    from view, but the row and its body stick around until an admin
+    permanently erases it (or restores it)."""
+    post = await _get_post_or_404(db, post_id, user)
+    if not _can_modify(post.user_id, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can't delete this post")
+
+    post.deleted_at = datetime.now(timezone.utc)
+    post.deleted_by_id = user.id
+    await db.commit()
+    return await _get_thread_detail(db, post.thread_id, user)
+
+
+@router.post("/forum/posts/{post_id}/restore", response_model=ForumThreadDetail)
+async def restore_post(post_id: uuid.UUID, db: DBSession, admin_user: AdminUser):
+    post = await _get_post_or_404(db, post_id, admin_user)
+    post.deleted_at = None
+    post.deleted_by_id = None
+    await db.commit()
+    return await _get_thread_detail(db, post.thread_id, admin_user)
+
+
+@router.delete("/forum/posts/{post_id}/permanent", status_code=status.HTTP_204_NO_CONTENT)
+async def permanently_delete_post(post_id: uuid.UUID, db: DBSession, admin_user: AdminUser):
+    post = await _get_post_or_404(db, post_id, admin_user)
+    if post.deleted_at is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only an already-deleted post can be permanently erased")
+    await db.delete(post)
+    await db.commit()
+
+
+@router.get("/forum/posts/{post_id}/edits", response_model=list[PostEditOut])
+async def get_post_edits(post_id: uuid.UUID, db: DBSession, admin_user: AdminUser):
+    result = await db.execute(
+        select(ForumPostEditModel)
+        .options(selectinload(ForumPostEditModel.editor))
+        .where(ForumPostEditModel.post_id == post_id)
+        .order_by(ForumPostEditModel.edited_at.desc())
+    )
+    edits = result.scalars().all()
+    return [
+        PostEditOut(
+            previous_body=e.previous_body,
+            editor_username=e.editor.username if e.editor else None,
+            editor_is_admin=bool(e.editor and e.editor.is_admin),
+            edited_at=e.edited_at,
+        )
+        for e in edits
+    ]
+
+
+@router.get("/forum/posts/{post_id}/reactions", response_model=ReactorsListResponse)
+async def get_post_reactors(
+    post_id: uuid.UUID, db: DBSession, user: PremiumUser,
+    emoji: str = Query(...), limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0),
+):
+    await _get_post_or_404(db, post_id, user)
+    if emoji not in REACTION_EMOJIS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported reaction")
+
+    base = select(ForumPostReactionModel).where(
+        ForumPostReactionModel.post_id == post_id, ForumPostReactionModel.emoji == emoji,
+    )
+    total = (
+        await db.execute(select(func.count()).select_from(base.subquery()))
+    ).scalar() or 0
+    result = await db.execute(
+        select(ForumPostReactionModel)
+        .options(selectinload(ForumPostReactionModel.user))
+        .where(ForumPostReactionModel.post_id == post_id, ForumPostReactionModel.emoji == emoji)
+        .order_by(ForumPostReactionModel.created_at)
+        .limit(limit).offset(offset)
+    )
+    rows = result.scalars().all()
+    return ReactorsListResponse(
+        total=total,
+        reactors=[
+            ReactorOut(
+                user_id=r.user.id, username=r.user.username, display_name=r.user.display_name,
+                avatar_url=r.user.avatar_url, is_admin=r.user.is_admin,
+            )
+            for r in rows
+        ],
+    )
 
 
 # ─────────────────────────────────────────────
@@ -485,6 +686,10 @@ async def get_shared_thread(share_token: str, db: DBSession):
     if thread is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This share link is invalid or was revoked")
 
+    # Anonymous viewer: no whisper posts, no deleted posts, no username-hide
+    # exemption — same as any logged-out player would see.
+    visible_posts = [p for p in thread.posts if not p.visible_to_user_ids and not p.deleted_at]
+
     return SharedThreadResponse(
         id=thread.id,
         category_key=thread.category.key,
@@ -494,5 +699,5 @@ async def get_shared_thread(share_token: str, db: DBSession):
         is_closed=thread.is_closed,
         is_watching=False,
         share_token=thread.share_token,
-        posts=[_post_out(p) for p in thread.posts],
+        posts=[_post_out(p) for p in visible_posts],
     )

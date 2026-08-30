@@ -1,13 +1,24 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from backend.app.api.deps import CurrentUser, DBSession, PremiumUser, TelegramUser
 from backend.app.core.rate_limit import rate_limit
 from backend.app.db.models import TransactionModel, UserModel, WalletModel
-from backend.app.schemas.user import AuthRequest, SetNicknameRequest, UpdateAvatarRequest, UserResponse
+from backend.app.schemas.user import (
+    AuthRequest,
+    PublicProfileResponse,
+    SetNicknameRequest,
+    UpdateAvatarRequest,
+    UpdateForumPrivacyRequest,
+    UpdateProfileInfoRequest,
+    UserResponse,
+    UserSearchResult,
+)
 from backend.app.services.referral import generate_wallet_id
 
 router = APIRouter()
@@ -125,3 +136,55 @@ async def update_nickname(payload: SetNicknameRequest, db: DBSession, current_us
     await db.commit()
     await db.refresh(current_user)
     return current_user
+
+
+@router.patch("/me/profile-info", response_model=UserResponse)
+async def update_profile_info(payload: UpdateProfileInfoRequest, db: DBSession, current_user: CurrentUser):
+    """Every field optional — an empty string is treated the same as
+    unset, so clearing a field in the form actually removes it rather than
+    saving a blank line on the public popup."""
+    data = {k: (v.strip() or None if isinstance(v, str) else v) for k, v in payload.model_dump().items()}
+    current_user.profile_info = data if any(data.values()) else None
+    await db.commit()
+    await db.refresh(current_user)
+    return current_user
+
+
+@router.patch("/me/forum-privacy", response_model=UserResponse)
+async def update_forum_privacy(payload: UpdateForumPrivacyRequest, db: DBSession, current_user: CurrentUser):
+    current_user.hide_username_on_forum = payload.hide_username_on_forum
+    await db.commit()
+    await db.refresh(current_user)
+    return current_user
+
+
+@router.get("/users/search", response_model=list[UserSearchResult])
+async def search_users(db: DBSession, current_user: CurrentUser, q: str = Query(..., min_length=1, max_length=32)):
+    """Username-prefix search that powers the forum @mention autocomplete
+    and the whisper-recipient picker. Deliberately not gated by
+    hide_username_on_forum — that flag only affects how a name is
+    *displayed* in posts, not whether the player can be found by name."""
+    result = await db.execute(
+        select(UserModel)
+        .where(UserModel.username.ilike(f"{q}%"), UserModel.id != current_user.id)
+        .order_by(UserModel.username)
+        .limit(10)
+    )
+    return result.scalars().all()
+
+
+@router.get("/users/{user_id}/public-profile", response_model=PublicProfileResponse)
+async def get_public_profile(user_id: uuid.UUID, db: DBSession, current_user: CurrentUser):
+    result = await db.execute(select(UserModel).where(UserModel.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found")
+
+    username = user.username
+    if user.hide_username_on_forum and not current_user.is_admin and user.id != current_user.id:
+        username = None
+
+    return PublicProfileResponse(
+        id=user.id, username=username, display_name=user.display_name,
+        avatar_url=user.avatar_url, is_admin=user.is_admin, profile_info=user.profile_info,
+    )

@@ -31,6 +31,12 @@ class ReactionSummary(BaseModel):
     reacted_by_me: bool = False
 
 
+class VisibleToUserOut(BaseModel):
+    id: uuid.UUID
+    username: str | None = None
+    display_name: str | None = None
+
+
 class ForumPostOut(BaseModel):
     id: uuid.UUID
     author_username: str | None = None
@@ -42,10 +48,39 @@ class ForumPostOut(BaseModel):
     reply_to: ReplyToOut | None = None
     reactions: list[ReactionSummary] = []
     created_at: datetime
+    edited_at: datetime | None = None
+    edited_by_admin: bool = False
+    # Only populated for the author and admins — who this whisper is
+    # restricted to. Empty/absent means it's a normal, thread-wide post.
+    visible_to: list[VisibleToUserOut] = []
+    # Soft-delete fields — only ever populated for admins; a deleted post
+    # is simply omitted from the list for everyone else.
+    deleted_at: datetime | None = None
+    deleted_by_username: str | None = None
 
 
 class ReactRequest(BaseModel):
     emoji: str
+
+
+class PostEditOut(BaseModel):
+    previous_body: str
+    editor_username: str | None = None
+    editor_is_admin: bool = False
+    edited_at: datetime
+
+
+class ReactorOut(BaseModel):
+    user_id: uuid.UUID
+    username: str | None = None
+    display_name: str | None = None
+    avatar_url: str | None = None
+    is_admin: bool = False
+
+
+class ReactorsListResponse(BaseModel):
+    total: int
+    reactors: list[ReactorOut]
 
 
 class ForumThreadPreview(BaseModel):
@@ -87,6 +122,9 @@ class CreateThreadRequest(BaseModel):
 class CreatePostRequest(BaseModel):
     body: str = Field(..., min_length=1, max_length=4000)
     reply_to_post_id: uuid.UUID | None = None
+    # Non-empty = a whisper, visible only to these players (plus the
+    # author and any admin) instead of the whole thread.
+    visible_to_user_ids: list[uuid.UUID] | None = None
 
 
 class UpdateThreadRequest(BaseModel):

@@ -101,6 +101,15 @@ class UserModel(Base):
     referred_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # Hides the @username line on forum posts/threads from other players
+    # (admins always see it — needed for moderation). Display name, if set,
+    # still shows; this only affects the Telegram handle.
+    hide_username_on_forum: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    # Optional, player-filled contact/social info shown on their public
+    # profile popup — every key optional, e.g. {"location": "...",
+    # "telegram": "...", "steam": "...", "discord": "...", ...}. Filling
+    # a field in is the opt-in; there's no separate visibility toggle.
+    profile_info: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -621,19 +630,61 @@ class ForumPostModel(Base):
     )
     body: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # Set together whenever body changes after creation. edited_by_id lets
+    # the UI flag "edited by an admin" distinctly from the author editing
+    # their own message — the full before/after is in ForumPostEditModel.
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    edited_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # Soft delete: the author (or an admin) can delete their own message,
+    # but the row and its body are kept around — hidden from regular
+    # players, still visible (with a "deleted" marker) to admins, who can
+    # restore it or permanently erase it.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # Whisper/private reply: null/empty means visible to the whole thread
+    # (the normal case). A non-empty list of user-id strings restricts
+    # visibility to just those players — plus the author and any admin,
+    # who can always see everything.
+    visible_to_user_ids: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
 
     thread: Mapped["ForumThreadModel"] = relationship("ForumThreadModel", back_populates="posts")
-    user: Mapped["UserModel"] = relationship("UserModel")
+    user: Mapped["UserModel"] = relationship("UserModel", foreign_keys=[user_id])
     reply_to: Mapped["ForumPostModel | None"] = relationship("ForumPostModel", remote_side=[id])
     reactions: Mapped[list["ForumPostReactionModel"]] = relationship(
         "ForumPostReactionModel", cascade="all, delete-orphan"
     )
+    edits: Mapped[list["ForumPostEditModel"]] = relationship(
+        "ForumPostEditModel", cascade="all, delete-orphan", order_by="ForumPostEditModel.edited_at.desc()"
+    )
 
 
-# One of a fixed emoji set a player can react to a post with — a user may
-# react with several different emoji on the same post, but only once each
+class ForumPostEditModel(Base):
+    """One row per edit, storing the body as it was BEFORE that edit —
+    lets admins see the full revision history of any message, including
+    who made each change."""
+    __tablename__ = "forum_post_edits"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    post_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("forum_posts.id", ondelete="CASCADE"), nullable=False
+    )
+    editor_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    previous_body: Mapped[str] = mapped_column(Text, nullable=False)
+    edited_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    editor: Mapped["UserModel | None"] = relationship("UserModel")
+
+
+# A curated palette a player can react to a post with — a user may react
+# with several different emoji on the same post, but only once each
 # (toggling re-sends the same emoji to remove it).
-REACTION_EMOJIS = ("❤️", "👍", "🤡", "😂")
+REACTION_EMOJIS = ("❤️", "👍", "👎", "😂", "🤡", "🔥", "🎉", "😮", "😢", "💯", "🙏", "👀", "💀")
 
 
 class ForumPostReactionModel(Base):
@@ -649,6 +700,8 @@ class ForumPostReactionModel(Base):
     )
     emoji: Mapped[str] = mapped_column(String(8), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    user: Mapped["UserModel"] = relationship("UserModel")
 
 
 # ─────────────────────────────────────────────
