@@ -144,7 +144,7 @@ async def test_buy_case_quantity_above_50_is_rejected(client, db_session, auth_a
 #  Premium-days case rewards (a case doesn't have to pay out in coins)
 # ─────────────────────────────────────────────
 
-async def test_open_premium_case_grants_subscription_days_not_coins(client, db_session, auth_as):
+async def test_open_premium_case_lands_a_voucher_instead_of_granting_days_instantly(client, db_session, auth_as):
     case_ = await make_case(db_session, name="Premium Case", cost_coins=99, rewards=[
         {"premium_days": 14, "chance_percent": 100, "tier": "blue"},
     ])
@@ -158,13 +158,24 @@ async def test_open_premium_case_grants_subscription_days_not_coins(client, db_s
     assert body["rewards"] == [{"coins": 0, "premium_days": 14}]
     assert body["total_won"] == 0  # no coins changed hands
     assert body["new_balance"] == 200 - 99  # only the purchase cost left the wallet
-    assert body["premium_expires_at"] is not None
 
     me = await client.get("/api/me")
-    assert me.json()["wallet"]["subscription_expires_at"] == body["premium_expires_at"]
+    assert me.json()["wallet"]["subscription_expires_at"] is None  # not applied yet
+
+    vouchers = (await client.get("/api/cases/vouchers")).json()
+    assert len(vouchers) == 1
+    assert vouchers[0]["days"] == 14
+
+    activate = await client.post(f"/api/cases/vouchers/{vouchers[0]['id']}/activate")
+    assert activate.status_code == 200
+    assert activate.json()["premium_expires_at"] is not None
+
+    me = await client.get("/api/me")
+    assert me.json()["wallet"]["subscription_expires_at"] == activate.json()["premium_expires_at"]
+    assert (await client.get("/api/cases/vouchers")).json() == []
 
 
-async def test_open_premium_case_nothing_tier_changes_nothing_but_coins_spent(client, db_session, auth_as):
+async def test_open_premium_case_nothing_tier_lands_no_voucher(client, db_session, auth_as):
     case_ = await make_case(db_session, name="Premium Case", cost_coins=99, rewards=[
         {"premium_days": 0, "chance_percent": 100, "tier": "grey"},
     ])
@@ -177,10 +188,10 @@ async def test_open_premium_case_nothing_tier_changes_nothing_but_coins_spent(cl
     body = resp.json()
     assert body["rewards"] == [{"coins": 0, "premium_days": 0}]
     assert body["new_balance"] == 200 - 99
-    assert body["premium_expires_at"] is None
 
     me = await client.get("/api/me")
     assert me.json()["wallet"]["subscription_expires_at"] is None
+    assert (await client.get("/api/cases/vouchers")).json() == []
 
 
 async def test_weighted_distribution_is_reasonably_close_over_many_opens(client, db_session, auth_as):
@@ -393,5 +404,137 @@ async def test_offer_blocked_when_sender_is_trade_banned(client, db_session, aut
     auth_as(sender)
     resp = await client.post("/api/cases/gift", json={
         "receiver_wallet_id": receiver.wallet.wallet_id, "case_id": str(case_.id), "quantity": 1,
+    })
+    assert resp.status_code == 403
+
+
+# ─────────────────────────────────────────────
+#  Premium vouchers
+# ─────────────────────────────────────────────
+
+async def _make_voucher(db_session, user, days=14):
+    from backend.app.db.models import PremiumVoucherModel
+    voucher = PremiumVoucherModel(user_id=user.id, days=days)
+    db_session.add(voucher)
+    await db_session.commit()
+    await db_session.refresh(voucher)
+    return voucher
+
+
+async def test_gift_voucher_transfers_it_instantly_no_accept_needed(client, db_session, auth_as):
+    sender = await make_user(db_session)
+    receiver = await make_user(db_session)
+    voucher = await _make_voucher(db_session, sender, days=31)
+    auth_as(sender)
+
+    resp = await client.post(f"/api/cases/vouchers/{voucher.id}/gift", json={"receiver_wallet_id": receiver.wallet.wallet_id})
+    assert resp.status_code == 204
+
+    assert (await client.get("/api/cases/vouchers")).json() == []
+    auth_as(receiver)
+    got = (await client.get("/api/cases/vouchers")).json()
+    assert len(got) == 1 and got[0]["days"] == 31
+
+
+async def test_cannot_gift_someone_elses_voucher(client, db_session, auth_as):
+    owner = await make_user(db_session)
+    other = await make_user(db_session)
+    receiver = await make_user(db_session)
+    voucher = await _make_voucher(db_session, owner)
+    auth_as(other)
+
+    resp = await client.post(f"/api/cases/vouchers/{voucher.id}/gift", json={"receiver_wallet_id": receiver.wallet.wallet_id})
+    assert resp.status_code == 404
+
+
+async def test_sell_voucher_full_accept_flow_transfers_coins_and_voucher(client, db_session, auth_as):
+    seller = await make_user(db_session)
+    buyer = await make_user(db_session, balance=100)
+    voucher = await _make_voucher(db_session, seller, days=90)
+    auth_as(seller)
+
+    sell = await client.post(f"/api/cases/vouchers/{voucher.id}/sell", json={
+        "receiver_wallet_id": buyer.wallet.wallet_id, "price_coins": 60,
+    })
+    assert sell.status_code == 201
+    offer_id = sell.json()["id"]
+    # Escrowed off the seller immediately.
+    assert (await client.get("/api/cases/vouchers")).json() == []
+
+    auth_as(buyer)
+    accept = await client.post(f"/api/cases/voucher-offers/{offer_id}/accept")
+    assert accept.status_code == 200
+    assert accept.json()["status"] == "accepted"
+
+    vouchers = (await client.get("/api/cases/vouchers")).json()
+    assert len(vouchers) == 1 and vouchers[0]["days"] == 90
+
+    me = await client.get("/api/me")
+    assert me.json()["wallet"]["balance_coins"] == 100 - 60
+
+
+async def test_sell_voucher_rejects_when_buyer_cant_afford_it(client, db_session, auth_as):
+    seller = await make_user(db_session)
+    buyer = await make_user(db_session, balance=10)
+    voucher = await _make_voucher(db_session, seller)
+    auth_as(seller)
+    sell = await client.post(f"/api/cases/vouchers/{voucher.id}/sell", json={
+        "receiver_wallet_id": buyer.wallet.wallet_id, "price_coins": 60,
+    })
+    offer_id = sell.json()["id"]
+
+    auth_as(buyer)
+    resp = await client.post(f"/api/cases/voucher-offers/{offer_id}/accept")
+    assert resp.status_code == 400
+
+
+async def test_decline_voucher_offer_returns_it_to_the_seller(client, db_session, auth_as):
+    seller = await make_user(db_session)
+    buyer = await make_user(db_session, balance=100)
+    voucher = await _make_voucher(db_session, seller, days=7)
+    auth_as(seller)
+    sell = await client.post(f"/api/cases/vouchers/{voucher.id}/sell", json={
+        "receiver_wallet_id": buyer.wallet.wallet_id, "price_coins": 10,
+    })
+    offer_id = sell.json()["id"]
+
+    auth_as(buyer)
+    decline = await client.post(f"/api/cases/voucher-offers/{offer_id}/decline")
+    assert decline.status_code == 200
+    assert decline.json()["status"] == "declined"
+
+    auth_as(seller)
+    vouchers = (await client.get("/api/cases/vouchers")).json()
+    assert len(vouchers) == 1 and vouchers[0]["days"] == 7
+
+
+async def test_cancel_voucher_offer_returns_it_to_the_seller(client, db_session, auth_as):
+    seller = await make_user(db_session)
+    buyer = await make_user(db_session)
+    voucher = await _make_voucher(db_session, seller)
+    auth_as(seller)
+    sell = await client.post(f"/api/cases/vouchers/{voucher.id}/sell", json={
+        "receiver_wallet_id": buyer.wallet.wallet_id, "price_coins": 10,
+    })
+    offer_id = sell.json()["id"]
+
+    cancel = await client.post(f"/api/cases/voucher-offers/{offer_id}/cancel")
+    assert cancel.status_code == 200
+    assert cancel.json()["status"] == "cancelled"
+    assert len((await client.get("/api/cases/vouchers")).json()) == 1
+
+
+async def test_voucher_offer_blocked_when_sender_is_trade_banned(client, db_session, auth_as):
+    admin = await make_user(db_session, is_admin=True)
+    seller = await make_user(db_session)
+    buyer = await make_user(db_session)
+    voucher = await _make_voucher(db_session, seller)
+
+    auth_as(admin)
+    await client.patch(f"/api/admin/users/{seller.id}/trade-ban", json={"is_trade_banned": True})
+
+    auth_as(seller)
+    resp = await client.post(f"/api/cases/vouchers/{voucher.id}/sell", json={
+        "receiver_wallet_id": buyer.wallet.wallet_id, "price_coins": 10,
     })
     assert resp.status_code == 403

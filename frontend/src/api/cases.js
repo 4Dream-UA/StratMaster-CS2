@@ -49,4 +49,39 @@ export const casesAPI = {
     const response = await apiClient.post(`/api/cases/offers/${id}/cancel`)
     return response.data
   },
+
+  // ── Premium vouchers ────────────────────────────────
+  async vouchers() {
+    const response = await apiClient.get('/api/cases/vouchers')
+    return response.data
+  },
+  async activateVoucher(id) {
+    const response = await apiClient.post(`/api/cases/vouchers/${id}/activate`)
+    return response.data
+  },
+  async giftVoucher(id, receiverWalletId) {
+    await apiClient.post(`/api/cases/vouchers/${id}/gift`, { receiver_wallet_id: receiverWalletId })
+  },
+  async sellVoucher(id, receiverWalletId, priceCoins) {
+    const response = await apiClient.post(`/api/cases/vouchers/${id}/sell`, {
+      receiver_wallet_id: receiverWalletId, price_coins: priceCoins,
+    })
+    return response.data
+  },
+  async listVoucherOffers(direction) {
+    const response = await apiClient.get('/api/cases/voucher-offers', { params: { direction } })
+    return response.data
+  },
+  async acceptVoucherOffer(id) {
+    const response = await apiClient.post(`/api/cases/voucher-offers/${id}/accept`)
+    return response.data
+  },
+  async declineVoucherOffer(id) {
+    const response = await apiClient.post(`/api/cases/voucher-offers/${id}/decline`)
+    return response.data
+  },
+  async cancelVoucherOffer(id) {
+    const response = await apiClient.post(`/api/cases/voucher-offers/${id}/cancel`)
+    return response.data
+  },
 }

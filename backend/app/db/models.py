@@ -61,6 +61,8 @@ class TransactionTypeEnum(str, enum.Enum):
     case_gift = "case_gift"
     case_sale = "case_sale"
     admin_grant = "admin_grant"
+    voucher_gift = "voucher_gift"
+    voucher_sale = "voucher_sale"
 
 
 # ─────────────────────────────────────────────
@@ -773,5 +775,45 @@ class CaseOfferModel(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     case: Mapped["CaseModel"] = relationship("CaseModel")
+    sender: Mapped["UserModel"] = relationship("UserModel", foreign_keys=[sender_user_id])
+    receiver: Mapped["UserModel"] = relationship("UserModel", foreign_keys=[receiver_user_id])
+
+
+class PremiumVoucherModel(Base):
+    """A premium-days case reward, landed as an inventory item instead of
+    being applied to the wallet the instant it's won — the player chooses
+    when (or whether) to activate it, and can gift or sell it meanwhile."""
+    __tablename__ = "premium_vouchers"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    days: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    user: Mapped["UserModel"] = relationship("UserModel")
+
+
+class PremiumVoucherOfferModel(Base):
+    """A pending sale of one premium voucher — gifting a voucher is instant
+    (no accept step, see /cases/vouchers/{id}/gift), but a sale needs the
+    buyer to actually agree to pay, so it goes through the same
+    escrow-then-accept shape as a case sale offer."""
+    __tablename__ = "premium_voucher_offers"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    sender_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    receiver_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    days: Mapped[int] = mapped_column(Integer, nullable=False)
+    price_coins: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")  # pending|accepted|declined|cancelled
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     sender: Mapped["UserModel"] = relationship("UserModel", foreign_keys=[sender_user_id])
     receiver: Mapped["UserModel"] = relationship("UserModel", foreign_keys=[receiver_user_id])

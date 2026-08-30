@@ -50,7 +50,6 @@ class CaseOpenBulkResponse(BaseModel):
     total_won: int
     total_spent: int
     new_balance: int
-    premium_expires_at: datetime | None = None
 
 
 class CaseOpeningHistoryItem(BaseModel):
@@ -91,5 +90,37 @@ class CaseOfferOut(BaseModel):
     quantity: int
     price_coins: int
     offer_type: str
+    status: str
+    created_at: datetime
+
+
+class VoucherOut(BaseModel):
+    id: uuid.UUID
+    days: int
+    created_at: datetime
+    model_config = {"from_attributes": True}
+
+
+class VoucherActivateResponse(BaseModel):
+    premium_expires_at: datetime
+
+
+class VoucherGiftRequest(BaseModel):
+    receiver_wallet_id: str = Field(..., min_length=1, max_length=16)
+
+
+class VoucherSaleRequest(BaseModel):
+    receiver_wallet_id: str = Field(..., min_length=1, max_length=16)
+    price_coins: int = Field(..., ge=1)
+
+
+class VoucherOfferOut(BaseModel):
+    id: uuid.UUID
+    sender_wallet_id: str
+    sender_username: str | None = None
+    receiver_wallet_id: str
+    receiver_username: str | None = None
+    days: int
+    price_coins: int
     status: str
     created_at: datetime
