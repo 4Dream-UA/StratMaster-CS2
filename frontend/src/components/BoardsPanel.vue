@@ -161,7 +161,7 @@
 
           <div v-if="collaborators.length" class="collab-list">
             <div v-for="c in collaborators" :key="c.id" class="collab-row">
-              <span>{{ c.username ? '@' + c.username : c.id }}</span>
+              <span>{{ c.display_name || (c.username ? '@' + c.username : 'Player') }}</span>
               <button class="mini-btn danger" @click="removeCollaboratorRow(c)">Remove</button>
             </div>
           </div>

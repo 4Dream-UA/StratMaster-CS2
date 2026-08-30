@@ -72,6 +72,7 @@ class PersonalBoardsListResponse(BaseModel):
 class CollaboratorOut(BaseModel):
     id: uuid.UUID
     username: str | None = None
+    display_name: str | None = None
     model_config = {"from_attributes": True}
 
 
