@@ -11,8 +11,8 @@ async def test_list_cases_returns_only_active(client, db_session):
     assert len(body) == 1
     assert body[0]["id"] == str(active.id)
     assert body[0]["rewards"] == [
-        {"coins": 5, "chance_percent": 50},
-        {"coins": 100, "chance_percent": 50},
+        {"coins": 5, "premium_days": None, "tier": "grey", "chance_percent": 50},
+        {"coins": 100, "premium_days": None, "tier": "grey", "chance_percent": 50},
     ]
 
 
@@ -90,8 +90,9 @@ async def test_buy_then_open_x1_resolves_reward_and_clears_inventory(client, db_
     assert resp.status_code == 200
     body = resp.json()
     assert len(body["rewards"]) == 1
-    assert body["rewards"][0] in (5, 100)
-    assert body["total_won"] == body["rewards"][0]
+    assert body["rewards"][0]["coins"] in (5, 100)
+    assert body["rewards"][0]["premium_days"] is None
+    assert body["total_won"] == body["rewards"][0]["coins"]
     assert body["new_balance"] == 100 - 49 + body["total_won"]
 
     inv = await client.get("/api/cases/inventory")
@@ -108,8 +109,8 @@ async def test_buy_then_open_x5_resolves_five_independent_rewards(client, db_ses
     assert resp.status_code == 200
     body = resp.json()
     assert len(body["rewards"]) == 5
-    assert body["total_won"] == sum(body["rewards"])
-    assert all(r in (5, 100) for r in body["rewards"])
+    assert body["total_won"] == sum(r["coins"] for r in body["rewards"])
+    assert all(r["coins"] in (5, 100) for r in body["rewards"])
 
     inv = await client.get("/api/cases/inventory")
     assert inv.json() == []
@@ -130,6 +131,58 @@ async def test_opening_records_one_history_row_per_case(client, db_session, auth
     assert all(o["case_name"] == case_.name and o["coins_spent"] == 49 for o in openings)
 
 
+async def test_buy_case_quantity_above_50_is_rejected(client, db_session, auth_as):
+    case_ = await make_case(db_session, cost_coins=1)
+    user = await make_user(db_session, balance=1000)
+    auth_as(user)
+
+    resp = await client.post(f"/api/cases/{case_.id}/buy", json={"quantity": 51})
+    assert resp.status_code == 422
+
+
+# ─────────────────────────────────────────────
+#  Premium-days case rewards (a case doesn't have to pay out in coins)
+# ─────────────────────────────────────────────
+
+async def test_open_premium_case_grants_subscription_days_not_coins(client, db_session, auth_as):
+    case_ = await make_case(db_session, name="Premium Case", cost_coins=99, rewards=[
+        {"premium_days": 14, "chance_percent": 100, "tier": "blue"},
+    ])
+    user = await make_user(db_session, balance=200)
+    auth_as(user)
+
+    await client.post(f"/api/cases/{case_.id}/buy", json={"quantity": 1})
+    resp = await client.post("/api/cases/inventory/open", json={"case_id": str(case_.id), "quantity": 1})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["rewards"] == [{"coins": 0, "premium_days": 14}]
+    assert body["total_won"] == 0  # no coins changed hands
+    assert body["new_balance"] == 200 - 99  # only the purchase cost left the wallet
+    assert body["premium_expires_at"] is not None
+
+    me = await client.get("/api/me")
+    assert me.json()["wallet"]["subscription_expires_at"] == body["premium_expires_at"]
+
+
+async def test_open_premium_case_nothing_tier_changes_nothing_but_coins_spent(client, db_session, auth_as):
+    case_ = await make_case(db_session, name="Premium Case", cost_coins=99, rewards=[
+        {"premium_days": 0, "chance_percent": 100, "tier": "grey"},
+    ])
+    user = await make_user(db_session, balance=200)
+    auth_as(user)
+
+    await client.post(f"/api/cases/{case_.id}/buy", json={"quantity": 1})
+    resp = await client.post("/api/cases/inventory/open", json={"case_id": str(case_.id), "quantity": 1})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["rewards"] == [{"coins": 0, "premium_days": 0}]
+    assert body["new_balance"] == 200 - 99
+    assert body["premium_expires_at"] is None
+
+    me = await client.get("/api/me")
+    assert me.json()["wallet"]["subscription_expires_at"] is None
+
+
 async def test_weighted_distribution_is_reasonably_close_over_many_opens(client, db_session, auth_as):
     # Not a statistical proof — just a sanity check that both reward tiers
     # get selected at all (catches a totally broken weighting, e.g. always
@@ -146,7 +199,7 @@ async def test_weighted_distribution_is_reasonably_close_over_many_opens(client,
     seen = set()
     for _ in range(15):
         resp = await client.post("/api/cases/inventory/open", json={"case_id": str(case_.id), "quantity": 1})
-        seen.add(resp.json()["rewards"][0])
+        seen.add(resp.json()["rewards"][0]["coins"])
 
     assert seen == {1, 2}
 

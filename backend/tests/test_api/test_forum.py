@@ -238,11 +238,33 @@ async def test_admin_can_close_and_reopen_a_ticket(client, db_session, auth_as):
     assert now_allowed.status_code == 201
 
 
-async def test_only_admin_can_close_a_thread(client, db_session, auth_as):
+async def test_owner_can_close_their_own_thread_but_not_reopen_it(client, db_session, auth_as):
     owner = await make_user(db_session, subscribed=True)
+    admin = await make_user(db_session, subscribed=True, is_admin=True)
     auth_as(owner)
     thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "..."})).json()
 
+    close = await client.patch(f"/api/forum/threads/{thread['id']}/close", json={"is_closed": True})
+    assert close.status_code == 200
+    assert close.json()["is_closed"] is True
+
+    # Closed the door on themselves — only an admin can undo it.
+    reopen = await client.patch(f"/api/forum/threads/{thread['id']}/close", json={"is_closed": False})
+    assert reopen.status_code == 403
+
+    auth_as(admin)
+    admin_reopen = await client.patch(f"/api/forum/threads/{thread['id']}/close", json={"is_closed": False})
+    assert admin_reopen.status_code == 200
+    assert admin_reopen.json()["is_closed"] is False
+
+
+async def test_non_owner_cannot_close_someone_elses_thread(client, db_session, auth_as):
+    owner = await make_user(db_session, subscribed=True)
+    other = await make_user(db_session, subscribed=True)
+    auth_as(owner)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "..."})).json()
+
+    auth_as(other)
     resp = await client.patch(f"/api/forum/threads/{thread['id']}/close", json={"is_closed": True})
     assert resp.status_code == 403
 
@@ -360,3 +382,69 @@ async def test_non_admin_cannot_update_category(client, db_session, auth_as):
     auth_as(user)
     resp = await client.patch("/api/forum/categories/lounge", json={"name": "x", "description": "y"})
     assert resp.status_code == 403
+
+
+# ─────────────────────────────────────────────
+#  Emoji reactions
+# ─────────────────────────────────────────────
+
+async def test_reacting_to_a_post_adds_it_and_counts_it(client, db_session, auth_as):
+    author = await make_user(db_session, subscribed=True)
+    reactor = await make_user(db_session, subscribed=True)
+    auth_as(author)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "..."})).json()
+    post_id = thread["posts"][0]["id"]
+    assert thread["posts"][0]["reactions"] == []
+
+    auth_as(reactor)
+    resp = await client.post(f"/api/forum/posts/{post_id}/react", json={"emoji": "❤️"})
+    assert resp.status_code == 200
+    reactions = resp.json()["posts"][0]["reactions"]
+    assert reactions == [{"emoji": "❤️", "count": 1, "reacted_by_me": True}]
+
+
+async def test_reacting_twice_with_the_same_emoji_toggles_it_off(client, db_session, auth_as):
+    user = await make_user(db_session, subscribed=True)
+    auth_as(user)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "..."})).json()
+    post_id = thread["posts"][0]["id"]
+
+    await client.post(f"/api/forum/posts/{post_id}/react", json={"emoji": "👍"})
+    resp = await client.post(f"/api/forum/posts/{post_id}/react", json={"emoji": "👍"})
+    assert resp.json()["posts"][0]["reactions"] == []
+
+
+async def test_a_user_can_react_with_several_different_emoji_on_one_post(client, db_session, auth_as):
+    user = await make_user(db_session, subscribed=True)
+    auth_as(user)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "..."})).json()
+    post_id = thread["posts"][0]["id"]
+
+    await client.post(f"/api/forum/posts/{post_id}/react", json={"emoji": "🤡"})
+    resp = await client.post(f"/api/forum/posts/{post_id}/react", json={"emoji": "😂"})
+    emojis = {r["emoji"] for r in resp.json()["posts"][0]["reactions"]}
+    assert emojis == {"🤡", "😂"}
+
+
+async def test_reactions_from_other_players_dont_show_as_mine(client, db_session, auth_as):
+    author = await make_user(db_session, subscribed=True)
+    other = await make_user(db_session, subscribed=True)
+    auth_as(author)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "..."})).json()
+    post_id = thread["posts"][0]["id"]
+    await client.post(f"/api/forum/posts/{post_id}/react", json={"emoji": "❤️"})
+
+    auth_as(other)
+    resp = await client.get(f"/api/forum/threads/{thread['id']}")
+    reaction = resp.json()["posts"][0]["reactions"][0]
+    assert reaction == {"emoji": "❤️", "count": 1, "reacted_by_me": False}
+
+
+async def test_rejects_an_unsupported_emoji(client, db_session, auth_as):
+    user = await make_user(db_session, subscribed=True)
+    auth_as(user)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "..."})).json()
+    post_id = thread["posts"][0]["id"]
+
+    resp = await client.post(f"/api/forum/posts/{post_id}/react", json={"emoji": "🍕"})
+    assert resp.status_code == 400

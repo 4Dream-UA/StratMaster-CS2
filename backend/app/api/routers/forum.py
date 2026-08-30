@@ -7,7 +7,14 @@ from sqlalchemy.orm import selectinload
 
 from backend.app.api.deps import AdminUser, DBSession, PremiumUser
 from backend.app.core.config import settings
-from backend.app.db.models import ForumCategoryModel, ForumPostModel, ForumThreadModel, ForumThreadWatcherModel
+from backend.app.db.models import (
+    REACTION_EMOJIS,
+    ForumCategoryModel,
+    ForumPostModel,
+    ForumPostReactionModel,
+    ForumThreadModel,
+    ForumThreadWatcherModel,
+)
 from backend.app.schemas.forum import (
     CloseThreadRequest,
     CreatePostRequest,
@@ -18,6 +25,8 @@ from backend.app.schemas.forum import (
     ForumThreadPreview,
     ForumThreadsListResponse,
     PinThreadRequest,
+    ReactionSummary,
+    ReactRequest,
     ReplyToOut,
     ShareTokenResponse,
     SharedThreadResponse,
@@ -200,7 +209,22 @@ async def create_thread(key: str, payload: CreateThreadRequest, db: DBSession, u
     return await _get_thread_detail(db, thread.id, user)
 
 
-def _post_out(p: ForumPostModel) -> ForumPostOut:
+def _reaction_summary(p: ForumPostModel, viewer_id: uuid.UUID | None) -> list[ReactionSummary]:
+    counts: dict[str, int] = {}
+    mine: set[str] = set()
+    for r in p.reactions:
+        counts[r.emoji] = counts.get(r.emoji, 0) + 1
+        if viewer_id is not None and r.user_id == viewer_id:
+            mine.add(r.emoji)
+    # Stable order (REACTION_EMOJIS, not insertion order) so the row of
+    # emoji buttons doesn't jump around as counts change.
+    return [
+        ReactionSummary(emoji=e, count=counts[e], reacted_by_me=e in mine)
+        for e in REACTION_EMOJIS if e in counts
+    ]
+
+
+def _post_out(p: ForumPostModel, viewer_id: uuid.UUID | None = None) -> ForumPostOut:
     reply_to = None
     if p.reply_to is not None:
         snippet = p.reply_to.body[:REPLY_SNIPPET_LEN]
@@ -213,7 +237,8 @@ def _post_out(p: ForumPostModel) -> ForumPostOut:
     return ForumPostOut(
         id=p.id, author_username=p.user.username, author_display_name=p.user.display_name,
         author_avatar_url=p.user.avatar_url, author_id=p.user_id,
-        author_is_admin=p.user.is_admin, body=p.body, reply_to=reply_to, created_at=p.created_at,
+        author_is_admin=p.user.is_admin, body=p.body, reply_to=reply_to,
+        reactions=_reaction_summary(p, viewer_id), created_at=p.created_at,
     )
 
 
@@ -224,6 +249,7 @@ async def _get_thread_detail(db, thread_id: uuid.UUID, user) -> ForumThreadDetai
             selectinload(ForumThreadModel.category),
             selectinload(ForumThreadModel.posts).selectinload(ForumPostModel.user),
             selectinload(ForumThreadModel.posts).selectinload(ForumPostModel.reply_to).selectinload(ForumPostModel.user),
+            selectinload(ForumThreadModel.posts).selectinload(ForumPostModel.reactions),
         )
         .where(ForumThreadModel.id == thread_id)
     )
@@ -240,7 +266,7 @@ async def _get_thread_detail(db, thread_id: uuid.UUID, user) -> ForumThreadDetai
         is_closed=thread.is_closed,
         is_watching=await _is_watching(db, thread.id, user.id),
         share_token=thread.share_token,
-        posts=[_post_out(p) for p in thread.posts],
+        posts=[_post_out(p, user.id) for p in thread.posts],
     )
 
 
@@ -279,11 +305,24 @@ async def pin_thread(thread_id: uuid.UUID, payload: PinThreadRequest, db: DBSess
 
 
 @router.patch("/forum/threads/{thread_id}/close", response_model=ForumThreadDetail)
-async def close_thread(thread_id: uuid.UUID, payload: CloseThreadRequest, db: DBSession, admin_user: AdminUser):
+async def close_thread(thread_id: uuid.UUID, payload: CloseThreadRequest, db: DBSession, user: PremiumUser):
+    """Admins can close/reopen any thread (e.g. resolving a support
+    ticket); a regular player can only close their own thread — making it
+    view-only for everyone else — and can't reopen it themselves once
+    closed, so it stays a one-way "lock" from their side."""
     thread = await _get_thread_or_404(db, thread_id)
+    if not _can_access_thread(thread, thread.category, user):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found")
+
+    if not user.is_admin:
+        if thread.user_id != user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can't close this thread")
+        if thread.is_closed and not payload.is_closed:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only an admin can reopen a closed thread")
+
     thread.is_closed = payload.is_closed
     await db.commit()
-    return await _get_thread_detail(db, thread_id, admin_user)
+    return await _get_thread_detail(db, thread_id, user)
 
 
 @router.post("/forum/threads/{thread_id}/watch", response_model=WatchResponse)
@@ -369,6 +408,40 @@ async def update_post(post_id: uuid.UUID, payload: UpdatePostRequest, db: DBSess
     return await _get_thread_detail(db, post.thread_id, user)
 
 
+@router.post("/forum/posts/{post_id}/react", response_model=ForumThreadDetail)
+async def react_to_post(post_id: uuid.UUID, payload: ReactRequest, db: DBSession, user: PremiumUser):
+    """Toggles one of a fixed emoji set on a post — sending the same emoji
+    again removes it. Allowed even on a closed thread; closing only stops
+    new replies, not lightweight reactions to what's already there."""
+    if payload.emoji not in REACTION_EMOJIS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported reaction")
+
+    result = await db.execute(
+        select(ForumPostModel)
+        .options(selectinload(ForumPostModel.thread).selectinload(ForumThreadModel.category))
+        .where(ForumPostModel.id == post_id)
+    )
+    post = result.scalar_one_or_none()
+    if post is None or not _can_access_thread(post.thread, post.thread.category, user):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
+    existing = await db.execute(
+        select(ForumPostReactionModel).where(
+            ForumPostReactionModel.post_id == post_id,
+            ForumPostReactionModel.user_id == user.id,
+            ForumPostReactionModel.emoji == payload.emoji,
+        )
+    )
+    row = existing.scalar_one_or_none()
+    if row is not None:
+        await db.delete(row)
+    else:
+        db.add(ForumPostReactionModel(post_id=post_id, user_id=user.id, emoji=payload.emoji))
+    await db.commit()
+
+    return await _get_thread_detail(db, post.thread_id, user)
+
+
 # ─────────────────────────────────────────────
 #  Sharing: public link
 # ─────────────────────────────────────────────
@@ -404,6 +477,7 @@ async def get_shared_thread(share_token: str, db: DBSession):
             selectinload(ForumThreadModel.category),
             selectinload(ForumThreadModel.posts).selectinload(ForumPostModel.user),
             selectinload(ForumThreadModel.posts).selectinload(ForumPostModel.reply_to).selectinload(ForumPostModel.user),
+            selectinload(ForumThreadModel.posts).selectinload(ForumPostModel.reactions),
         )
         .where(ForumThreadModel.share_token == share_token)
     )

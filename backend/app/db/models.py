@@ -513,6 +513,11 @@ class CaseOpeningModel(Base):
     )
     coins_spent: Mapped[int] = mapped_column(Integer, nullable=False)
     coins_won: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Set (not None) exactly when this opening resolved to a premium-days
+    # tier instead of a coins tier — 0 unambiguously means "nothing" for a
+    # premium case, since coins_won already covers the coins case's 0-ish
+    # outcomes and no premium tier is ever literally 0 days-but-a-win.
+    premium_days_won: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     case: Mapped["CaseModel"] = relationship("CaseModel")
@@ -620,6 +625,30 @@ class ForumPostModel(Base):
     thread: Mapped["ForumThreadModel"] = relationship("ForumThreadModel", back_populates="posts")
     user: Mapped["UserModel"] = relationship("UserModel")
     reply_to: Mapped["ForumPostModel | None"] = relationship("ForumPostModel", remote_side=[id])
+    reactions: Mapped[list["ForumPostReactionModel"]] = relationship(
+        "ForumPostReactionModel", cascade="all, delete-orphan"
+    )
+
+
+# One of a fixed emoji set a player can react to a post with — a user may
+# react with several different emoji on the same post, but only once each
+# (toggling re-sends the same emoji to remove it).
+REACTION_EMOJIS = ("❤️", "👍", "🤡", "😂")
+
+
+class ForumPostReactionModel(Base):
+    __tablename__ = "forum_post_reactions"
+    __table_args__ = (UniqueConstraint("post_id", "user_id", "emoji", name="uq_post_reaction"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    post_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("forum_posts.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    emoji: Mapped[str] = mapped_column(String(8), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 # ─────────────────────────────────────────────
@@ -632,6 +661,12 @@ class AppSettingsModel(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     logo_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Running ledger for the shared case-economy throttle (see
+    # backend/app/services/case_economy.py) — coin-equivalent totals across
+    # every case type, not per-case, so one case running hot can be reined
+    # in by the aggregate picture just as easily as by its own history.
+    case_total_spent_coins: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    case_total_paid_coins: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
 
 # ─────────────────────────────────────────────

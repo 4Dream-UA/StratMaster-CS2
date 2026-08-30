@@ -25,6 +25,12 @@ class ReplyToOut(BaseModel):
     body_snippet: str
 
 
+class ReactionSummary(BaseModel):
+    emoji: str
+    count: int
+    reacted_by_me: bool = False
+
+
 class ForumPostOut(BaseModel):
     id: uuid.UUID
     author_username: str | None = None
@@ -34,7 +40,12 @@ class ForumPostOut(BaseModel):
     author_is_admin: bool = False
     body: str
     reply_to: ReplyToOut | None = None
+    reactions: list[ReactionSummary] = []
     created_at: datetime
+
+
+class ReactRequest(BaseModel):
+    emoji: str
 
 
 class ForumThreadPreview(BaseModel):

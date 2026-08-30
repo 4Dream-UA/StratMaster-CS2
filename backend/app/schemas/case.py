@@ -5,7 +5,9 @@ from pydantic import BaseModel, Field
 
 
 class CaseRewardOut(BaseModel):
-    coins: int
+    coins: int = 0
+    premium_days: int | None = None
+    tier: str = "grey"
     chance_percent: float
 
 
@@ -38,11 +40,17 @@ class CaseOpenBulkRequest(BaseModel):
     quantity: int = Field(..., description="How many owned cases of this type to open at once — 1, 2 or 5")
 
 
+class CaseRewardResultOut(BaseModel):
+    coins: int = 0
+    premium_days: int | None = None
+
+
 class CaseOpenBulkResponse(BaseModel):
-    rewards: list[int]
+    rewards: list[CaseRewardResultOut]
     total_won: int
     total_spent: int
     new_balance: int
+    premium_expires_at: datetime | None = None
 
 
 class CaseOpeningHistoryItem(BaseModel):
@@ -51,6 +59,7 @@ class CaseOpeningHistoryItem(BaseModel):
     case_name: str
     coins_spent: int
     coins_won: int
+    premium_days_won: int | None = None
     created_at: datetime
 
 

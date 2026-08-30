@@ -1,4 +1,3 @@
-import random
 import uuid
 from datetime import datetime, timezone
 from typing import List
@@ -29,9 +28,12 @@ from backend.app.schemas.case import (
     CaseOpeningHistoryItem,
     CaseOpeningHistoryResponse,
     CaseOut,
+    CaseRewardResultOut,
     CaseSaleRequest,
 )
+from backend.app.services.case_economy import current_surplus, pick_reward, record_payout, record_spend, reward_value
 from backend.app.services.notifications import send_telegram_message
+from backend.app.services.subscription import grant_premium_days
 from backend.app.services.trading import assert_can_trade
 from backend.app.services.wallet import get_wallet_by_id
 
@@ -91,6 +93,8 @@ async def buy_case(case_id: uuid.UUID, payload: CaseBuyRequest, db: DBSession, c
     for _ in range(payload.quantity):
         db.add(CaseInventoryModel(user_id=current_user.id, case_id=case_.id))
 
+    await record_spend(db, total_cost)
+
     db.add(TransactionModel(
         sender_wallet_id=wallet.wallet_id,
         receiver_wallet_id=wallet.wallet_id,
@@ -133,26 +137,48 @@ async def open_inventory_cases(payload: CaseOpenBulkRequest, db: DBSession, curr
             detail=f"You only own {len(owned)} of this case — buy more before opening {payload.quantity}",
         )
 
-    rewards_pool = case_.rewards
-    reward_results = []
+    wallet = current_user.wallet
+    surplus = await current_surplus(db)
+    reward_results: list[CaseRewardResultOut] = []
+    total_coins_won = 0
+    total_value_paid = 0
+    new_expiry = None
+
     for inv_row in owned:
-        chosen = random.choices(rewards_pool, weights=[r["chance_percent"] for r in rewards_pool], k=1)[0]
-        reward_coins = chosen["coins"]
-        reward_results.append(reward_coins)
-        db.add(CaseOpeningModel(
-            user_id=current_user.id, case_id=case_.id,
-            coins_spent=case_.cost_coins, coins_won=reward_coins,
-        ))
+        chosen = pick_reward(case_.rewards, case_.cost_coins, surplus)
+        value = reward_value(chosen)
+        surplus += value  # each pick in this batch sees the running total the previous picks left behind
+        total_value_paid += value
+
+        if "premium_days" in chosen:
+            days = chosen["premium_days"]
+            if days > 0:
+                new_expiry = grant_premium_days(wallet, days)
+            db.add(CaseOpeningModel(
+                user_id=current_user.id, case_id=case_.id,
+                coins_spent=case_.cost_coins, coins_won=0, premium_days_won=days,
+            ))
+            reward_results.append(CaseRewardResultOut(coins=0, premium_days=days))
+        else:
+            coins = chosen["coins"]
+            total_coins_won += coins
+            db.add(CaseOpeningModel(
+                user_id=current_user.id, case_id=case_.id,
+                coins_spent=case_.cost_coins, coins_won=coins, premium_days_won=None,
+            ))
+            reward_results.append(CaseRewardResultOut(coins=coins, premium_days=None))
         await db.delete(inv_row)
 
-    total_won = sum(reward_results)
-    wallet = current_user.wallet
-    wallet.balance_coins += total_won
+    wallet.balance_coins += total_coins_won
+    await record_payout(db, total_value_paid)
 
+    # Logged even when a premium-days tier paid no coins at all (amount=0)
+    # — the same audit-trail gap that silently broke the admin "Case Gifts"
+    # filter earlier applies here just as easily otherwise.
     db.add(TransactionModel(
         sender_wallet_id=None,
         receiver_wallet_id=wallet.wallet_id,
-        amount=total_won,
+        amount=total_coins_won,
         transaction_type="case_open",
     ))
 
@@ -160,7 +186,8 @@ async def open_inventory_cases(payload: CaseOpenBulkRequest, db: DBSession, curr
 
     return CaseOpenBulkResponse(
         rewards=reward_results,
-        total_won=total_won,
+        total_won=total_coins_won,
+        premium_expires_at=new_expiry,
         total_spent=case_.cost_coins * payload.quantity,
         new_balance=wallet.balance_coins,
     )
@@ -187,6 +214,7 @@ async def case_opening_history(db: DBSession, current_user: CurrentUser):
             case_name=names_by_id.get(o.case_id, "Unknown case"),
             coins_spent=o.coins_spent,
             coins_won=o.coins_won,
+            premium_days_won=o.premium_days_won,
             created_at=o.created_at,
         )
         for o in openings
