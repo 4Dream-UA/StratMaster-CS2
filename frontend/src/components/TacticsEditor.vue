@@ -359,8 +359,13 @@ function onImagePointerDown(event) {
   if (mode.value !== 'draw') return
   const coords = coordsFromEvent(event)
   if (!coords) return
-  activeDrawing = { points: [coords], color: activeDrawColor.value }
-  props.annotations.drawings.push(activeDrawing)
+  props.annotations.drawings.push({ points: [coords], color: activeDrawColor.value })
+  // Re-read the item back out of the reactive array instead of keeping the
+  // plain object we just pushed — those are different references once
+  // annotations is a reactive proxy, and mutating the plain one directly
+  // (as this used to do) never triggers a re-render, so the line only
+  // seemed to "appear" later instead of drawing live under the pointer.
+  activeDrawing = props.annotations.drawings[props.annotations.drawings.length - 1]
   window.addEventListener('pointermove', onDrawMove)
   window.addEventListener('pointerup', onDrawEnd)
 }
@@ -521,4 +526,31 @@ function onImageClick(event) {
 
 .te-draw-color-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--text-dim); }
 .te-color-swatch { width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0; border: 1px solid var(--line); }
+
+/* ── Desktop/laptop: canvas and tools side by side instead of a long
+   vertical stack — the map gets the wide column, mode toggle/hint/panel
+   sit in a fixed sidebar next to it. Named grid areas let this reorder
+   without touching the DOM (te-panel comes after te-canvas-wrap in markup
+   but needs to render beside it, not below). ── */
+@media (min-width: 900px) {
+  .tactics-editor {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    grid-template-areas:
+      "header header"
+      "empty  empty"
+      "canvas toggle"
+      "canvas hint"
+      "canvas panel";
+    align-items: start;
+    column-gap: 20px;
+  }
+  .te-header { grid-area: header; }
+  .te-empty { grid-area: empty; }
+  .te-mode-toggle { grid-area: toggle; flex-direction: column; flex-wrap: nowrap; margin-bottom: 0; }
+  .te-mode-btn { text-align: left; }
+  .te-hint-drag { grid-area: hint; margin: 10px 0 0; }
+  .te-canvas-wrap { grid-area: canvas; margin-bottom: 0; }
+  .te-panel { grid-area: panel; margin-top: 10px; max-height: 480px; overflow-y: auto; padding-right: 4px; }
+}
 </style>
