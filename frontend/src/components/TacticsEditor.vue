@@ -553,12 +553,17 @@ function onImageClick(event) {
 .te-draw-color-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--text-dim); }
 .te-color-swatch { width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0; border: 1px solid var(--line); }
 
-/* ── Desktop/laptop: canvas and tools side by side instead of a long
-   vertical stack — the map gets the wide column, mode toggle/hint/panel
-   sit in a fixed sidebar next to it. Named grid areas let this reorder
-   without touching the DOM (te-panel comes after te-canvas-wrap in markup
-   but needs to render beside it, not below). ── */
-@media (min-width: 900px) {
+/* ── Wide enough card: canvas and tools side by side instead of a long
+   vertical stack — the map gets a fixed column, mode toggle/hint/panel
+   sit in a sidebar next to it. Named grid areas let this reorder without
+   touching the DOM (te-panel comes after te-canvas-wrap in markup but
+   needs to render beside it, not below).
+   A @container query, not @media — this responds to the actual width of
+   the .form-card it's rendered in (see BoardsPanel.vue), not the browser
+   viewport, since that card isn't always full-width (it can sit beside a
+   sticky sidebar on the profile page). Threshold is the 420px canvas +
+   24px gap + enough left over for the tools to not be cramped. */
+@container tactics-host (min-width: 700px) {
   .tactics-editor {
     display: grid;
     grid-template-columns: 420px 1fr;

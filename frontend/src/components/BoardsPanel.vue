@@ -441,6 +441,14 @@ onMounted(async () => {
   background: var(--bg-elevated); border: 1px solid var(--line);
   border-radius: var(--radius-lg); padding: 20px; margin-bottom: 18px;
 }
+/* TacticsEditor's canvas/tools split responds to how much width THIS
+   card actually has, not the browser viewport — this card can sit next
+   to a sticky sidebar (profile page) or fill the whole page (dedicated
+   board editor), and a viewport-based breakpoint can't tell those apart,
+   which is exactly what broke: at a viewport wide enough to trigger it
+   but a card too narrow to fit it, the two-column layout still turned
+   on and everything inside it got crushed. */
+.form-card { container-type: inline-size; container-name: tactics-host; }
 .loading-row, .empty { padding: 24px; text-align: center; color: var(--text-dim); font-size: 13px; }
 
 .board-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }

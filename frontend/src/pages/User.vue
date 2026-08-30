@@ -533,7 +533,12 @@ function toggleTab(key) {
   // Scrolling the hotbar (not the page) to the top of the viewport fixes
   // that without yanking the reader all the way up past the profile/wallet
   // cards every time they're already scrolled down near the tabs.
-  if (activeTab.value) hotbarRef.value?.scrollIntoView({ block: 'start', behavior: 'auto' })
+  //
+  // Only below the 1300px sidebar breakpoint (see .profile-layout below) —
+  // above it the hotbar lives in a sticky sidebar that's always visible,
+  // so there's nothing to strand and forcing a scroll on every click just
+  // yanks the page around for no reason.
+  if (activeTab.value && window.innerWidth < 1300) hotbarRef.value?.scrollIntoView({ block: 'start', behavior: 'auto' })
 }
 
 // ── Favorite maps ──────────────────────────────────────────────
@@ -1086,20 +1091,15 @@ const TABS = [
 .user-content { max-width: 640px; padding: 20px 16px 100px; }
 
 /* ── Desktop/laptop: the whole content column gets more room to work
-   with (below, forms and grids inside each panel use it), and above a
-   wider breakpoint the profile card through the hotbar become a fixed
-   sidebar beside the active panel instead of stacking above it.
-   The sidebar split specifically waits for 1300px rather than the usual
-   900px — TacticsEditor (rendered inside the Board panel) has its own
-   900px-viewport breakpoint for a 420px-canvas-plus-tools layout, and
-   splitting the sidebar off any earlier would starve that panel of width
-   at exactly the range where it also wants to go two-column. Below
-   1300px these are just two stacked block divs, same as always — and
-   TacticsEditor still gets the (nearly) full content width to itself. ── */
+   with (below, forms and grids inside each panel use it), and the
+   profile card through the hotbar become a fixed sidebar beside the
+   active panel instead of stacking above it. TacticsEditor (rendered
+   inside the Board panel, which sits in .profile-main here) responds to
+   its own container width rather than the viewport — see .form-card in
+   BoardsPanel.vue — so it correctly stays single-column when the sidebar
+   leaves it too narrow instead of the two breakpoints fighting. ── */
 @media (min-width: 900px) {
-  .user-content { max-width: 1080px; }
-}
-@media (min-width: 1300px) {
+  .user-content { max-width: 1220px; }
   .profile-layout { display: grid; grid-template-columns: 340px 1fr; align-items: start; column-gap: 28px; }
   .profile-sidebar { position: sticky; top: 20px; }
   .profile-main { min-width: 0; }
