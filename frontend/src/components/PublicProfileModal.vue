@@ -16,11 +16,15 @@
         </div>
 
         <div v-if="hasInfo" class="profile-modal-links">
-          <div v-for="f in filledFields" :key="f.key" class="profile-modal-link">
+          <button
+            v-for="f in filledFields" :key="f.key" type="button" class="profile-modal-link"
+            @click="copyValue(f.key, profile.profile_info[f.key])"
+          >
             <span class="profile-modal-link-icon" v-html="f.icon"></span>
             <span class="profile-modal-link-label">{{ f.label }}</span>
             <span class="profile-modal-link-value">{{ profile.profile_info[f.key] }}</span>
-          </div>
+            <span class="profile-modal-link-copy">{{ copiedKey === f.key ? 'Copied!' : 'Copy' }}</span>
+          </button>
         </div>
         <p v-else class="favorites-placeholder">This player hasn't shared any contact info.</p>
       </template>
@@ -55,6 +59,14 @@ const filledFields = computed(() => {
   return FIELDS.filter(f => profile.value.profile_info[f.key])
 })
 const hasInfo = computed(() => filledFields.value.length > 0)
+
+const copiedKey = ref(null)
+function copyValue(key, value) {
+  navigator.clipboard?.writeText(value).then(() => {
+    copiedKey.value = key
+    setTimeout(() => { if (copiedKey.value === key) copiedKey.value = null }, 1600)
+  }).catch(() => {})
+}
 
 onMounted(async () => {
   try {
@@ -103,12 +115,19 @@ onMounted(async () => {
 
 .profile-modal-links { display: flex; flex-direction: column; gap: 8px; }
 .profile-modal-link {
-  display: flex; align-items: center; gap: 10px;
-  background: var(--bg); border-radius: 9px; padding: 9px 12px;
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: var(--bg); border: 1px solid transparent; border-radius: 9px; padding: 9px 12px;
+  cursor: pointer; font-family: inherit; text-align: left; transition: border-color .15s;
 }
+.profile-modal-link:hover { border-color: var(--accent); }
 .profile-modal-link-icon { color: var(--accent); flex-shrink: 0; display: flex; }
 .profile-modal-link-label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-dim); flex-shrink: 0; width: 66px; }
-.profile-modal-link-value { font-size: 12.5px; color: var(--text); word-break: break-word; }
+.profile-modal-link-value { font-size: 12.5px; color: var(--text); word-break: break-word; flex: 1; min-width: 0; }
+.profile-modal-link-copy {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+  color: var(--text-dim); flex-shrink: 0;
+}
+.profile-modal-link:hover .profile-modal-link-copy { color: var(--accent); }
 
 .favorites-placeholder { font-size: 12.5px; color: var(--text-dim); text-align: center; padding: 12px 0; }
 </style>

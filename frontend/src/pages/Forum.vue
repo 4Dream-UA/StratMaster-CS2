@@ -1361,24 +1361,26 @@ onMounted(async () => {
 .link-btn.danger { color: var(--danger); text-decoration-color: var(--danger); }
 
 /* ── Generated avatar ─────────────────────────────── */
-/* Avatar is a plain render()-function component, used both directly in
-   this template AND nested inside ThreadRow (another plain component) —
-   in the nested case Vue never stamps ANY of Avatar's own output with a
-   scope attribute (parent scoping only reaches one component level deep),
-   so every rule here needs an ancestor-prefixed :deep() to reliably match
-   in both cases — a bare `:deep(.x)` glues the scope attribute onto .x
-   itself and matches nothing. */
-.forum-content :deep(.forum-avatar) {
+/* Avatar is a plain render()-function component, used directly in this
+   template, nested inside ThreadRow (another plain component), AND inside
+   the reactor popup — which sits outside .forum-content entirely (it's a
+   sibling modal, not nested in the page wrap). Scoping these to
+   .forum-page instead of .forum-content covers all three cases: Vue never
+   stamps ANY of Avatar's own output with a scope attribute (parent scoping
+   only reaches one component level deep), so every rule here needs an
+   ancestor-prefixed :deep() — a bare `:deep(.x)` glues the scope attribute
+   onto .x itself and matches nothing. */
+.forum-page :deep(.forum-avatar) {
   position: relative; flex-shrink: 0; border-radius: 50%; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
   color: #fff; font-weight: 800; text-shadow: 0 1px 2px rgba(0,0,0,.35);
   user-select: none;
 }
-.forum-content :deep(.forum-avatar-img) { width: 100%; height: 100%; object-fit: cover; }
-.forum-content :deep(.forum-avatar-admin) { box-shadow: 0 0 0 2px var(--danger); }
-.forum-content :deep(.forum-avatar-clickable) { cursor: pointer; }
+.forum-page :deep(.forum-avatar-img) { width: 100%; height: 100%; object-fit: cover; }
+.forum-page :deep(.forum-avatar-admin) { box-shadow: 0 0 0 2px var(--danger); }
+.forum-page :deep(.forum-avatar-clickable) { cursor: pointer; }
 .post-body :deep(.md-mention) { color: var(--accent); font-weight: 700; }
-.forum-content :deep(.forum-avatar-badge) {
+.forum-page :deep(.forum-avatar-badge) {
   position: absolute; bottom: -2px; right: -2px;
   width: 16px; height: 16px; border-radius: 50%;
   background: var(--accent); color: #14140f;
