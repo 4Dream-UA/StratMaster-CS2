@@ -138,14 +138,14 @@ async def open_inventory_cases(payload: CaseOpenBulkRequest, db: DBSession, curr
         )
 
     wallet = current_user.wallet
-    surplus = await current_surplus(db)
+    surplus, total_spent_coins = await current_surplus(db)
     reward_results: list[CaseRewardResultOut] = []
     total_coins_won = 0
     total_value_paid = 0
     new_expiry = None
 
     for inv_row in owned:
-        chosen = pick_reward(case_.rewards, case_.cost_coins, surplus)
+        chosen = pick_reward(case_.rewards, case_.cost_coins, surplus, total_spent_coins)
         value = reward_value(chosen)
         surplus += value  # each pick in this batch sees the running total the previous picks left behind
         total_value_paid += value

@@ -1,12 +1,12 @@
 from backend.app.db.models import AppSettingsModel
 from backend.app.services.case_economy import (
-    SUPPRESS_MARGIN_COINS,
     TARGET_RTP,
     current_surplus,
     pick_reward,
     record_payout,
     record_spend,
     reward_value,
+    suppress_margin,
 )
 from backend.tests.factories import make_case, make_user
 from sqlalchemy import select
@@ -32,17 +32,17 @@ def test_pick_reward_uses_full_pool_when_surplus_is_low():
         {"coins": 1000, "chance_percent": 50},
     ]
     # Surplus well under the margin — both tiers must still be reachable.
-    seen = {pick_reward(rewards, cost_coins=50, surplus=0)["coins"] for _ in range(200)}
+    seen = {pick_reward(rewards, cost_coins=50, surplus=0, total_spent_coins=0)["coins"] for _ in range(200)}
     assert seen == {10, 1000}
 
 
-def test_pick_reward_excludes_above_average_tiers_once_surplus_is_hot():
+def test_pick_reward_excludes_the_biggest_tiers_once_surplus_is_hot():
     rewards = [
-        {"coins": 10, "chance_percent": 50},   # at/under a 50*TARGET_RTP average — stays in the pool
+        {"coins": 10, "chance_percent": 50},    # under 2x the 50*TARGET_RTP average — stays in the pool
         {"coins": 1000, "chance_percent": 50},  # far above it — must be cut
     ]
-    hot_surplus = SUPPRESS_MARGIN_COINS + 1
-    seen = {pick_reward(rewards, cost_coins=50, surplus=hot_surplus)["coins"] for _ in range(50)}
+    hot_surplus = suppress_margin(total_spent_coins=0) + 1
+    seen = {pick_reward(rewards, cost_coins=50, surplus=hot_surplus, total_spent_coins=0)["coins"] for _ in range(50)}
     assert seen == {10}
 
 
@@ -51,23 +51,34 @@ def test_pick_reward_never_empties_the_pool_even_when_every_tier_is_above_averag
     # throttling must fall back to the full pool rather than crash on an
     # empty weights list.
     rewards = [{"coins": 1000, "chance_percent": 100}]
-    hot_surplus = SUPPRESS_MARGIN_COINS + 1
-    chosen = pick_reward(rewards, cost_coins=50, surplus=hot_surplus)
+    hot_surplus = suppress_margin(total_spent_coins=0) + 1
+    chosen = pick_reward(rewards, cost_coins=50, surplus=hot_surplus, total_spent_coins=0)
     assert chosen["coins"] == 1000
 
 
+def test_suppress_margin_scales_with_volume_but_has_a_floor():
+    assert suppress_margin(0) == 500
+    assert suppress_margin(1000) == 500  # 12% of 1000 is still under the floor
+    assert suppress_margin(10000) == 1200
+
+
 async def test_current_surplus_reflects_the_target_ratio(db_session):
-    assert await current_surplus(db_session) == 0
+    surplus, spent = await current_surplus(db_session)
+    assert (surplus, spent) == (0, 0)
 
     await record_spend(db_session, 1250)
     await db_session.commit()
     # Nothing paid out yet — running "ahead" is negative (a credit, not a surplus).
-    assert await current_surplus(db_session) == round(0 - 1250 * TARGET_RTP)
+    surplus, spent = await current_surplus(db_session)
+    assert surplus == round(0 - 1250 * TARGET_RTP)
+    assert spent == 1250
 
     await record_payout(db_session, 1000)
     await db_session.commit()
     # 1250 spent, 1000 paid — exactly on the 80% target ratio.
-    assert await current_surplus(db_session) == 0
+    surplus, spent = await current_surplus(db_session)
+    assert surplus == 0
+    assert spent == 1250
 
 
 async def test_buying_and_opening_a_case_updates_the_shared_ledger(client, db_session, auth_as):
