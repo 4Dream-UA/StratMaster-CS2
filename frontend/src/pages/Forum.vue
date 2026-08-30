@@ -111,7 +111,7 @@
               <template v-if="canModifyActiveThread">
                 <button class="icon-btn" title="Edit title" @click="startEditTitle"><EditIcon /></button>
                 <button v-if="isAdmin" class="icon-btn" :title="activeThread?.is_pinned ? 'Unpin' : 'Pin'" @click="toggleActiveThreadPin"><PinIcon /></button>
-                <button v-if="isAdmin && activeCategory?.key === 'support'" class="icon-btn" :title="activeThread?.is_closed ? 'Reopen ticket' : 'Close ticket'" @click="toggleClose"><LockIcon /></button>
+                <button v-if="canCloseOrReopen" class="icon-btn" :title="activeThread?.is_closed ? 'Reopen thread' : 'Close thread (view-only)'" @click="toggleClose"><LockIcon /></button>
                 <button class="icon-btn danger" title="Delete thread" @click="deleteActiveThread"><TrashIcon /></button>
               </template>
             </div>
@@ -168,6 +168,18 @@
                   </div>
                 </template>
                 <div v-else class="post-body" v-html="renderMarkdown(p.body)"></div>
+
+                <div class="post-reactions">
+                  <button
+                    v-for="emoji in REACTION_EMOJIS" :key="emoji" type="button" class="reaction-btn"
+                    :class="{ active: reactionFor(p, emoji)?.reacted_by_me }"
+                    :disabled="reactBusyId === p.id"
+                    @click="toggleReaction(p, emoji)"
+                  >
+                    <span>{{ emoji }}</span>
+                    <span v-if="reactionFor(p, emoji)?.count" class="reaction-count">{{ reactionFor(p, emoji).count }}</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -186,7 +198,10 @@
             </button>
             <p v-if="errorMsg" class="err">{{ errorMsg }}</p>
           </div>
-          <p v-else class="closed-notice">This ticket is closed. An admin can reopen it if you still need help.</p>
+          <p v-else class="closed-notice">
+            {{ activeCategory?.key === 'support' ? 'This ticket is closed.' : 'This thread is closed to new replies.' }}
+            An admin can reopen it.
+          </p>
         </template>
       </template>
     </div>
@@ -434,13 +449,24 @@ const categoryDraft = ref({ name: '', description: '' })
 const route = useRoute()
 const router = useRouter()
 
+// Switching between categories/threads/thread is all internal component
+// state, not a real route change — vue-router's scrollBehavior never runs
+// for it. Without resetting scroll here, leaving a tall thread for a much
+// shorter list leaves the page scrolled to wherever it happened to land,
+// often stranding the reader down near the footer.
+function scrollToTop() {
+  window.scrollTo({ top: 0, behavior: 'auto' })
+}
+
 function goToCategories() {
   errorMsg.value = ''
   view.value = 'categories'
+  scrollToTop()
 }
 function goToThreads() {
   errorMsg.value = ''
   view.value = 'threads'
+  scrollToTop()
 }
 
 const breadcrumbItems = computed(() => {
@@ -466,6 +492,14 @@ function canModifyPost(p) {
   return isAdmin.value || p.author_id === currentUserId.value
 }
 const canModifyActiveThread = computed(() => activeThread.value && canModifyThread(activeThread.value))
+// A player can close their own thread (view-only from then on) but not
+// reopen it themselves — only an admin can undo a close. So the button
+// only shows when there's actually something the current user can do:
+// close it (open + can modify) or reopen it (closed + admin).
+const canCloseOrReopen = computed(() => {
+  if (!canModifyActiveThread.value) return false
+  return !activeThread.value?.is_closed || isAdmin.value
+})
 
 async function loadCategories() {
   loadingCategories.value = true
@@ -498,6 +532,7 @@ async function openCategory(cat) {
   threadsPage.value = 1
   newThreadOpen.value = false
   view.value = 'threads'
+  scrollToTop()
   await loadThreads(cat.key)
 }
 
@@ -532,6 +567,7 @@ async function openThread(id) {
   editingPostId.value = null
   replyingTo.value = null
   shareOpen.value = false
+  scrollToTop()
   try {
     activeThread.value = await forumAPI.getThread(id)
   } finally {
@@ -653,6 +689,24 @@ async function saveEditPost() {
   }
 }
 
+// ── Emoji reactions ────────────────────────────────────────────
+const REACTION_EMOJIS = ['❤️', '👍', '🤡', '😂']
+const reactBusyId = ref(null)
+function reactionFor(post, emoji) {
+  return post.reactions?.find(r => r.emoji === emoji)
+}
+async function toggleReaction(post, emoji) {
+  if (reactBusyId.value) return
+  reactBusyId.value = post.id
+  try {
+    activeThread.value = await forumAPI.react(post.id, emoji)
+  } catch (e) {
+    errorMsg.value = e.response?.data?.detail || 'Could not react to that post.'
+  } finally {
+    reactBusyId.value = null
+  }
+}
+
 function formatTime(iso) {
   const d = new Date(iso)
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -682,7 +736,7 @@ onMounted(async () => {
 
 <style scoped>
 .forum-page { min-height: 100vh; background: var(--bg); }
-.forum-content { max-width: 760px; padding: 32px 20px 140px; }
+.forum-content { max-width: 860px; padding: 32px 20px 140px; }
 
 .upsell-card {
   background: linear-gradient(160deg, rgba(255,154,0,0.08), var(--bg-elevated) 60%);
@@ -849,6 +903,20 @@ onMounted(async () => {
 .post-body :deep(a) { color: var(--accent); }
 .post-body :deep(code) { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 
+.post-reactions { display: flex; gap: 5px; margin-top: 10px; flex-wrap: wrap; }
+.reaction-btn {
+  display: flex; align-items: center; gap: 4px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 99px;
+  padding: 3px 9px; font-size: 13px; line-height: 1.4; cursor: pointer;
+  transition: border-color .15s, background .15s, transform .1s;
+}
+.reaction-btn:hover { border-color: var(--accent); }
+.reaction-btn:active { transform: scale(0.94); }
+.reaction-btn:disabled { opacity: .6; cursor: default; }
+.reaction-btn.active { border-color: var(--accent); background: rgba(255,154,0,.12); }
+.reaction-count { font-size: 11px; font-weight: 700; color: var(--text-dim); }
+.reaction-btn.active .reaction-count { color: var(--accent); }
+
 .post-quote {
   font-size: 12px; color: var(--text-dim); line-height: 1.5;
   background: var(--bg); border-left: 2px solid var(--accent);
@@ -889,7 +957,7 @@ onMounted(async () => {
   user-select: none;
 }
 .forum-content :deep(.forum-avatar-img) { width: 100%; height: 100%; object-fit: cover; }
-.forum-content :deep(.forum-avatar-admin) { box-shadow: 0 0 0 2px var(--accent); }
+.forum-content :deep(.forum-avatar-admin) { box-shadow: 0 0 0 2px var(--danger); }
 .forum-content :deep(.forum-avatar-badge) {
   position: absolute; bottom: -2px; right: -2px;
   width: 16px; height: 16px; border-radius: 50%;

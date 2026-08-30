@@ -29,6 +29,9 @@
             <div class="post-main">
               <div class="post-head"><span class="post-time">{{ formatTime(p.created_at) }}</span></div>
               <div class="post-body" v-html="renderMarkdown(p.body)"></div>
+              <div v-if="p.reactions?.length" class="post-reactions">
+                <span v-for="r in p.reactions" :key="r.emoji" class="reaction-pill">{{ r.emoji }} {{ r.count }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -106,7 +109,7 @@ onMounted(async () => {
 
 <style scoped>
 .shared-thread-page { min-height: 100vh; background: var(--bg); }
-.shared-thread-content { padding: 28px 20px 100px; max-width: 760px; }
+.shared-thread-content { padding: 28px 20px 100px; max-width: 820px; }
 
 .loader-row { display: flex; justify-content: center; padding: 80px 0; }
 .spinner {
@@ -144,6 +147,11 @@ onMounted(async () => {
 .post-body :deep(.md-img) { max-width: 100%; border-radius: 8px; margin: 6px 0; display: block; }
 .post-body :deep(a) { color: var(--accent); }
 .post-body :deep(code) { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+.post-reactions { display: flex; gap: 5px; margin-top: 10px; flex-wrap: wrap; }
+.reaction-pill {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 99px;
+  padding: 3px 9px; font-size: 12px; color: var(--text-dim); font-weight: 700;
+}
 
 /* Avatar is a plain render()-function component, not an SFC — Vue only
    stamps the scope attribute onto its root, so nested selectors need an
@@ -155,7 +163,7 @@ onMounted(async () => {
   color: #fff; font-weight: 800; text-shadow: 0 1px 2px rgba(0,0,0,.35); user-select: none;
 }
 .shared-thread-content :deep(.thread-avatar-img) { width: 100%; height: 100%; object-fit: cover; }
-.shared-thread-content :deep(.thread-avatar-admin) { box-shadow: 0 0 0 2px var(--accent); }
+.shared-thread-content :deep(.thread-avatar-admin) { box-shadow: 0 0 0 2px var(--danger); }
 
 .cta-row {
   margin-top: 28px; display: flex; align-items: center; justify-content: space-between;

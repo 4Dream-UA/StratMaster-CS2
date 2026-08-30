@@ -44,6 +44,10 @@ export const forumAPI = {
     const response = await apiClient.patch(`/api/forum/posts/${id}`, { body })
     return response.data
   },
+  async react(postId, emoji) {
+    const response = await apiClient.post(`/api/forum/posts/${postId}/react`, { emoji })
+    return response.data  // full thread, same shape as getThread
+  },
   async uploadImage(file) {
     const formData = new FormData()
     formData.append('file', file)
