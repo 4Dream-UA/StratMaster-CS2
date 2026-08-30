@@ -13,6 +13,7 @@ import AdminStrategies from '../pages/AdminStrategies.vue'
 import AdminUsers from '../pages/AdminUsers.vue'
 import AdminPromo from '../pages/AdminPromo.vue'
 import AdminTransactions from '../pages/AdminTransactions.vue'
+import Legal from '../pages/Legal.vue'
 
 const routes = [
   { path: '/', name: 'Home', component: Home },
@@ -37,6 +38,8 @@ const routes = [
   { path: '/admin/promo', name: 'AdminPromo', component: AdminPromo },
   { path: '/admin/transactions', name: 'AdminTransactions', component: AdminTransactions },
   { path: '/admin/p2p', redirect: '/admin/transactions' },
+  { path: '/terms', name: 'Terms', component: Legal },
+  { path: '/privacy', name: 'Privacy', component: Legal },
 ]
 
 export const router = createRouter({

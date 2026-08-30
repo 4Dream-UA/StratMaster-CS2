@@ -35,8 +35,12 @@
     </div>
 
     <div class="footer-bottom">
-      <div class="wrap">
+      <div class="wrap footer-bottom-inner">
         <span>© 2025 StratMaster CS2. All rights reserved.</span>
+        <nav class="footer-legal">
+          <router-link to="/terms">Terms</router-link>
+          <router-link to="/privacy">Privacy</router-link>
+        </nav>
         <span class="footer-tag">Built for winners.</span>
       </div>
     </div>
@@ -102,7 +106,12 @@ const { logoUrl } = storeToRefs(useSettingsStore())
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 20px;
 }
+.footer-legal { display: flex; gap: 16px; }
+.footer-legal a { color: var(--text-dim); font-size: 13px; text-decoration: none; transition: color .15s; }
+.footer-legal a:hover { color: var(--accent); }
 .footer-bottom span {
   color: var(--text-dim);
   font-size: 13px;
