@@ -22,6 +22,7 @@
         <h4>Support</h4>
         <ul>
           <li><a href="https://t.me/+xyLN_GYPgvI5YWUy">Contact</a></li>
+          <li><router-link to="/forum">Ticket</router-link></li>
         </ul>
       </div>
 
