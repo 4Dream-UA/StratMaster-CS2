@@ -663,3 +663,33 @@ async def test_hidden_username_is_masked_from_other_players_but_not_admins_or_se
     auth_as(admin)
     posts = (await client.get(f"/api/forum/threads/{thread['id']}")).json()["posts"]
     assert posts[0]["author_username"] == author.username
+
+
+async def test_hidden_username_shows_a_stable_anon_handle_instead_of_the_display_name(client, db_session, auth_as):
+    import re
+
+    author = await make_user(db_session, subscribed=True)
+    other = await make_user(db_session, subscribed=True)
+    auth_as(author)
+    await client.patch("/api/me/nickname", json={"nickname": "TotallyIdentifiable"})
+    await client.patch("/api/me/forum-privacy", json={"hide_username_on_forum": True})
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "Hi"})).json()
+    reply1 = (await client.post(f"/api/forum/threads/{thread['id']}/posts", json={"body": "again"})).json()
+
+    auth_as(other)
+    posts = (await client.get(f"/api/forum/threads/{thread['id']}")).json()["posts"]
+    handles = {p["author_display_name"] for p in posts}
+    assert len(handles) == 1  # same anon handle both times, not a fresh random one per post
+    handle = handles.pop()
+    assert re.fullmatch(r"Player#\d{5}", handle)
+    assert handle != "TotallyIdentifiable"
+
+    # Quoting a hidden-username post in a reply mustn't leak their real
+    # nickname through the quoted snippet either.
+    reply2 = await client.post(
+        f"/api/forum/threads/{thread['id']}/posts",
+        json={"body": "quoting", "reply_to_post_id": reply1["posts"][-1]["id"]},
+    )
+    quoted = reply2.json()["posts"][-1]["reply_to"]
+    assert quoted["author_display_name"] == handle
+    assert quoted["author_username"] is None

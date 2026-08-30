@@ -1,3 +1,4 @@
+import hashlib
 import re
 import uuid
 from datetime import datetime, timezone
@@ -59,21 +60,40 @@ async def _get_category(db, key: str) -> ForumCategoryModel:
     return category
 
 
-def _visible_username(author: UserModel, viewer: UserModel) -> str | None:
-    if author.hide_username_on_forum and not viewer.is_admin and author.id != viewer.id:
-        return None
-    return author.username
+def _anon_handle(user_id: uuid.UUID) -> str:
+    """A stable "Player#12345" stand-in for a hidden username — derived
+    from the user's own id, so it's always the same handle for the same
+    person (letting readers tell "this is the same poster again" apart
+    without it being remotely identifying), not a fresh random one per
+    render."""
+    digits = int(hashlib.sha256(user_id.bytes).hexdigest(), 16) % 100000
+    return f"Player#{digits:05d}"
+
+
+def _is_hidden_from(author: UserModel, viewer: UserModel) -> bool:
+    return author.hide_username_on_forum and not viewer.is_admin and author.id != viewer.id
+
+
+def _visible_identity(author: UserModel, viewer: UserModel) -> tuple[str | None, str | None]:
+    """(username, display_name) as `viewer` should see them — hiding the
+    username also replaces the display name with the same anon handle,
+    since a self-chosen nickname can be just as identifying as the
+    Telegram @username it was meant to stand in for."""
+    if _is_hidden_from(author, viewer):
+        return None, _anon_handle(author.id)
+    return author.username, author.display_name
 
 
 async def _thread_preview(db, thread: ForumThreadModel, viewer: UserModel) -> ForumThreadPreview:
     post_count = (
         await db.execute(select(func.count()).select_from(ForumPostModel).where(ForumPostModel.thread_id == thread.id))
     ).scalar() or 0
+    username, display_name = _visible_identity(thread.user, viewer)
     return ForumThreadPreview(
         id=thread.id,
         title=thread.title,
-        author_username=_visible_username(thread.user, viewer),
-        author_display_name=thread.user.display_name,
+        author_username=username,
+        author_display_name=display_name,
         author_avatar_url=thread.user.avatar_url,
         author_id=thread.user_id,
         author_is_admin=thread.user.is_admin,
@@ -253,20 +273,31 @@ def _post_out(
     p: ForumPostModel, viewer: UserModel | None = None, users_by_id: dict[uuid.UUID, UserModel] | None = None,
 ) -> ForumPostOut:
     users_by_id = users_by_id or {}
+    viewer_id = viewer.id if viewer is not None else None
+    is_admin_viewer = viewer is not None and viewer.is_admin
+    is_author_viewer = viewer is not None and viewer.id == p.user_id
+
+    def identity_for(author: UserModel) -> tuple[str | None, str | None]:
+        # No viewer (anonymous share link): never privileged, never the
+        # author — same as _visible_identity's "everyone else" branch.
+        if viewer is None:
+            if author.hide_username_on_forum:
+                return None, _anon_handle(author.id)
+            return author.username, author.display_name
+        return _visible_identity(author, viewer)
+
+    author_username, author_display_name = identity_for(p.user)
+
     reply_to = None
     if p.reply_to is not None:
         snippet = p.reply_to.body[:REPLY_SNIPPET_LEN]
         if len(p.reply_to.body) > REPLY_SNIPPET_LEN:
             snippet += "…"
+        quoted_username, quoted_display_name = identity_for(p.reply_to.user)
         reply_to = ReplyToOut(
-            id=p.reply_to.id, author_username=p.reply_to.user.username,
-            author_display_name=p.reply_to.user.display_name, body_snippet=snippet,
+            id=p.reply_to.id, author_username=quoted_username,
+            author_display_name=quoted_display_name, body_snippet=snippet,
         )
-
-    viewer_id = viewer.id if viewer is not None else None
-    is_admin_viewer = viewer is not None and viewer.is_admin
-    is_author_viewer = viewer is not None and viewer.id == p.user_id
-    author_username = (None if p.user.hide_username_on_forum else p.user.username) if viewer is None else _visible_username(p.user, viewer)
 
     visible_to = []
     if (is_admin_viewer or is_author_viewer) and p.visible_to_user_ids:
@@ -278,7 +309,7 @@ def _post_out(
     deleted_by = users_by_id.get(p.deleted_by_id) if p.deleted_by_id else None
 
     return ForumPostOut(
-        id=p.id, author_username=author_username, author_display_name=p.user.display_name,
+        id=p.id, author_username=author_username, author_display_name=author_display_name,
         author_avatar_url=p.user.avatar_url, author_id=p.user_id,
         author_is_admin=p.user.is_admin,
         body="[deleted]" if p.deleted_at and not is_admin_viewer else p.body,
