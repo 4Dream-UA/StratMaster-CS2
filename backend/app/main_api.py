@@ -1,12 +1,17 @@
+import logging
+import traceback
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.app.core.config import UPLOAD_DIR, settings
-from backend.app.api.routers import users, strategies, webhooks, referral, promo, admin, subscription, wallet, payments, favorites, uploads, boards, cases, forum
+from backend.app.api.routers import users, strategies, webhooks, referral, promo, admin, subscription, wallet, payments, favorites, uploads, boards, cases, forum, errors
 from backend.app.api.routers import settings as settings_router
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -59,9 +64,38 @@ app.include_router(boards.router, prefix="/api", tags=["boards"])
 app.include_router(cases.router, prefix="/api", tags=["cases"])
 app.include_router(forum.router, prefix="/api", tags=["forum"])
 app.include_router(settings_router.router, prefix="/api", tags=["settings"])
+app.include_router(errors.router, prefix="/api", tags=["errors"])
 
 # Serves admin-uploaded images back out at the URL the upload endpoint returns.
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
+
+@app.exception_handler(Exception)
+async def log_unhandled_exception(request: Request, exc: Exception):
+    """Every previously-unhandled exception used to just become a 500 with
+    no record anywhere but the container's stdout — invisible the moment
+    logs rotate. Best-effort logs it to error_logs too (a fresh DB session,
+    since the one on the failed request may itself be in a bad state) so
+    it shows up for admins, then re-raises the same plain 500 the default
+    handler would have returned."""
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+
+    try:
+        from backend.app.db.database import AsyncSessionLocal
+        from backend.app.db.models import ErrorLogModel
+
+        async with AsyncSessionLocal() as db:
+            db.add(ErrorLogModel(
+                source="backend",
+                message=f"{type(exc).__name__}: {exc}",
+                stack="".join(traceback.format_exception(type(exc), exc, exc.__traceback__))[-8000:],
+                url=str(request.url.path),
+            ))
+            await db.commit()
+    except Exception:
+        logger.exception("Also failed to persist the error log for the exception above")
+
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 @app.get("/healthcheck", tags=["system"])

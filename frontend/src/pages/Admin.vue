@@ -45,6 +45,10 @@
           <span class="stat-value" :class="{ warn: stats?.pending_reports_count > 0 }">{{ stats?.pending_reports_count ?? '—' }}</span>
           <span class="stat-label">Reports</span>
         </button>
+        <button type="button" class="stat-box stat-box-link" @click="openErrors">
+          <span class="stat-value" :class="{ warn: stats?.recent_errors_count > 0 }">{{ stats?.recent_errors_count ?? '—' }}</span>
+          <span class="stat-label">Errors (24h)</span>
+        </button>
       </section>
 
       <!-- ── TOOL TILES ───────────────────────────────── -->
@@ -74,6 +78,30 @@
 
     </div>
 
+    <!-- ── ERRORS POPUP ─────────────────────────────────── -->
+      <div v-if="errorsOpen" class="modal-backdrop" @click.self="errorsOpen = false">
+        <div class="modal errors-modal">
+          <button class="modal-close" @click="errorsOpen = false">✕</button>
+          <h3 class="modal-title">Recent errors</h3>
+          <div v-if="errorsLoading" class="loading-row">Loading…</div>
+          <div v-else class="errors-list">
+            <div v-for="e in errorLogs" :key="e.id" class="error-row">
+              <div class="error-row-head">
+                <span class="error-source" :class="e.source">{{ e.source }}</span>
+                <span class="error-time">{{ formatErrorTime(e.created_at) }}</span>
+              </div>
+              <p class="error-message">{{ e.message }}</p>
+              <p v-if="e.url" class="error-url">{{ e.url }}</p>
+              <details v-if="e.stack" class="error-stack-details">
+                <summary>Stack trace</summary>
+                <pre class="error-stack">{{ e.stack }}</pre>
+              </details>
+            </div>
+            <p v-if="!errorLogs.length" class="empty">No errors logged.</p>
+          </div>
+        </div>
+      </div>
+
     <Footer />
   </main>
 </template>
@@ -99,6 +127,22 @@ const { logoUrl } = storeToRefs(settingsStore)
 
 const stats = ref(null)
 const logoUrlDraft = ref('')
+
+const errorsOpen = ref(false)
+const errorLogs = ref([])
+const errorsLoading = ref(false)
+async function openErrors() {
+  errorsOpen.value = true
+  errorsLoading.value = true
+  try {
+    errorLogs.value = await adminAPI.getErrors()
+  } finally {
+    errorsLoading.value = false
+  }
+}
+function formatErrorTime(iso) {
+  return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
 const savingLogo = ref(false)
 
 async function saveLogo() {
@@ -234,4 +278,42 @@ onMounted(async () => {
 .mini-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); box-shadow: 0 4px 14px -4px rgba(255,154,0,.4); transform: translateY(-1px); }
 .mini-btn:active:not(:disabled) { transform: translateY(0); }
 .mini-btn:disabled { opacity: .6; cursor: wait; }
+
+/* ── Errors popup ─────────────────────────────── */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 500;
+  background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center;
+  padding: 20px; backdrop-filter: blur(4px); overflow-y: auto;
+}
+.modal {
+  position: relative; width: 100%; max-width: 560px;
+  background: var(--bg-elevated); border: 1px solid var(--line);
+  border-radius: var(--radius-lg); padding: 28px 22px 22px; margin: auto;
+}
+.modal-close {
+  position: absolute; top: 14px; right: 14px; width: 28px; height: 28px; border-radius: 8px;
+  background: var(--bg); border: 1px solid var(--line); color: var(--text-dim); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 12px;
+}
+.modal-close:hover { border-color: var(--accent); color: var(--accent); }
+.modal-title { font-size: 17px; font-weight: 800; color: var(--text); margin-bottom: 16px; }
+
+.errors-list { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; }
+.error-row { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.error-row-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.error-source {
+  font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+  padding: 2px 8px; border-radius: 99px; background: var(--bg-elevated); border: 1px solid var(--line); color: var(--text-dim);
+}
+.error-source.backend { background: rgba(235,75,75,.12); border-color: rgba(235,75,75,.35); color: var(--danger); }
+.error-source.frontend { background: rgba(255,154,0,.12); border-color: rgba(255,154,0,.35); color: var(--accent); }
+.error-time { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+.error-message { font-size: 12.5px; color: var(--text); word-break: break-word; margin-bottom: 4px; }
+.error-url { font-size: 11px; color: var(--text-dim); font-family: monospace; word-break: break-all; }
+.error-stack-details { margin-top: 6px; }
+.error-stack-details summary { font-size: 11px; color: var(--accent); cursor: pointer; }
+.error-stack {
+  font-size: 10.5px; color: var(--text-dim); white-space: pre-wrap; word-break: break-word;
+  background: var(--bg-inset, var(--bg)); border-radius: 6px; padding: 8px; margin-top: 6px; max-height: 200px; overflow-y: auto;
+}
 </style>

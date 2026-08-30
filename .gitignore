@@ -200,3 +200,6 @@ test/
 # not something the repo should track.
 backend/uploads/*
 !backend/uploads/.gitkeep
+
+# Local DB dumps from scripts/backup_db.sh — contain real data, never commit.
+backups/

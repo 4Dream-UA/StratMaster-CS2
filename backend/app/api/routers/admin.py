@@ -75,7 +75,7 @@ async def get_admin_stats(db: DBSession, admin_user: AdminUser) -> dict:
         )
     ).scalar() or 0
 
-    from backend.app.db.models import ForumCategoryModel, ForumPostReportModel
+    from backend.app.db.models import ErrorLogModel, ForumCategoryModel, ForumPostReportModel
 
     open_tickets_count = (
         await db.execute(
@@ -92,6 +92,12 @@ async def get_admin_stats(db: DBSession, admin_user: AdminUser) -> dict:
             select(func.count()).select_from(ForumPostReportModel).where(ForumPostReportModel.resolved_at.is_(None))
         )
     ).scalar() or 0
+    recent_errors_count = (
+        await db.execute(
+            select(func.count()).select_from(ErrorLogModel)
+            .where(ErrorLogModel.created_at > datetime.now(timezone.utc) - timedelta(hours=24))
+        )
+    ).scalar() or 0
 
     return {
         "users_count": users_count,
@@ -102,6 +108,7 @@ async def get_admin_stats(db: DBSession, admin_user: AdminUser) -> dict:
         "open_tickets_count": open_tickets_count,
         "pending_deleted_posts_count": pending_deleted_posts_count,
         "pending_reports_count": pending_reports_count,
+        "recent_errors_count": recent_errors_count,
     }
 
 

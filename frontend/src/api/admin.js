@@ -5,6 +5,10 @@ export const adminAPI = {
     const response = await apiClient.get('/api/admin/stats')
     return response.data
   },
+  async getErrors(limit = 50) {
+    const response = await apiClient.get('/api/admin/errors', { params: { limit } })
+    return response.data
+  },
 
   // ── Maps ──────────────────────────────────
   async getMaps(params = {}) {
