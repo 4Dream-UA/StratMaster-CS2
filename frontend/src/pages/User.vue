@@ -140,11 +140,12 @@
       </nav>
 
       <!-- ── PANEL ────────────────────────────────────── -->
-      <!-- Explicit :duration bypasses waiting on the transitionend DOM event —
-           if that never fires (backgrounded tab, reduced-motion, or just a
-           fast double-click queuing a second transition mid-flight), Vue's
-           out-in transition gets stuck showing the outgoing panel forever. -->
-      <transition name="panel" mode="out-in" :duration="180">
+      <!-- No <transition> wrapper here on purpose: an out-in Vue transition
+           previously wrapped this chain, but it could get stuck showing the
+           outgoing panel forever (backgrounded tab, reduced-motion, or a
+           fast double-click queuing a second transition mid-flight) even
+           with an explicit :duration fallback — leaving every tab switch
+           broken until reload. Not worth an animation. -->
         <section v-if="activeTab === 'referral'" key="referral" class="panel-wrap">
           <ReferralSection />
         </section>
@@ -298,19 +299,55 @@
           <CasesPanel :initial-view="route.query.sub === 'offers' ? 'offers' : 'shop'" />
         </section>
 
+        <section v-else-if="activeTab === 'settings'" key="settings" class="panel-wrap panel-card">
+          <div class="panel-header">
+            <span class="panel-icon" v-html="ICONS.settings"></span>
+            <h3>Settings</h3>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>Hide my username on the forum</strong>
+              <span>Other players won't see your @username on posts or threads — admins always can. Your display name still shows.</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" :checked="user?.hide_username_on_forum" @change="onHideUsernameToggle($event.target.checked)" />
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+            </label>
+          </div>
+
+          <div class="panel-header settings-subhead">
+            <h3>Public profile</h3>
+          </div>
+          <p class="panel-desc">Optional — fill in anything you'd like other players to see when they tap your avatar on the forum. Leave a field blank to keep it private.</p>
+
+          <div class="profile-info-grid">
+            <label v-for="f in PROFILE_FIELDS" :key="f.key" class="profile-info-field">
+              <span class="profile-info-icon" v-html="f.icon"></span>
+              <input v-model="profileInfoDraft[f.key]" type="text" :placeholder="f.label" maxlength="128" />
+            </label>
+          </div>
+          <div class="form-actions">
+            <button class="btn-primary" :disabled="profileInfoBusy" @click="saveProfileInfo">
+              {{ profileInfoBusy ? 'Saving…' : 'Save' }}
+            </button>
+            <p v-if="profileInfoSaved" class="panel-message success">Saved!</p>
+          </div>
+        </section>
+
         <p v-else key="hint" class="hotbar-hint">Tap an option above to get started.</p>
-      </transition>
 
     </div>
 
     <Footer />
 
     <!-- ── TOP UP POPUP ─────────────────────────────────── -->
-    <!-- Explicit :duration bypasses waiting on the transitionend DOM event —
-         if that never fires (backgrounded tab, reduced-motion), Vue's
-         <transition> gets stuck mid-leave forever: an invisible
-         position:fixed;inset:0 backdrop keeps blocking every click. -->
-    <transition name="fade" :duration="200">
+    <!-- No <transition> here on purpose — an explicit :duration doesn't
+         reliably save it: a Vue <transition> can still get stuck mid-leave
+         forever (backgrounded tab, reduced-motion, a fast double-toggle),
+         leaving this fixed position:fixed;inset:0 backdrop rendered
+         invisibly and silently blocking every click on the page
+         underneath it until reload — unacceptable on the main top-up flow. -->
       <div v-if="topupOpen" class="modal-backdrop" @click.self="closeTopupModal">
         <div class="modal">
           <button class="modal-close" @click="closeTopupModal">✕</button>
@@ -363,10 +400,10 @@
           </div>
         </div>
       </div>
-    </transition>
 
     <!-- ── AUTO-RENEW METHOD POPUP ──────────────────────── -->
-    <transition name="fade" :duration="200">
+    <!-- No <transition> here either — same stuck-mid-leave risk as the
+         top-up popup above. -->
       <div v-if="autoRenewModalOpen" class="modal-backdrop" @click.self="closeAutoRenewModal">
         <div class="modal">
           <button class="modal-close" @click="closeAutoRenewModal">✕</button>
@@ -431,7 +468,6 @@
           </div>
         </div>
       </div>
-    </transition>
   </main>
 </template>
 
@@ -476,6 +512,7 @@ function toggleTab(key) {
   if (activeTab.value === 'favorites' && !favoritesLoaded.value) loadFavorites()
   if (activeTab.value === 'strategies' && !favStrategiesLoaded.value) loadFavStrategies()
   if (activeTab.value === 'p2p' && !blockedList.value.length) loadBlocked()
+  if (activeTab.value === 'settings') resetProfileInfoDraft()
   // Switching tabs is internal state, not a route change, so vue-router's
   // scrollBehavior never runs for it — without this, leaving a tall panel
   // (e.g. Cases) for a short one can leave the page scrolled well past its
@@ -660,6 +697,45 @@ async function toggleAutoRenew(enabled, method = 'mastercoins') {
 
 function methodLabel(method) {
   return method === 'crypto' ? 'Crypto' : 'MasterCoins'
+}
+
+// ── Settings: hide-username toggle + public profile info ─────────────
+async function onHideUsernameToggle(checked) {
+  const updated = await authAPI.updateForumPrivacy(checked)
+  if (user.value) user.value.hide_username_on_forum = updated.hide_username_on_forum
+}
+
+const PROFILE_FIELDS = [
+  { key: 'location', label: 'Location', icon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none"><path d="M12 21s7-6.5 7-11.5A7 7 0 105 9.5C5 14.5 12 21 12 21z" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="9.5" r="2.4" stroke="currentColor" stroke-width="1.6"/></svg>' },
+  { key: 'telegram', label: 'Telegram', icon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none"><path d="M21 4L2.5 11.3c-.9.35-.9 1.65.05 1.95l4.4 1.4 1.7 5.3c.3.9 1.4 1.1 2 .35l2.5-3 4.9 3.6c.85.6 2.05.15 2.3-.85L22.8 5.1c.25-1.05-.75-1.9-1.8-1.1z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>' },
+  { key: 'instagram', label: 'Instagram', icon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none"><rect x="3" y="3" width="18" height="18" rx="5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.6"/><circle cx="17.5" cy="6.5" r="1.1" fill="currentColor"/></svg>' },
+  { key: 'discord', label: 'Discord', icon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none"><path d="M6 8.5C8 7 10 6.5 12 6.5s4 .5 6 2M5 9c-1.5 3-2 6-1.5 9.5 2 1.5 4 2 4 2l1-2M19 9c1.5 3 2 6 1.5 9.5-2 1.5-4 2-4 2l-1-2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="9" cy="13.5" r="1.4" fill="currentColor"/><circle cx="15" cy="13.5" r="1.4" fill="currentColor"/></svg>' },
+  { key: 'faceit', label: 'Faceit', icon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none"><path d="M12 2l8 4.5v11L12 22l-8-4.5v-11L12 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 12h6M12 9v6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' },
+  { key: 'steam', label: 'Steam', icon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none"><circle cx="12" cy="12" r="9.5" stroke="currentColor" stroke-width="1.5"/><circle cx="15.5" cy="9" r="2.3" stroke="currentColor" stroke-width="1.4"/><path d="M4.5 15l4 1.6a2.3 2.3 0 104-1.1l3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' },
+  { key: 'whatsapp', label: 'WhatsApp', icon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none"><path d="M4 20l1.4-4A8 8 0 1112 20a8 8 0 01-4-1.4L4 20z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 9.5c0 3 2.5 5.5 5.5 5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' },
+  { key: 'twitch', label: 'Twitch', icon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none"><path d="M5 3l-1.5 4v12h5V22l3-3h4l4.5-4.5V3H5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M13 8v4M17 8v4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' },
+]
+function blankProfileInfo() {
+  return Object.fromEntries(PROFILE_FIELDS.map(f => [f.key, '']))
+}
+const profileInfoDraft = ref(blankProfileInfo())
+const profileInfoBusy = ref(false)
+const profileInfoSaved = ref(false)
+function resetProfileInfoDraft() {
+  profileInfoDraft.value = { ...blankProfileInfo(), ...(user.value?.profile_info || {}) }
+  profileInfoSaved.value = false
+}
+async function saveProfileInfo() {
+  profileInfoBusy.value = true
+  profileInfoSaved.value = false
+  try {
+    const updated = await authAPI.updateProfileInfo(profileInfoDraft.value)
+    if (user.value) user.value.profile_info = updated.profile_info
+    profileInfoSaved.value = true
+    setTimeout(() => { profileInfoSaved.value = false }, 2000)
+  } finally {
+    profileInfoBusy.value = false
+  }
 }
 
 function onAutoRenewToggle(checked) {
@@ -971,6 +1047,10 @@ const ICONS = {
     <path d="M14.7 6.3a4 4 0 00-5.4 4.6L4 16.2V20h3.8l5.3-5.3a4 4 0 004.6-5.4l-2.6 2.6-2-2 2.6-2.6z"
           stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
   </svg>`,
+  settings: `<svg viewBox="0 0 24 24" fill="none" width="20" height="20">
+    <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/>
+    <path d="M19.4 13a7.6 7.6 0 000-2l2-1.5-2-3.4-2.4.6a7.6 7.6 0 00-1.7-1L15 3h-4l-.3 2.7a7.6 7.6 0 00-1.7 1l-2.4-.6-2 3.4L6.6 11a7.6 7.6 0 000 2l-2 1.5 2 3.4 2.4-.6a7.6 7.6 0 001.7 1L11 21h4l.3-2.7a7.6 7.6 0 001.7-1l2.4.6 2-3.4-2-1.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+  </svg>`,
 }
 
 const TABS = [
@@ -981,6 +1061,7 @@ const TABS = [
   { key: 'strategies', label: 'Strategies', icon: ICONS.strategies },
   { key: 'board',      label: 'My Board',   icon: ICONS.board },
   { key: 'cases',      label: 'Cases',      icon: ICONS.cases },
+  { key: 'settings',   label: 'Settings',   icon: ICONS.settings },
 ]
 </script>
 
@@ -1324,6 +1405,28 @@ const TABS = [
 .promo-btn:disabled { opacity: .5; cursor: not-allowed; }
 
 .panel-message { font-size: 12px; font-weight: 600; }
+
+/* ── Settings tab ─────────────────────────────── */
+.settings-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  background: var(--bg); border-radius: 10px; padding: 12px 14px; margin-bottom: 20px;
+}
+.settings-row-text { display: flex; flex-direction: column; gap: 3px; }
+.settings-row-text strong { font-size: 13px; color: var(--text); }
+.settings-row-text span { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+.settings-subhead { margin-top: 0; }
+.profile-info-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.profile-info-field {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 9px; padding: 0 12px;
+}
+.profile-info-icon { color: var(--accent); flex-shrink: 0; display: flex; }
+.profile-info-field input {
+  flex: 1; min-width: 0; background: none; border: none; padding: 10px 0;
+  color: var(--text); font-size: 13px; font-family: inherit;
+}
+.profile-info-field input:focus { outline: none; }
+.profile-info-field:focus-within { border-color: var(--accent); }
 .panel-message.success { color: var(--success); }
 .panel-message.error { color: var(--danger); }
 
