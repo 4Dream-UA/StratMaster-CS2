@@ -149,13 +149,12 @@
     <Footer />
 
     <!-- ── PAYMENT POPUP ────────────────────────────────── -->
-    <!-- Explicit :duration bypasses waiting on the transitionend DOM event —
-         if the tab is backgrounded (or reduced-motion disables the CSS
-         transition), that event can simply never fire, leaving Vue's
-         <transition> stuck mid-leave forever: the backdrop keeps rendering
-         (invisible, opacity:0, but still position:fixed;inset:0) and silently
-         blocks every click on the page underneath it. -->
-    <transition name="fade" :duration="200">
+    <!-- No <transition> here on purpose: an out-in Vue transition previously
+         wrapped this popup, but even with an explicit :duration fallback it
+         could get stuck mid-leave (backgrounded tab, reduced-motion, a fast
+         double-toggle) — the backdrop keeps rendering invisibly
+         (opacity:0 but still position:fixed;inset:0) and silently blocks
+         every click on the page underneath it until reload. -->
       <div v-if="popupOpen" class="modal-backdrop" @click.self="closePayment">
         <div class="modal">
           <button class="modal-close" @click="closePayment">✕</button>
@@ -240,18 +239,15 @@
           </div>
 
           <!-- Pay button appears once a real method is chosen -->
-          <transition name="fade" mode="out-in" :duration="200">
-            <div v-if="selectedMethod" key="pay" class="pay-block">
-              <button class="btn-primary pay-btn" :disabled="purchasing || paySuccess || cryptoPolling" @click="handlePayClick">
-                {{ cryptoPolling ? 'Waiting for payment…' : purchasing ? 'Processing…' : paySuccess ? 'Unlocked' : `Pay ${formattedPrice(true)}` }}
-              </button>
-              <p v-if="payMessage" class="pay-message" :class="{ success: paySuccess }">{{ payMessage }}</p>
-            </div>
-            <p v-else key="hint" class="modal-footnote">Pick a payment method above to continue.</p>
-          </transition>
+          <div v-if="selectedMethod" key="pay" class="pay-block">
+            <button class="btn-primary pay-btn" :disabled="purchasing || paySuccess || cryptoPolling" @click="handlePayClick">
+              {{ cryptoPolling ? 'Waiting for payment…' : purchasing ? 'Processing…' : paySuccess ? 'Unlocked' : `Pay ${formattedPrice(true)}` }}
+            </button>
+            <p v-if="payMessage" class="pay-message" :class="{ success: paySuccess }">{{ payMessage }}</p>
+          </div>
+          <p v-else key="hint" class="modal-footnote">Pick a payment method above to continue.</p>
         </div>
       </div>
-    </transition>
   </main>
 </template>
 

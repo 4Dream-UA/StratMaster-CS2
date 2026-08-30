@@ -145,11 +145,12 @@
     </div>
 
     <!-- ── REVEAL POPUP ─────────────────────────────────── -->
-    <!-- Explicit :duration bypasses waiting on the transitionend DOM event —
-         if that never fires (backgrounded tab, reduced-motion), Vue's
-         <transition> gets stuck mid-leave forever: an invisible
-         position:fixed;inset:0 backdrop keeps blocking every click. -->
-    <transition name="fade" :duration="200">
+    <!-- No <transition> here on purpose — an explicit :duration doesn't
+         reliably save it: a Vue <transition> can still get stuck mid-leave
+         forever (backgrounded tab, reduced-motion, a fast double-toggle),
+         leaving this fixed position:fixed;inset:0 backdrop rendered
+         invisibly and silently blocking every click on the page
+         underneath it until reload — right after the core case-opening flow. -->
       <div v-if="revealOpen" class="modal-backdrop" @click.self="revealDone && closeReveal()">
         <div class="modal reveal-modal" :class="{ multi: revealReels.length > 1 }">
           <button v-if="revealDone" class="modal-close" @click="closeReveal">✕</button>
@@ -182,7 +183,6 @@
           <p v-else class="reveal-sub">Opening…</p>
         </div>
       </div>
-    </transition>
   </div>
 </template>
 

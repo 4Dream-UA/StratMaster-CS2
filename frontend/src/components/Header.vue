@@ -37,13 +37,14 @@
       </button>
     </div>
 
-    <!-- Backdrop -->
-    <transition name="fade" :duration="250">
+    <!-- Backdrop — no <transition>: a stuck-mid-leave Vue transition here
+         (backgrounded tab, reduced-motion, a fast double-toggle) would
+         leave this fixed position:fixed;inset:0 backdrop rendered
+         invisibly, silently blocking every tap on mobile nav app-wide
+         until reload. Not worth the animation. -->
       <div v-if="isMenuOpen" class="menu-backdrop" @click="closeMenu"></div>
-    </transition>
 
     <!-- Dropdown panel -->
-    <transition name="slide">
       <nav v-if="isMenuOpen" class="mobile-menu" aria-label="Mobile navigation">
         <a href="/#strategies" @click.prevent="goToSection('strategies')">Maps</a>
         <router-link to="/forum" @click="closeMenu">Forum</router-link>
@@ -69,7 +70,6 @@
           Admin Panel
         </router-link>
       </nav>
-    </transition>
   </header>
 </template>
 
