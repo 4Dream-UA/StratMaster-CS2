@@ -62,7 +62,17 @@
             :placeholder="activeCategory?.key === 'support' ? 'What do you need help with?' : 'Title'"
           />
           <MarkdownComposer v-model="newThreadBody" placeholder="Write your message… supports **bold**, *italic*, `code` and images" />
+          <div class="mention-search-wrap" v-if="mentionOpen && mentionTargetFor === 'new'">
+            <input v-model="mentionQuery" type="text" class="thread-input" placeholder="Search username to mention…" autofocus @input="onMentionQueryInput" />
+            <div v-if="mentionResults.length" class="mention-results">
+              <button v-for="u in mentionResults" :key="u.id" type="button" class="mention-result" @click="pickMention(u)">
+                <Avatar :username="u.username" :avatar-url="u.avatar_url" :size="22" />
+                <span>{{ u.display_name || '@' + u.username }}</span>
+              </button>
+            </div>
+          </div>
           <div class="form-actions">
+            <button type="button" class="mini-btn" title="Mention a player" @click="openMentionSearch('new')">@ Mention</button>
             <button class="btn-primary" :disabled="!newThreadTitle.trim() || !newThreadBody.trim() || posting" @click="submitNewThread">
               {{ posting ? 'Posting…' : (activeCategory?.key === 'support' ? 'Open Ticket' : 'Post Thread') }}
             </button>
@@ -80,13 +90,13 @@
             <ThreadRow
               v-for="t in pinnedThreads" :key="t.id" :thread="t"
               :can-pin="isAdmin" :can-modify="canModifyThread(t)"
-              @open="openThread(t.id)" @toggle-pin="togglePin(t)" @remove="removeThreadRow(t)"
+              @open="openThread(t.id)" @toggle-pin="togglePin(t)" @remove="removeThreadRow(t)" @open-profile="openProfile"
             />
             <div v-if="pinnedThreads.length && otherThreads.length" class="thread-divider"><span>Other threads</span></div>
             <ThreadRow
               v-for="t in otherThreads" :key="t.id" :thread="t"
               :can-pin="isAdmin" :can-modify="canModifyThread(t)"
-              @open="openThread(t.id)" @toggle-pin="togglePin(t)" @remove="removeThreadRow(t)"
+              @open="openThread(t.id)" @toggle-pin="togglePin(t)" @remove="removeThreadRow(t)" @open-profile="openProfile"
             />
           </div>
         </section>
@@ -139,20 +149,41 @@
         <template v-else-if="activeThread">
           <div class="post-list">
             <div
-              v-for="p in activeThread.posts" :key="p.id" class="post-card"
-              :class="{ mine: p.author_id === currentUserId, staff: p.author_is_admin }"
+              v-for="p in activeThread.posts" :key="p.id" :id="'post-' + p.id" class="post-card"
+              :class="{ mine: p.author_id === currentUserId, staff: p.author_is_admin, deleted: p.deleted_at }"
             >
               <div class="post-sidebar">
-                <Avatar :username="p.author_username" :avatar-url="p.author_avatar_url" :is-admin="p.author_is_admin" :size="46" />
+                <Avatar
+                  :username="p.author_username" :avatar-url="p.author_avatar_url" :is-admin="p.author_is_admin"
+                  :size="46" :user-id="p.author_id" @open-profile="openProfile"
+                />
                 <span class="post-username">{{ p.author_display_name || (p.author_username ? '@' + p.author_username : 'Player') }}</span>
                 <span v-if="p.author_display_name && p.author_username" class="post-username-sub">@{{ p.author_username }}</span>
                 <span class="post-role" :class="{ admin: p.author_is_admin }">{{ p.author_is_admin ? 'Admin' : 'Player' }}</span>
               </div>
               <div class="post-main">
                 <div class="post-head">
-                  <span class="post-time">{{ formatTime(p.created_at) }}</span>
+                  <span class="post-time">
+                    {{ formatTime(p.created_at) }}
+                    <template v-if="p.edited_at">
+                      · <button class="edited-tag" :class="{ 'by-admin': p.edited_by_admin }" @click="isAdmin && openEditHistory(p)">
+                        edited{{ p.edited_by_admin ? ' by admin' : '' }}
+                      </button>
+                    </template>
+                  </span>
+                  <span v-if="p.visible_to?.length" class="whisper-tag" :title="'Only visible to: ' + p.visible_to.map(v => v.username ? '@' + v.username : v.display_name).join(', ')">
+                    🔒 Whisper
+                  </span>
                   <button v-if="!activeThread.is_closed || isAdmin" class="icon-btn small" title="Reply" @click="startReplyTo(p)"><ReplyIcon :size="11" /></button>
-                  <button v-if="canModifyPost(p) && editingPostId !== p.id" class="icon-btn small" title="Edit" @click="startEditPost(p)"><EditIcon :size="11" /></button>
+                  <button class="icon-btn small" :title="copiedPostId === p.id ? 'Copied!' : 'Copy link to this message'" @click="sharePost(p)"><ShareIcon :size="11" /></button>
+                  <button v-if="canModifyPost(p) && editingPostId !== p.id && !p.deleted_at" class="icon-btn small" title="Edit" @click="startEditPost(p)"><EditIcon :size="11" /></button>
+                  <button v-if="canModifyPost(p) && !p.deleted_at" class="icon-btn small danger" title="Delete" @click="deletePost(p)"><TrashIcon :size="11" /></button>
+                </div>
+
+                <div v-if="p.deleted_at" class="deleted-banner">
+                  Deleted by {{ p.deleted_by_username ? '@' + p.deleted_by_username : 'someone' }} — visible to admins only.
+                  <button class="link-btn" @click="restorePost(p)">restore</button>
+                  <button class="link-btn danger" @click="permanentlyDeletePost(p)">erase permanently</button>
                 </div>
 
                 <div v-if="p.reply_to" class="post-quote">
@@ -171,13 +202,24 @@
 
                 <div class="post-reactions">
                   <button
-                    v-for="emoji in REACTION_EMOJIS" :key="emoji" type="button" class="reaction-btn"
-                    :class="{ active: reactionFor(p, emoji)?.reacted_by_me }"
+                    v-for="r in p.reactions" :key="r.emoji" type="button" class="reaction-btn"
+                    :class="{ active: r.reacted_by_me }"
                     :disabled="reactBusyId === p.id"
-                    @click="toggleReaction(p, emoji)"
+                    @click="toggleReaction(p, r.emoji)"
                   >
-                    <span>{{ emoji }}</span>
-                    <span v-if="reactionFor(p, emoji)?.count" class="reaction-count">{{ reactionFor(p, emoji).count }}</span>
+                    <span>{{ r.emoji }}</span>
+                    <span class="reaction-count">{{ r.count }}</span>
+                  </button>
+
+                  <div class="reaction-picker-wrap">
+                    <button type="button" class="reaction-btn add-reaction" title="Add a reaction" @click="togglePicker(p.id)">+</button>
+                    <div v-if="pickerForPostId === p.id" class="reaction-picker">
+                      <button v-for="emoji in REACTION_EMOJIS" :key="emoji" type="button" class="reaction-picker-item" @click="toggleReaction(p, emoji)">{{ emoji }}</button>
+                    </div>
+                  </div>
+
+                  <button v-if="p.reactions?.length" type="button" class="icon-btn small reactors-btn" title="Who reacted" @click="openReactorPopup(p)">
+                    <svg viewBox="0 0 24 24" width="11" height="11" fill="none"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
                   </button>
                 </div>
               </div>
@@ -189,13 +231,48 @@
               Replying to <strong>{{ replyingTo.author_display_name || (replyingTo.author_username ? '@' + replyingTo.author_username : 'Player') }}</strong>
               <button class="link-btn" @click="replyingTo = null">cancel</button>
             </div>
+
+            <div v-if="whisperOpen" class="whisper-box">
+              <p class="whisper-hint">Only these players (and admins) will see this reply:</p>
+              <div class="whisper-chips">
+                <span v-for="r in whisperRecipients" :key="r.id" class="whisper-chip">
+                  @{{ r.username }}
+                  <button type="button" @click="removeWhisperRecipient(r)">✕</button>
+                </span>
+              </div>
+              <div class="mention-search-wrap">
+                <input v-model="whisperQuery" type="text" class="thread-input whisper-search-input" placeholder="Search player by username…" @input="onWhisperQueryInput" />
+                <div v-if="whisperResults.length" class="mention-results">
+                  <button v-for="u in whisperResults" :key="u.id" type="button" class="mention-result" @click="addWhisperRecipient(u)">
+                    <Avatar :username="u.username" :avatar-url="u.avatar_url" :size="22" />
+                    <span>{{ u.display_name || '@' + u.username }}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <div class="reply-box-row">
               <Avatar :username="user?.username" :avatar-url="user?.avatar_url" :is-admin="isAdmin" :size="38" />
-              <MarkdownComposer v-model="replyBody" :rows="3" placeholder="Write a reply…" />
+              <div class="reply-composer-wrap">
+                <MarkdownComposer v-model="replyBody" :rows="3" placeholder="Write a reply…" />
+                <div class="mention-search-wrap" v-if="mentionOpen && mentionTargetFor === 'reply'">
+                  <input v-model="mentionQuery" type="text" class="thread-input" placeholder="Search username to mention…" autofocus @input="onMentionQueryInput" />
+                  <div v-if="mentionResults.length" class="mention-results">
+                    <button v-for="u in mentionResults" :key="u.id" type="button" class="mention-result" @click="pickMention(u)">
+                      <Avatar :username="u.username" :avatar-url="u.avatar_url" :size="22" />
+                      <span>{{ u.display_name || '@' + u.username }}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
-            <button class="btn-primary reply-btn" :disabled="!replyBody.trim() || posting" @click="submitReply">
-              {{ posting ? 'Sending…' : 'Reply' }}
-            </button>
+            <div class="reply-toolbar">
+              <button type="button" class="mini-btn" title="Mention a player" @click="openMentionSearch('reply')">@ Mention</button>
+              <button type="button" class="mini-btn" :class="{ active: whisperOpen }" title="Send privately to specific players" @click="toggleWhisper">🔒 Private</button>
+              <button class="btn-primary reply-btn-compact" :disabled="!replyBody.trim() || posting" @click="submitReply">
+                {{ posting ? 'Sending…' : 'Reply' }}
+              </button>
+            </div>
             <p v-if="errorMsg" class="err">{{ errorMsg }}</p>
           </div>
           <p v-else class="closed-notice">
@@ -205,6 +282,56 @@
         </template>
       </template>
     </div>
+
+    <!-- ═══ Reactor popup ═══════════════════════ -->
+    <div v-if="reactorPopupPost" class="modal-backdrop" @click.self="closeReactorPopup">
+      <div class="modal reactor-modal">
+        <button class="modal-close" @click="closeReactorPopup">✕</button>
+        <h3 class="modal-title">Reactions</h3>
+        <div class="reactor-tabs">
+          <button
+            v-for="r in reactorPopupPost.reactions" :key="r.emoji" type="button" class="reactor-tab"
+            :class="{ active: reactorPopupEmoji === r.emoji }" @click="selectReactorTab(r.emoji)"
+          >{{ r.emoji }} {{ r.count }}</button>
+        </div>
+        <div v-if="reactorPopupLoading" class="loading-row">Loading…</div>
+        <div v-else class="reactor-list">
+          <button v-for="u in reactorPopupList" :key="u.user_id" type="button" class="reactor-row" @click="openProfile(u.user_id)">
+            <Avatar :username="u.username" :avatar-url="u.avatar_url" :is-admin="u.is_admin" :size="28" />
+            <span>{{ u.display_name || (u.username ? '@' + u.username : 'Player') }}</span>
+          </button>
+          <p v-if="!reactorPopupList.length" class="favorites-placeholder">No one yet.</p>
+        </div>
+        <Pagination
+          v-if="reactorPopupTotal > REACTOR_PAGE_SIZE"
+          :total="reactorPopupTotal" :page="Math.floor(reactorPopupOffset / REACTOR_PAGE_SIZE) + 1"
+          :page-size="REACTOR_PAGE_SIZE" @update:page="reactorPopupPageChange"
+        />
+      </div>
+    </div>
+
+    <!-- ═══ Edit history popup (admin only) ═══════════════════════ -->
+    <div v-if="editHistoryPost" class="modal-backdrop" @click.self="closeEditHistory">
+      <div class="modal">
+        <button class="modal-close" @click="closeEditHistory">✕</button>
+        <h3 class="modal-title">Edit history</h3>
+        <div v-if="editHistoryLoading" class="loading-row">Loading…</div>
+        <div v-else class="edit-history-list">
+          <div v-for="(e, i) in editHistoryList" :key="i" class="edit-history-row">
+            <p class="edit-history-meta">
+              {{ e.editor_username ? '@' + e.editor_username : 'Someone' }}
+              <span v-if="e.editor_is_admin" class="edited-tag by-admin">admin</span>
+              · {{ formatTime(e.edited_at) }}
+            </p>
+            <p class="edit-history-body">{{ e.previous_body }}</p>
+          </div>
+          <p v-if="!editHistoryList.length" class="favorites-placeholder">No edits yet.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Public profile popup ═══════════════════════ -->
+    <PublicProfileModal v-if="profileModalOpen" :user-id="profileUserId" @close="profileModalOpen = false" />
 
     <Footer />
   </main>
@@ -216,6 +343,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '../store/user'
 import { forumAPI } from '../api/forum'
+import { authAPI } from '../api/auth'
 import { renderMarkdown } from '../utils/markdown'
 import { botDeepLink } from '../config'
 import Header from '../components/Header.vue'
@@ -223,6 +351,7 @@ import Footer from '../components/Footer.vue'
 import Breadcrumbs from '../components/Breadcrumbs.vue'
 import Pagination from '../components/Pagination.vue'
 import MarkdownComposer from '../components/MarkdownComposer.vue'
+import PublicProfileModal from '../components/PublicProfileModal.vue'
 
 const LoungeIcon = {
   render: () => h('svg', { viewBox: '0 0 24 24', width: 24, height: 24, fill: 'none' }, [
@@ -333,13 +462,20 @@ const Avatar = {
     avatarUrl: { type: String, default: null },
     isAdmin: { type: Boolean, default: false },
     size: { type: Number, default: 36 },
+    userId: { type: String, default: null },
   },
+  emits: ['open-profile'],
   render() {
     const label = this.username || '?'
     const hue = hashHue(label)
+    const clickable = !!this.userId
+    const commonProps = {
+      class: ['forum-avatar', { 'forum-avatar-admin': this.isAdmin, 'forum-avatar-clickable': clickable }],
+      onClick: clickable ? () => this.$emit('open-profile', this.userId) : undefined,
+    }
     if (this.avatarUrl) {
       return h('div', {
-        class: ['forum-avatar', { 'forum-avatar-admin': this.isAdmin }],
+        ...commonProps,
         style: { width: `${this.size}px`, height: `${this.size}px`, background: 'none' },
       }, [
         h('img', { src: this.avatarUrl, alt: '', class: 'forum-avatar-img' }),
@@ -347,7 +483,7 @@ const Avatar = {
       ])
     }
     return h('div', {
-      class: ['forum-avatar', { 'forum-avatar-admin': this.isAdmin }],
+      ...commonProps,
       style: {
         width: `${this.size}px`, height: `${this.size}px`,
         background: `linear-gradient(160deg, hsl(${hue},65%,48%), hsl(${hue},65%,30%))`,
@@ -365,7 +501,7 @@ const Avatar = {
 // event.stopPropagation() cleanly without fighting the row's own click.
 const ThreadRow = {
   props: { thread: Object, canPin: Boolean, canModify: Boolean },
-  emits: ['open', 'toggle-pin', 'remove'],
+  emits: ['open', 'toggle-pin', 'remove', 'open-profile'],
   render() {
     const t = this.thread
     const actions = []
@@ -382,7 +518,10 @@ const ThreadRow = {
       }, [h(TrashIcon, { size: 11 })]))
     }
     return h('button', { class: ['thread-row', { pinned: t.is_pinned, closed: t.is_closed }], onClick: () => this.$emit('open') }, [
-      h(Avatar, { username: t.author_username, avatarUrl: t.author_avatar_url, isAdmin: t.author_is_admin, size: 38 }),
+      h(Avatar, {
+        username: t.author_username, avatarUrl: t.author_avatar_url, isAdmin: t.author_is_admin, size: 38,
+        userId: t.author_id, onClick: (e) => e.stopPropagation(), 'onOpen-profile': (id) => this.$emit('open-profile', id),
+      }),
       h('div', { class: 'thread-row-main' }, [
         h('h4', [
           t.is_pinned ? h(PinIcon, { size: 11, class: 'pin-dot' }) : null,
@@ -585,9 +724,14 @@ async function submitReply() {
   posting.value = true
   errorMsg.value = ''
   try {
-    activeThread.value = await forumAPI.addPost(activeThread.value.id, replyBody.value.trim(), replyingTo.value?.id ?? null)
+    const visibleTo = whisperOpen.value && whisperRecipients.value.length
+      ? whisperRecipients.value.map(r => r.id)
+      : null
+    activeThread.value = await forumAPI.addPost(activeThread.value.id, replyBody.value.trim(), replyingTo.value?.id ?? null, visibleTo)
     replyBody.value = ''
     replyingTo.value = null
+    whisperOpen.value = false
+    whisperRecipients.value = []
   } catch (e) {
     errorMsg.value = e.response?.data?.detail || 'Could not send the reply.'
   } finally {
@@ -690,7 +834,7 @@ async function saveEditPost() {
 }
 
 // ── Emoji reactions ────────────────────────────────────────────
-const REACTION_EMOJIS = ['❤️', '👍', '🤡', '😂']
+const REACTION_EMOJIS = ['❤️', '👍', '👎', '😂', '🤡', '🔥', '🎉', '😮', '😢', '💯', '🙏', '👀', '💀']
 const reactBusyId = ref(null)
 function reactionFor(post, emoji) {
   return post.reactions?.find(r => r.emoji === emoji)
@@ -698,6 +842,7 @@ function reactionFor(post, emoji) {
 async function toggleReaction(post, emoji) {
   if (reactBusyId.value) return
   reactBusyId.value = post.id
+  pickerForPostId.value = null
   try {
     activeThread.value = await forumAPI.react(post.id, emoji)
   } catch (e) {
@@ -705,6 +850,179 @@ async function toggleReaction(post, emoji) {
   } finally {
     reactBusyId.value = null
   }
+}
+
+// "+" popover to pick a reaction from the full palette instead of always
+// showing all 13 buttons on every post.
+const pickerForPostId = ref(null)
+function togglePicker(postId) {
+  pickerForPostId.value = pickerForPostId.value === postId ? null : postId
+}
+
+// ── "Who reacted" popup — three-line button next to the reaction row
+// opens a per-emoji, paginated list of reactors. ────────────────────
+const reactorPopupPost = ref(null)
+const reactorPopupEmoji = ref(null)
+const reactorPopupTotal = ref(0)
+const reactorPopupList = ref([])
+const reactorPopupOffset = ref(0)
+const reactorPopupLoading = ref(false)
+const REACTOR_PAGE_SIZE = 8
+
+async function openReactorPopup(post) {
+  reactorPopupPost.value = post
+  const firstEmoji = post.reactions?.[0]?.emoji
+  if (firstEmoji) await selectReactorTab(firstEmoji)
+}
+async function selectReactorTab(emoji) {
+  reactorPopupEmoji.value = emoji
+  reactorPopupOffset.value = 0
+  await loadReactorPage()
+}
+async function loadReactorPage() {
+  if (!reactorPopupPost.value || !reactorPopupEmoji.value) return
+  reactorPopupLoading.value = true
+  try {
+    const res = await forumAPI.getPostReactors(reactorPopupPost.value.id, reactorPopupEmoji.value, {
+      limit: REACTOR_PAGE_SIZE, offset: reactorPopupOffset.value,
+    })
+    reactorPopupTotal.value = res.total
+    reactorPopupList.value = res.reactors
+  } finally {
+    reactorPopupLoading.value = false
+  }
+}
+function reactorPopupPageChange(page) {
+  reactorPopupOffset.value = (page - 1) * REACTOR_PAGE_SIZE
+  loadReactorPage()
+}
+function closeReactorPopup() {
+  reactorPopupPost.value = null
+  reactorPopupEmoji.value = null
+  reactorPopupList.value = []
+}
+
+// ── Public profile popup ──────────────────────────────────────────
+const profileUserId = ref(null)
+const profileModalOpen = ref(false)
+function openProfile(userId) {
+  if (!userId) return
+  profileUserId.value = userId
+  profileModalOpen.value = true
+}
+
+// ── @mention search — small popover, inserts "@username " into whichever
+// composer (new-thread body or the reply box) triggered it. ──────────
+const mentionQuery = ref('')
+const mentionResults = ref([])
+const mentionTargetFor = ref(null) // 'new' | 'reply'
+const mentionOpen = ref(false)
+let mentionDebounce = null
+function openMentionSearch(target) {
+  mentionTargetFor.value = target
+  mentionOpen.value = true
+  mentionQuery.value = ''
+  mentionResults.value = []
+}
+function onMentionQueryInput() {
+  clearTimeout(mentionDebounce)
+  if (!mentionQuery.value.trim()) { mentionResults.value = []; return }
+  mentionDebounce = setTimeout(async () => {
+    try {
+      mentionResults.value = await authAPI.searchUsers(mentionQuery.value.trim())
+    } catch (e) { mentionResults.value = [] }
+  }, 250)
+}
+function pickMention(u) {
+  const mention = `@${u.username} `
+  if (mentionTargetFor.value === 'new') newThreadBody.value += mention
+  else replyBody.value += mention
+  mentionOpen.value = false
+}
+
+// ── Whisper (visible-to-specific-players) reply ───────────────────
+const whisperOpen = ref(false)
+const whisperQuery = ref('')
+const whisperResults = ref([])
+const whisperRecipients = ref([]) // [{id, username, display_name}]
+let whisperDebounce = null
+function toggleWhisper() {
+  whisperOpen.value = !whisperOpen.value
+  if (!whisperOpen.value) { whisperRecipients.value = []; whisperQuery.value = ''; whisperResults.value = [] }
+}
+function onWhisperQueryInput() {
+  clearTimeout(whisperDebounce)
+  if (!whisperQuery.value.trim()) { whisperResults.value = []; return }
+  whisperDebounce = setTimeout(async () => {
+    try {
+      const res = await authAPI.searchUsers(whisperQuery.value.trim())
+      whisperResults.value = res.filter(u => !whisperRecipients.value.some(r => r.id === u.id))
+    } catch (e) { whisperResults.value = [] }
+  }, 250)
+}
+function addWhisperRecipient(u) {
+  whisperRecipients.value.push(u)
+  whisperQuery.value = ''
+  whisperResults.value = []
+}
+function removeWhisperRecipient(u) {
+  whisperRecipients.value = whisperRecipients.value.filter(r => r.id !== u.id)
+}
+
+// ── Edit history (admin only) ──────────────────────────────────────
+const editHistoryPost = ref(null)
+const editHistoryList = ref([])
+const editHistoryLoading = ref(false)
+async function openEditHistory(post) {
+  editHistoryPost.value = post
+  editHistoryLoading.value = true
+  try {
+    editHistoryList.value = await forumAPI.getPostEdits(post.id)
+  } finally {
+    editHistoryLoading.value = false
+  }
+}
+function closeEditHistory() {
+  editHistoryPost.value = null
+  editHistoryList.value = []
+}
+
+// ── Delete / restore / permanently erase a post ────────────────────
+async function deletePost(post) {
+  if (!confirm('Delete this message? An admin can still see and restore it.')) return
+  try {
+    activeThread.value = await forumAPI.deletePost(post.id)
+  } catch (e) {
+    errorMsg.value = e.response?.data?.detail || 'Could not delete that post.'
+  }
+}
+async function restorePost(post) {
+  activeThread.value = await forumAPI.restorePost(post.id)
+}
+async function permanentlyDeletePost(post) {
+  if (!confirm('Permanently erase this message? This cannot be undone.')) return
+  await forumAPI.permanentlyDeletePost(post.id)
+  activeThread.value = await forumAPI.getThread(activeThread.value.id)
+}
+
+// ── Share a specific message: reuses the thread's share link (creating
+// one if it doesn't exist yet) with a #post-<id> anchor. ──────────────
+const copiedPostId = ref(null)
+async function sharePost(post) {
+  if (!activeThread.value.share_token) {
+    try {
+      const res = await forumAPI.createShareLink(activeThread.value.id)
+      activeThread.value.share_token = res.share_token
+    } catch (e) {
+      errorMsg.value = 'Could not create a share link.'
+      return
+    }
+  }
+  const url = `${botDeepLink(`thread_${activeThread.value.share_token}`)}#post-${post.id}`
+  navigator.clipboard?.writeText(url).then(() => {
+    copiedPostId.value = post.id
+    setTimeout(() => { if (copiedPostId.value === post.id) copiedPostId.value = null }, 1800)
+  }).catch(() => {})
 }
 
 function formatTime(iso) {
@@ -791,8 +1109,8 @@ onMounted(async () => {
 .category-card p { font-size: 12.5px; color: var(--text-dim); line-height: 1.5; }
 .category-arrow { position: absolute; top: 22px; right: 22px; color: var(--text-dim); font-size: 16px; }
 
-.category-card-wrap { position: relative; }
-.category-card-wrap .category-card { width: 100%; }
+.category-card-wrap { position: relative; height: 100%; }
+.category-card-wrap .category-card { width: 100%; height: 100%; }
 .category-edit-btn { position: absolute; bottom: 12px; right: 12px; }
 .category-edit-form {
   margin-top: 10px; background: var(--bg-elevated); border: 1px solid var(--line);
@@ -893,17 +1211,33 @@ onMounted(async () => {
 .post-username { font-size: 11px; font-weight: 700; color: var(--text); word-break: break-word; }
 .post-username-sub { font-size: 9.5px; color: var(--text-dim); word-break: break-word; margin-top: -2px; }
 .post-role { font-size: 9.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--text-dim); }
-.post-role.admin { color: var(--accent); }
+.post-role.admin { color: var(--danger); }
 
 .post-main { flex: 1; min-width: 0; }
-.post-head { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-bottom: 6px; }
-.post-time { font-size: 11px; color: var(--text-dim); margin-right: auto; }
+.post-head { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.post-time { font-size: 11px; color: var(--text-dim); margin-right: auto; display: flex; align-items: center; gap: 2px; }
+.edited-tag {
+  background: none; border: none; padding: 0; font-size: 11px; color: var(--text-dim);
+  cursor: default; font-family: inherit; text-decoration: underline dotted;
+}
+.edited-tag.by-admin { color: var(--danger); cursor: pointer; }
+.whisper-tag {
+  font-size: 10px; font-weight: 700; color: var(--accent);
+  background: rgba(255,154,0,.12); border-radius: 99px; padding: 2px 8px;
+}
 .post-body { font-size: 13.5px; color: var(--text); line-height: 1.6; white-space: pre-wrap; }
 .post-body :deep(.md-img) { max-width: 100%; border-radius: 8px; margin: 6px 0; display: block; }
 .post-body :deep(a) { color: var(--accent); }
 .post-body :deep(code) { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 
-.post-reactions { display: flex; gap: 5px; margin-top: 10px; flex-wrap: wrap; }
+.post-card.deleted { opacity: .7; border-style: dashed; }
+.deleted-banner {
+  font-size: 12px; color: var(--danger); background: rgba(235,75,75,.08);
+  border: 1px dashed rgba(235,75,75,.35); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px;
+}
+.deleted-banner .link-btn { color: var(--danger); text-decoration-color: var(--danger); }
+
+.post-reactions { display: flex; gap: 5px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
 .reaction-btn {
   display: flex; align-items: center; gap: 4px;
   background: var(--bg); border: 1px solid var(--line); border-radius: 99px;
@@ -916,6 +1250,90 @@ onMounted(async () => {
 .reaction-btn.active { border-color: var(--accent); background: rgba(255,154,0,.12); }
 .reaction-count { font-size: 11px; font-weight: 700; color: var(--text-dim); }
 .reaction-btn.active .reaction-count { color: var(--accent); }
+.reaction-btn.add-reaction { font-weight: 800; color: var(--text-dim); padding: 3px 10px; }
+
+.reaction-picker-wrap { position: relative; }
+.reaction-picker {
+  position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 30;
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px;
+  background: var(--bg-elevated); border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.4); width: 190px;
+}
+.reaction-picker-item {
+  background: none; border: none; font-size: 17px; padding: 5px; border-radius: 6px; cursor: pointer;
+  transition: background .1s;
+}
+.reaction-picker-item:hover { background: var(--bg); }
+.reactors-btn { color: var(--text-dim); }
+
+/* ── Whisper composer & mention search ─────────────────── */
+.whisper-box {
+  background: var(--bg); border: 1px solid rgba(255,154,0,.3); border-radius: 10px;
+  padding: 10px 12px; margin-bottom: 10px;
+}
+.whisper-hint { font-size: 11.5px; color: var(--text-dim); margin-bottom: 8px; }
+.whisper-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.whisper-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(255,154,0,.12); color: var(--accent); border-radius: 99px;
+  padding: 3px 6px 3px 10px; font-size: 12px; font-weight: 700;
+}
+.whisper-chip button { background: none; border: none; color: inherit; cursor: pointer; font-size: 11px; padding: 2px; }
+.whisper-search-input { margin-bottom: 0; }
+
+.mention-search-wrap { position: relative; margin-top: 8px; }
+.mention-results {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
+  background: var(--bg-elevated); border: 1px solid var(--line); border-radius: 10px;
+  max-height: 220px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,.4);
+}
+.mention-result {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px;
+  background: none; border: none; color: var(--text); font-size: 12.5px; cursor: pointer; text-align: left;
+}
+.mention-result:hover { background: var(--bg); }
+
+.reply-toolbar { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.reply-toolbar .mini-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(255,154,0,.1); }
+.reply-btn-compact { margin-left: auto; padding: 9px 22px; font-size: 12.5px; }
+.reply-composer-wrap { flex: 1; min-width: 0; position: relative; }
+
+/* ── Reactor / edit-history popups ─────────────────────── */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 500;
+  background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center;
+  padding: 20px; backdrop-filter: blur(4px); overflow-y: auto;
+}
+.modal {
+  position: relative; width: 100%; max-width: 380px;
+  background: var(--bg-elevated); border: 1px solid var(--line);
+  border-radius: var(--radius-lg); padding: 28px 22px 22px; margin: auto;
+}
+.modal-close {
+  position: absolute; top: 14px; right: 14px; width: 28px; height: 28px; border-radius: 8px;
+  background: var(--bg); border: 1px solid var(--line); color: var(--text-dim); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 12px;
+}
+.modal-close:hover { border-color: var(--accent); color: var(--accent); }
+.modal-title { font-size: 17px; font-weight: 800; color: var(--text); margin-bottom: 14px; }
+
+.reactor-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.reactor-tab {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 99px;
+  padding: 4px 10px; font-size: 13px; cursor: pointer; color: var(--text-dim);
+}
+.reactor-tab.active { border-color: var(--accent); color: var(--accent); background: rgba(255,154,0,.1); }
+.reactor-list { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+.reactor-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 6px;
+  background: none; border: none; color: var(--text); font-size: 13px; cursor: pointer; text-align: left; border-radius: 8px;
+}
+.reactor-row:hover { background: var(--bg); }
+
+.edit-history-list { display: flex; flex-direction: column; gap: 10px; max-height: 320px; overflow-y: auto; }
+.edit-history-row { background: var(--bg); border-radius: 8px; padding: 8px 10px; }
+.edit-history-meta { font-size: 11px; color: var(--text-dim); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+.edit-history-body { font-size: 12.5px; color: var(--text); white-space: pre-wrap; word-break: break-word; }
 
 .post-quote {
   font-size: 12px; color: var(--text-dim); line-height: 1.5;
@@ -940,7 +1358,7 @@ onMounted(async () => {
 }
 .reply-box-row { display: flex; gap: 12px; align-items: flex-start; }
 .reply-box-row :deep(.md-composer) { flex: 1; min-width: 0; }
-.reply-btn { width: 100%; padding: 11px; margin-top: 10px; }
+.link-btn.danger { color: var(--danger); text-decoration-color: var(--danger); }
 
 /* ── Generated avatar ─────────────────────────────── */
 /* Avatar is a plain render()-function component, used both directly in
@@ -958,6 +1376,8 @@ onMounted(async () => {
 }
 .forum-content :deep(.forum-avatar-img) { width: 100%; height: 100%; object-fit: cover; }
 .forum-content :deep(.forum-avatar-admin) { box-shadow: 0 0 0 2px var(--danger); }
+.forum-content :deep(.forum-avatar-clickable) { cursor: pointer; }
+.post-body :deep(.md-mention) { color: var(--accent); font-weight: 700; }
 .forum-content :deep(.forum-avatar-badge) {
   position: absolute; bottom: -2px; right: -2px;
   width: 16px; height: 16px; border-radius: 50%;

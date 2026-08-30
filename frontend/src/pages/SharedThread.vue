@@ -20,7 +20,7 @@
         </section>
 
         <div class="post-list">
-          <div v-for="p in thread.posts" :key="p.id" class="post-card" :class="{ staff: p.author_is_admin }">
+          <div v-for="p in thread.posts" :key="p.id" :id="'post-' + p.id" class="post-card" :class="{ staff: p.author_is_admin, highlighted: p.id === highlightedPostId }">
             <div class="post-sidebar">
               <Avatar :username="p.author_username" :avatar-url="p.author_avatar_url" :is-admin="p.author_is_admin" :size="46" />
               <span class="post-username">{{ p.author_display_name || (p.author_username ? '@' + p.author_username : 'Player') }}</span>
@@ -48,7 +48,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, h } from 'vue'
+import { ref, onMounted, nextTick, h } from 'vue'
 import { useRoute } from 'vue-router'
 import { forumAPI } from '../api/forum'
 import { renderMarkdown } from '../utils/markdown'
@@ -89,6 +89,7 @@ const route = useRoute()
 const thread = ref(null)
 const loading = ref(true)
 const error = ref('')
+const highlightedPostId = ref(null)
 
 function formatTime(iso) {
   const d = new Date(iso)
@@ -96,13 +97,23 @@ function formatTime(iso) {
 }
 
 onMounted(async () => {
-  window.scrollTo({ top: 0, behavior: 'auto' })
+  // A "share this message" link carries #post-<id> — jump straight there
+  // instead of the usual scroll-to-top, once the post actually renders.
+  const anchorMatch = location.hash.match(/^#post-(.+)$/)
+  if (!anchorMatch) window.scrollTo({ top: 0, behavior: 'auto' })
+
   try {
     thread.value = await forumAPI.getShared(route.params.token)
   } catch (e) {
     error.value = e.response?.data?.detail || 'This share link is invalid or was revoked.'
   } finally {
     loading.value = false
+  }
+
+  if (anchorMatch) {
+    highlightedPostId.value = anchorMatch[1]
+    await nextTick()
+    document.getElementById('post-' + anchorMatch[1])?.scrollIntoView({ block: 'center' })
   }
 })
 </script>
@@ -137,6 +148,7 @@ onMounted(async () => {
   border-radius: 12px; padding: 14px 16px;
 }
 .post-card.staff { border-left: 3px solid var(--accent); }
+.post-card.highlighted { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(255,154,0,.3); }
 .post-sidebar { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 76px; flex-shrink: 0; text-align: center; }
 .post-username { font-size: 11px; font-weight: 700; color: var(--text); word-break: break-word; }
 .post-username-sub { font-size: 9.5px; color: var(--text-dim); word-break: break-word; margin-top: -2px; }

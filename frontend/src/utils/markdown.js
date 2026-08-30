@@ -31,6 +31,9 @@ export function renderMarkdown(raw) {
   html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>')
   // Inline code
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
+  // @mentions — Telegram usernames are alnum+underscore, 5-32 chars, but we
+  // accept 3+ here to match the backend's notification matcher.
+  html = html.replace(/@([a-zA-Z0-9_]{3,32})/g, '<span class="md-mention">@$1</span>')
 
   return html
 }

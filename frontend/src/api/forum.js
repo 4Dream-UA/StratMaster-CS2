@@ -36,13 +36,34 @@ export const forumAPI = {
   async deleteThread(id) {
     await apiClient.delete(`/api/forum/threads/${id}`)
   },
-  async addPost(id, body, replyToPostId = null) {
-    const response = await apiClient.post(`/api/forum/threads/${id}/posts`, { body, reply_to_post_id: replyToPostId })
+  async addPost(id, body, replyToPostId = null, visibleToUserIds = null) {
+    const response = await apiClient.post(`/api/forum/threads/${id}/posts`, {
+      body, reply_to_post_id: replyToPostId, visible_to_user_ids: visibleToUserIds,
+    })
     return response.data
   },
   async updatePost(id, body) {
     const response = await apiClient.patch(`/api/forum/posts/${id}`, { body })
     return response.data
+  },
+  async deletePost(id) {
+    const response = await apiClient.delete(`/api/forum/posts/${id}`)
+    return response.data
+  },
+  async restorePost(id) {
+    const response = await apiClient.post(`/api/forum/posts/${id}/restore`)
+    return response.data
+  },
+  async permanentlyDeletePost(id) {
+    await apiClient.delete(`/api/forum/posts/${id}/permanent`)
+  },
+  async getPostEdits(id) {
+    const response = await apiClient.get(`/api/forum/posts/${id}/edits`)
+    return response.data
+  },
+  async getPostReactors(id, emoji, { limit = 20, offset = 0 } = {}) {
+    const response = await apiClient.get(`/api/forum/posts/${id}/reactions`, { params: { emoji, limit, offset } })
+    return response.data  // { total, reactors }
   },
   async react(postId, emoji) {
     const response = await apiClient.post(`/api/forum/posts/${postId}/react`, { emoji })
