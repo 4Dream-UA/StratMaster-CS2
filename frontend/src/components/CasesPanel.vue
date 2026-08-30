@@ -22,7 +22,7 @@
 
         <div class="qty-picker">
           <button type="button" class="qty-btn" @click="setQty(c.id, qty(c.id) - 1)">−</button>
-          <input type="number" class="qty-input" min="1" max="99" :value="qty(c.id)" @input="setQty(c.id, $event.target.valueAsNumber)" />
+          <input type="number" class="qty-input" min="1" max="50" :value="qty(c.id)" @input="setQty(c.id, $event.target.valueAsNumber)" />
           <button type="button" class="qty-btn" @click="setQty(c.id, qty(c.id) + 1)">+</button>
         </div>
         <div class="qty-presets">
@@ -43,11 +43,12 @@
         </button>
         <div v-if="oddsOpenId === c.id" class="odds-grid">
           <div
-            v-for="r in c.rewards" :key="r.coins" class="odds-tile"
-            :style="{ borderColor: tierFor(r.coins).border, background: tierFor(r.coins).bg }"
+            v-for="(r, ri) in c.rewards" :key="ri" class="odds-tile"
+            :style="{ borderColor: tierColor(r.tier).border, background: tierColor(r.tier).bg }"
           >
-            <CoinIcon :size="16" :color="tierFor(r.coins).border" />
-            <span class="odds-tile-coins">{{ r.coins }}</span>
+            <PremiumIcon v-if="isPremiumReward(r)" :size="16" :color="tierColor(r.tier).border" />
+            <CoinIcon v-else :size="16" :color="tierColor(r.tier).border" />
+            <span class="odds-tile-coins">{{ rewardLabel(r) }}</span>
           </div>
         </div>
       </div>
@@ -94,8 +95,9 @@
           <div v-for="h in historyFor(inv.case_id)" :key="h.id" class="history-row">
             <span class="history-time">{{ formatHistoryTime(h.created_at) }}</span>
             <span class="history-amounts">
-              <span class="spent">-{{ h.coins_spent }}</span>
-              <span class="won">+{{ h.coins_won }} MC</span>
+              <span class="spent">-{{ h.coins_spent }} MC</span>
+              <span v-if="h.premium_days_won != null" class="won">+{{ formatDays(h.premium_days_won) }} Premium</span>
+              <span v-else class="won">+{{ h.coins_won }} MC</span>
             </span>
           </div>
         </div>
@@ -161,17 +163,20 @@
               <div
                 v-for="(tile, i) in reel.items" :key="i" class="case-tile"
                 :class="{ won: revealDone && i === WINNING_INDEX }"
-                :style="{ borderColor: tierFor(tile.coins).border, background: tierFor(tile.coins).bg }"
+                :style="{ borderColor: tierColor(tile.tier).border, background: tierColor(tile.tier).bg }"
               >
-                <CoinIcon :size="20" :color="tierFor(tile.coins).border" />
-                <span>{{ tile.coins }}</span>
+                <PremiumIcon v-if="isPremiumReward(tile)" :size="20" :color="tierColor(tile.tier).border" />
+                <CoinIcon v-else :size="20" :color="tierColor(tile.tier).border" />
+                <span>{{ rewardLabel(tile) }}</span>
               </div>
             </div>
           </div>
 
           <template v-if="revealDone">
-            <p class="reveal-amount"><CoinIcon :size="24" /> +{{ revealTotalWon }} <span>MC</span></p>
-            <p class="reveal-sub">{{ revealReels.length > 1 ? 'Total added to your balance' : 'Added to your balance' }}</p>
+            <p v-if="revealTotalWon > 0" class="reveal-amount"><CoinIcon :size="24" /> +{{ revealTotalWon }} <span>MC</span></p>
+            <p v-if="revealPremiumDaysWon > 0" class="reveal-amount"><PremiumIcon :size="24" /> +{{ formatDays(revealPremiumDaysWon) }} <span>Premium</span></p>
+            <p v-if="!revealTotalWon && !revealPremiumDaysWon" class="reveal-amount reveal-amount-empty">Better luck next time</p>
+            <p class="reveal-sub">{{ revealReels.length > 1 ? 'Total added to your account' : 'Added to your account' }}</p>
             <button class="btn-primary reveal-btn" @click="closeReveal">Nice!</button>
           </template>
           <p v-else class="reveal-sub">Opening…</p>
@@ -182,7 +187,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '../store/user'
 import { casesAPI } from '../api/cases'
@@ -203,6 +208,11 @@ const historyOpenId = ref(null)
 const history = ref([])
 const inventory = ref([]) // [{ case_id, case_name, count }]
 const activeView = ref(props.initialView === 'inventory' || props.initialView === 'offers' ? props.initialView : 'shop')
+// Shop/Inventory/Offers is internal state, not a route change, so
+// vue-router's scrollBehavior never runs for it — without this, switching
+// views can leave the page scrolled well past the new (possibly shorter)
+// content, stranding the reader down near the footer.
+watch(activeView, () => window.scrollTo({ top: 0, behavior: 'auto' }))
 
 function caseById(id) {
   return cases.value.find(c => c.id === id)
@@ -284,13 +294,15 @@ async function respondToOffer(offer, action) {
 const totalOwned = computed(() => inventory.value.reduce((sum, i) => sum + i.count, 0))
 
 // Per-case buy quantity, defaulting to 1 — the quick-pick chips (1/3/5/9)
-// and +/- stepper both write into this same map.
+// and +/- stepper both write into this same map. Capped to match the
+// backend's own limit (CaseBuyRequest.quantity, le=50).
+const MAX_QTY = 50
 const buyQty = ref({})
 function qty(caseId) {
   return buyQty.value[caseId] ?? 1
 }
 function setQty(caseId, value) {
-  const n = Math.max(1, Math.min(99, Math.round(value) || 1))
+  const n = Math.max(1, Math.min(MAX_QTY, Math.round(value) || 1))
   buyQty.value[caseId] = n
 }
 
@@ -306,15 +318,44 @@ function formatHistoryTime(iso) {
   return d.toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
-// ── Rarity tiers, CS2-style: grey / blue / purple / red ──────────
-const RARITY_TIERS = [
-  { max: 10,       border: '#b0c3d9', bg: 'rgba(176,195,217,0.14)' },
-  { max: 49,       border: '#4b69ff', bg: 'rgba(75,105,255,0.14)' },
-  { max: 100,      border: '#8847ff', bg: 'rgba(136,71,255,0.14)' },
-  { max: Infinity, border: '#eb4b4b', bg: 'rgba(235,75,75,0.14)' },
-]
-function tierFor(coins) {
-  return RARITY_TIERS.find(t => coins <= t.max)
+// ── Rarity tiers, CS2-style: grey / blue / purple / red / legendary ──────
+// Each reward now carries its own tier explicitly (set server-side) instead
+// of being inferred from a coin-value range — that range differs per case
+// (a Mega Case's "grey" tier is worth more than the base case's "purple"),
+// and inference breaks entirely for premium-days rewards, which have no
+// coin value at all.
+const TIER_COLORS = {
+  grey: { border: '#b0c3d9', bg: 'rgba(176,195,217,0.14)' },
+  blue: { border: '#4b69ff', bg: 'rgba(75,105,255,0.14)' },
+  purple: { border: '#8847ff', bg: 'rgba(136,71,255,0.14)' },
+  red: { border: '#eb4b4b', bg: 'rgba(235,75,75,0.14)' },
+  legendary: { border: '#ffd700', bg: 'rgba(255,215,0,0.16)' },
+}
+function tierColor(tier) {
+  return TIER_COLORS[tier] || TIER_COLORS.grey
+}
+
+// Premium-day rewards render as "Nothing" / "7d" / "31d" / "3mo" style
+// labels instead of a coin count.
+function formatDays(days) {
+  if (days === 0) return 'Nothing'
+  if (days % 30 === 0) return `${days / 30}mo`
+  return `${days}d`
+}
+function rewardLabel(r) {
+  return r.premium_days != null ? formatDays(r.premium_days) : String(r.coins)
+}
+function isPremiumReward(r) {
+  return r.premium_days != null
+}
+// The API's win result is just {coins, premium_days} — no tier, since tier
+// is a display concept from the odds table, not part of the outcome. Match
+// it back against the case's own reward pool to color the winning tile.
+function findTier(rewardPool, result) {
+  const match = rewardPool.find(r => (
+    result.premium_days != null ? r.premium_days === result.premium_days : r.coins === result.coins && r.premium_days == null
+  ))
+  return match?.tier || 'grey'
 }
 
 // ── Case-opening carousel (CS2-style scroll-and-land reel) ────────
@@ -325,13 +366,13 @@ const STRIP_LENGTH = 55
 const WINNING_INDEX = 48
 const SPIN_DURATION_MS = 4200
 
-function buildStrip(rewardPool, winningCoins) {
+function buildStrip(rewardPool, winningReward) {
   const items = []
   for (let i = 0; i < STRIP_LENGTH; i++) {
     if (i === WINNING_INDEX) {
-      items.push({ coins: winningCoins })
+      items.push(winningReward)
     } else {
-      items.push({ coins: rewardPool[Math.floor(Math.random() * rewardPool.length)].coins })
+      items.push(rewardPool[Math.floor(Math.random() * rewardPool.length)])
     }
   }
   return items
@@ -343,6 +384,7 @@ const revealOpen = ref(false)
 const revealDone = ref(false)
 const revealReels = ref([]) // [{ items, offset, animating }]
 const revealTotalWon = ref(0)
+const revealPremiumDaysWon = ref(0)
 const carouselWrapRefs = ref([])
 const errorMsg = ref('')
 
@@ -403,8 +445,13 @@ async function openCases(c, quantity) {
   try {
     const res = await casesAPI.openInventory(c.id, quantity)
     if (wallet.value) wallet.value.balance_coins = res.new_balance
+    if (res.premium_expires_at && wallet.value) wallet.value.subscription_expires_at = res.premium_expires_at
     revealTotalWon.value = res.total_won
-    revealReels.value = res.rewards.map(coins => ({ items: buildStrip(c.rewards, coins), offset: 0, animating: false }))
+    revealPremiumDaysWon.value = res.rewards.reduce((sum, r) => sum + (r.premium_days || 0), 0)
+    revealReels.value = res.rewards.map(reward => {
+      const withTier = { ...reward, tier: findTier(c.rewards, reward) }
+      return { items: buildStrip(c.rewards, withTier), offset: 0, animating: false }
+    })
     await loadInventory()
 
     // Two steps: one to mount each strip at offset 0 with no transition, a
@@ -472,6 +519,19 @@ const CoinIcon = {
   },
 }
 
+// Premium: a small crown, for premium-days case rewards (no coin value).
+const PremiumIcon = {
+  props: { size: { type: Number, default: 18 }, color: { type: String, default: 'currentColor' } },
+  render() {
+    return h('svg', { viewBox: '0 0 24 24', width: this.size, height: this.size, fill: 'none', style: { flexShrink: 0 } }, [
+      h('path', {
+        d: 'M4 18h16l-1.4-8-4.1 3.2L12 7l-2.5 6.2L5.4 10z',
+        stroke: this.color, 'stroke-width': 1.5, 'stroke-linejoin': 'round', fill: 'none',
+      }),
+    ])
+  },
+}
+
 // Case: a CS2-style metal crate — isometric box, diagonal hazard stripe
 // across the lid, corner rivets and a MasterCoins badge.
 let caseIconSeq = 0
@@ -520,7 +580,7 @@ const CaseIcon = {
   },
 }
 
-export default { components: { CoinIcon, CaseIcon } }
+export default { components: { CoinIcon, CaseIcon, PremiumIcon } }
 </script>
 
 <style scoped>
@@ -713,7 +773,9 @@ export default { components: { CoinIcon, CaseIcon } }
   display: flex; align-items: center; justify-content: center; gap: 8px;
   font-size: 26px; font-weight: 900; color: var(--accent);
 }
+.reveal-amount + .reveal-amount { margin-top: 6px; }
 .reveal-amount span { font-size: 15px; color: var(--text-dim); font-weight: 700; }
+.reveal-amount-empty { font-size: 16px; color: var(--text-dim); font-weight: 700; }
 .reveal-sub { font-size: 12.5px; color: var(--text-dim); margin-top: 4px; margin-bottom: 18px; }
 .reveal-btn { width: 100%; padding: 12px; }
 
