@@ -41,6 +41,10 @@
           <span class="stat-value" :class="{ warn: stats?.pending_deleted_posts_count > 0 }">{{ stats?.pending_deleted_posts_count ?? '—' }}</span>
           <span class="stat-label">Deleted Posts</span>
         </button>
+        <button type="button" class="stat-box stat-box-link" @click="router.push('/forum')">
+          <span class="stat-value" :class="{ warn: stats?.pending_reports_count > 0 }">{{ stats?.pending_reports_count ?? '—' }}</span>
+          <span class="stat-label">Reports</span>
+        </button>
       </section>
 
       <!-- ── TOOL TILES ───────────────────────────────── -->

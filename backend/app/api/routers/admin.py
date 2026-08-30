@@ -75,7 +75,7 @@ async def get_admin_stats(db: DBSession, admin_user: AdminUser) -> dict:
         )
     ).scalar() or 0
 
-    from backend.app.db.models import ForumCategoryModel
+    from backend.app.db.models import ForumCategoryModel, ForumPostReportModel
 
     open_tickets_count = (
         await db.execute(
@@ -87,6 +87,11 @@ async def get_admin_stats(db: DBSession, admin_user: AdminUser) -> dict:
     pending_deleted_posts_count = (
         await db.execute(select(func.count()).select_from(ForumPostModel).where(ForumPostModel.deleted_at.isnot(None)))
     ).scalar() or 0
+    pending_reports_count = (
+        await db.execute(
+            select(func.count()).select_from(ForumPostReportModel).where(ForumPostReportModel.resolved_at.is_(None))
+        )
+    ).scalar() or 0
 
     return {
         "users_count": users_count,
@@ -96,6 +101,7 @@ async def get_admin_stats(db: DBSession, admin_user: AdminUser) -> dict:
         "active_subscriptions_count": active_subscriptions_count,
         "open_tickets_count": open_tickets_count,
         "pending_deleted_posts_count": pending_deleted_posts_count,
+        "pending_reports_count": pending_reports_count,
     }
 
 

@@ -176,7 +176,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '../store/user'
 import { adminAPI } from '../api/admin'
@@ -184,6 +184,7 @@ import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
 import Breadcrumbs from '../components/Breadcrumbs.vue'
 
+const route = useRoute()
 const router = useRouter()
 const { user } = storeToRefs(useUserStore())
 const users = ref([])
@@ -361,6 +362,7 @@ async function toggleTradeBan(u) {
 
 onMounted(() => {
   if (!user.value?.is_admin) { router.replace('/user'); return }
+  if (route.query.q) search.value = String(route.query.q)
   load()
 })
 </script>

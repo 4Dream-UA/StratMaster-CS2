@@ -28,7 +28,7 @@
             <tr><th>Type</th><th>From</th><th>To</th><th>Amount</th><th>Date</th></tr>
           </thead>
           <tbody>
-            <tr v-for="t in transactions" :key="t.id">
+            <tr v-for="t in transactions" :key="t.id" class="row-clickable" @click="selected = t">
               <td><span class="type-pill" :class="t.transaction_type">{{ typeLabel(t.transaction_type) }}</span></td>
               <td class="mono">{{ t.sender_wallet_id ?? '— system —' }}</td>
               <td class="mono">{{ t.receiver_wallet_id }}</td>
@@ -46,6 +46,28 @@
         </div>
       </section>
     </div>
+
+    <!-- ── TRANSACTION DETAIL MODAL ─────────────────────── -->
+    <!-- No <transition> — see the code-review notes elsewhere in this app
+         for why: it can get stuck mid-leave and silently block the page. -->
+      <div v-if="selected" class="modal-backdrop" @click.self="selected = null">
+        <div class="modal txn-modal">
+          <button class="modal-close" @click="selected = null">✕</button>
+          <h3 class="modal-title">Transaction</h3>
+          <div class="txn-rows">
+            <div class="txn-row"><span>Type</span><span class="type-pill" :class="selected.transaction_type">{{ typeLabel(selected.transaction_type) }}</span></div>
+            <div class="txn-row"><span>ID</span><span class="mono">{{ selected.id }}</span></div>
+            <div class="txn-row"><span>From</span><span class="mono">{{ selected.sender_wallet_id ?? '— system —' }}</span></div>
+            <div class="txn-row"><span>To</span><span class="mono">{{ selected.receiver_wallet_id }}</span></div>
+            <div class="txn-row"><span>Amount</span><span class="amount">{{ selected.amount }} MC</span></div>
+            <div class="txn-row"><span>Date</span><span>{{ formatFullDate(selected.created_at) }}</span></div>
+          </div>
+          <div class="form-actions">
+            <button v-if="selected.sender_wallet_id" class="mini-btn" @click="lookupWallet(selected.sender_wallet_id)">Find sender in Users</button>
+            <button class="mini-btn" @click="lookupWallet(selected.receiver_wallet_id)">Find receiver in Users</button>
+          </div>
+        </div>
+      </div>
 
     <Footer />
   </main>
@@ -81,8 +103,20 @@ const TYPE_OPTIONS = [
   { value: 'case_open', label: 'Cases' },
   { value: 'case_gift', label: 'Case Gifts' },
   { value: 'case_sale', label: 'Case Sales' },
+  { value: 'voucher_gift', label: 'Voucher Gifts' },
+  { value: 'voucher_sale', label: 'Voucher Sales' },
   { value: 'admin_grant', label: 'Admin Grants' },
 ]
+
+const selected = ref(null)
+function lookupWallet(walletId) {
+  router.push({ path: '/admin/users', query: { q: walletId } })
+}
+function formatFullDate(iso) {
+  return new Date(iso).toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  })
+}
 
 function typeLabel(type) {
   return TYPE_OPTIONS.find(o => o.value === type)?.label ?? type
@@ -181,8 +215,36 @@ onMounted(() => {
 .type-pill.subscription_buy { background: rgba(255,154,0,.12); border-color: rgba(255,154,0,.35); color: var(--accent); }
 .type-pill.referral_bonus { background: rgba(80,220,100,.12); border-color: rgba(80,220,100,.35); color: var(--success); }
 .type-pill.promo_code { background: rgba(255,204,68,.12); border-color: rgba(255,204,68,.35); color: #ffcc44; }
-.type-pill.case_open, .type-pill.case_gift, .type-pill.case_sale { background: rgba(136,71,255,.12); border-color: rgba(136,71,255,.35); color: #8847ff; }
+.type-pill.case_open, .type-pill.case_gift, .type-pill.case_sale,
+.type-pill.voucher_gift, .type-pill.voucher_sale { background: rgba(136,71,255,.12); border-color: rgba(136,71,255,.35); color: #8847ff; }
 .type-pill.admin_grant { background: rgba(235,75,75,.12); border-color: rgba(235,75,75,.35); color: var(--danger); }
+
+.row-clickable { cursor: pointer; transition: background .12s; }
+.row-clickable:hover { background: var(--bg); }
+
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 500;
+  background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center;
+  padding: 20px; backdrop-filter: blur(4px); overflow-y: auto;
+}
+.modal {
+  position: relative; width: 100%; max-width: 420px;
+  background: var(--bg-elevated); border: 1px solid var(--line);
+  border-radius: var(--radius-lg); padding: 28px 22px 22px; margin: auto;
+}
+.modal-close {
+  position: absolute; top: 14px; right: 14px; width: 28px; height: 28px; border-radius: 8px;
+  background: var(--bg); border: 1px solid var(--line); color: var(--text-dim); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 12px;
+}
+.modal-close:hover { border-color: var(--accent); color: var(--accent); }
+.modal-title { font-size: 17px; font-weight: 800; color: var(--text); margin-bottom: 16px; }
+
+.txn-rows { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
+.txn-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
+.txn-row > span:first-child { color: var(--text-dim); font-weight: 700; flex-shrink: 0; }
+.txn-row > span:last-child { color: var(--text); word-break: break-all; text-align: right; }
+.form-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .mini-btn {
   background: linear-gradient(160deg, var(--bg-elevated), var(--bg)); border: 1px solid var(--line); color: var(--text-dim);
