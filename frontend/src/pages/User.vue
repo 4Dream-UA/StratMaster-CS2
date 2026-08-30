@@ -1236,7 +1236,7 @@ const TABS = [
   display: flex; align-items: center; justify-content: center; gap: 7px;
   width: 100%; margin-top: 14px;
   background: linear-gradient(160deg, #ffc266 0%, var(--accent) 48%, #cc7300 100%);
-  color: var(--text); text-shadow: 0 1px 2px rgba(0,0,0,.22);
+  color: #2b1300; text-shadow: 0 1px 0 rgba(255,222,168,.35);
   border: 1px solid rgba(255,255,255,.14);
   font-size: 13.5px; font-weight: 700; padding: 12px 16px; border-radius: 10px;
   letter-spacing: .01em;
