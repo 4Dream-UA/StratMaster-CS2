@@ -476,6 +476,11 @@ function toggleTab(key) {
   if (activeTab.value === 'favorites' && !favoritesLoaded.value) loadFavorites()
   if (activeTab.value === 'strategies' && !favStrategiesLoaded.value) loadFavStrategies()
   if (activeTab.value === 'p2p' && !blockedList.value.length) loadBlocked()
+  // Switching tabs is internal state, not a route change, so vue-router's
+  // scrollBehavior never runs for it — without this, leaving a tall panel
+  // (e.g. Cases) for a short one can leave the page scrolled well past its
+  // new (shorter) content, stranding the reader down near the footer.
+  if (activeTab.value) window.scrollTo({ top: 0, behavior: 'auto' })
 }
 
 // ── Favorite maps ──────────────────────────────────────────────

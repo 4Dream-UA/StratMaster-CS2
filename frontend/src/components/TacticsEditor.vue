@@ -20,8 +20,8 @@
 
       <div class="te-canvas-wrap">
         <img
-          :src="imageUrl" alt="" class="te-image" ref="imgRef"
-          @click="onImageClick" @pointerdown="onImagePointerDown" @load="onImageLoad"
+          :src="imageUrl" alt="" class="te-image" ref="imgRef" draggable="false"
+          @click="onImageClick" @pointerdown="onImagePointerDown" @load="onImageLoad" @dragstart.prevent
         />
         <svg class="te-overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
           <!-- existing grenade trajectories -->
@@ -460,7 +460,16 @@ function onImageClick(event) {
 /* touch-action: none on the drawable surface stops the browser's own
    pan/scroll gesture from hijacking a single-finger drag — without it,
    touch drawing/dragging on mobile just scrolls the page instead. */
-.te-image { width: 100%; height: auto; display: block; cursor: crosshair; touch-action: none; }
+/* draggable="false" + @dragstart.prevent stop the browser's native "drag
+   this image" ghost-drag gesture — without both, a mouse-down-and-drag on
+   desktop starts dragging the image itself instead of drawing, since the
+   native image-drag gesture and our own pointer-drag drawing both listen
+   to the same mousedown. Touch has no such native gesture, which is why
+   this only ever showed up on desktop. */
+.te-image {
+  width: 100%; height: auto; display: block; cursor: crosshair; touch-action: none;
+  -webkit-user-drag: none; user-drag: none;
+}
 .te-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .te-handle {
   pointer-events: all; cursor: grab; touch-action: none;

@@ -172,7 +172,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '../store/user'
 import { boardsAPI } from '../api/boards'
@@ -194,6 +194,11 @@ const hasActiveAccess = computed(() => {
 const GRENADE_TYPES = ['Smoke', 'Flashbang', 'Molotov', 'HE', 'Decoy']
 
 const mode = ref('list') // 'list' | 'edit'
+// list<->edit is internal state, not a route change, so vue-router's
+// scrollBehavior never runs for it — without this, leaving a tall editor
+// for the (much shorter) list, or vice versa, can leave the page scrolled
+// well past its new content, stranding the reader down near the footer.
+watch(mode, () => window.scrollTo({ top: 0, behavior: 'auto' }))
 const loading = ref(true)
 const saving = ref(false)
 const errorMsg = ref('')
