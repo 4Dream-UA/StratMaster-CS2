@@ -11,6 +11,8 @@ from backend.app.api.deps import AdminUser, DBSession
 from backend.app.db.models import (
     BuyTagModel,
     CaseModel,
+    ForumPostModel,
+    ForumThreadModel,
     GrenadeModel,
     ImageModel,
     MapModel,
@@ -73,12 +75,27 @@ async def get_admin_stats(db: DBSession, admin_user: AdminUser) -> dict:
         )
     ).scalar() or 0
 
+    from backend.app.db.models import ForumCategoryModel
+
+    open_tickets_count = (
+        await db.execute(
+            select(func.count()).select_from(ForumThreadModel)
+            .join(ForumCategoryModel, ForumThreadModel.category_id == ForumCategoryModel.id)
+            .where(ForumCategoryModel.key == "support", ForumThreadModel.is_closed.is_(False))
+        )
+    ).scalar() or 0
+    pending_deleted_posts_count = (
+        await db.execute(select(func.count()).select_from(ForumPostModel).where(ForumPostModel.deleted_at.isnot(None)))
+    ).scalar() or 0
+
     return {
         "users_count": users_count,
         "strategies_count": strategies_count,
         "maps_count": maps_count,
         "transactions_count": transactions_count,
         "active_subscriptions_count": active_subscriptions_count,
+        "open_tickets_count": open_tickets_count,
+        "pending_deleted_posts_count": pending_deleted_posts_count,
     }
 
 

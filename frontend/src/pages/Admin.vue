@@ -33,6 +33,14 @@
           <span class="stat-value">{{ stats?.transactions_count ?? '—' }}</span>
           <span class="stat-label">Transactions</span>
         </div>
+        <button type="button" class="stat-box stat-box-link" @click="router.push('/forum')">
+          <span class="stat-value">{{ stats?.open_tickets_count ?? '—' }}</span>
+          <span class="stat-label">Open Tickets</span>
+        </button>
+        <button type="button" class="stat-box stat-box-link" @click="router.push('/forum')">
+          <span class="stat-value" :class="{ warn: stats?.pending_deleted_posts_count > 0 }">{{ stats?.pending_deleted_posts_count ?? '—' }}</span>
+          <span class="stat-label">Deleted Posts</span>
+        </button>
       </section>
 
       <!-- ── TOOL TILES ───────────────────────────────── -->
@@ -158,7 +166,10 @@ onMounted(async () => {
   display: flex; flex-direction: column; gap: 4px;
 }
 .stat-value { font-size: 26px; font-weight: 900; color: var(--accent); }
+.stat-value.warn { color: var(--danger); }
 .stat-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .05em; }
+.stat-box-link { cursor: pointer; text-align: left; transition: border-color .15s; }
+.stat-box-link:hover { border-color: var(--accent); }
 
 /* ── Tiles ─────────────────────────────────────── */
 .tiles-grid {

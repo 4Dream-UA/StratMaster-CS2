@@ -57,7 +57,12 @@
     </div>
 
     <!-- ── PLAYER DETAIL MODAL ─────────────────────────────── -->
-    <transition name="fade" :duration="200">
+    <!-- No <transition> here on purpose — see Pricing.vue's payment popup
+         for why: even with an explicit :duration fallback, a Vue
+         transition here can get stuck mid-leave (backgrounded tab,
+         reduced-motion, a fast double-toggle), leaving this fixed
+         full-screen backdrop rendered invisibly and silently blocking
+         every click on the page underneath it until reload. -->
       <div v-if="selected" class="modal-backdrop" @click.self="closePlayer">
         <div class="modal player-modal">
           <button class="modal-close" @click="closePlayer">✕</button>
@@ -81,6 +86,17 @@
             </span>
             <span v-if="selected.is_banned" class="status-pill banned">Banned</span>
             <span v-if="selected.is_trade_banned" class="status-pill off">No trades</span>
+          </div>
+
+          <!-- Public profile info (support/verification reference) -->
+          <div v-if="filledProfileInfo(selected).length" class="section">
+            <p class="section-label">Public profile info</p>
+            <div class="profile-info-list">
+              <div v-for="f in filledProfileInfo(selected)" :key="f.key" class="profile-info-row">
+                <span class="profile-info-key">{{ f.label }}</span>
+                <span class="profile-info-val">{{ f.value }}</span>
+              </div>
+            </div>
           </div>
 
           <!-- Nickname -->
@@ -153,7 +169,6 @@
           </div>
         </div>
       </div>
-    </transition>
 
     <Footer />
   </main>
@@ -180,6 +195,17 @@ const LIMIT = 50
 function isSubscribed(u) {
   const exp = u.wallet?.subscription_expires_at
   return exp && new Date(exp) > new Date()
+}
+
+const PROFILE_FIELD_LABELS = {
+  location: 'Location', telegram: 'Telegram', instagram: 'Instagram', discord: 'Discord',
+  faceit: 'Faceit', steam: 'Steam', whatsapp: 'WhatsApp', twitch: 'Twitch',
+}
+function filledProfileInfo(u) {
+  if (!u?.profile_info) return []
+  return Object.entries(u.profile_info)
+    .filter(([, v]) => v)
+    .map(([key, value]) => ({ key, value, label: PROFILE_FIELD_LABELS[key] || key }))
 }
 
 async function load(offset = 0, append = false) {
@@ -443,6 +469,11 @@ onMounted(() => {
 .section-hint { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
 
 .inline-form, .premium-form { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.profile-info-list { display: flex; flex-direction: column; gap: 5px; }
+.profile-info-row { display: flex; gap: 8px; font-size: 12.5px; }
+.profile-info-key { color: var(--text-dim); width: 72px; flex-shrink: 0; }
+.profile-info-val { color: var(--text); word-break: break-word; }
 .inline-input, .inline-select {
   flex: 1; min-width: 120px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
   padding: 8px 10px; color: var(--text); font-size: 13px; font-family: inherit;
