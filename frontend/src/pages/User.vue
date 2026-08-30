@@ -2,10 +2,17 @@
   <main class="user-page">
     <Header />
 
-    <div class="wrap user-content" :class="{ 'user-content-wide': activeTab === 'board' || activeTab === 'cases' }">
+    <div class="wrap user-content">
 
       <!-- ── BREADCRUMB ─────────────────────────────────── -->
       <Breadcrumbs :items="[{ label: 'Home', to: '/' }, { label: 'Profile' }]" />
+
+      <!-- On desktop this whole block (profile card through the hotbar) is
+           a fixed-width sidebar and the active panel sits beside it in its
+           own column instead of everything stacking in one narrow strip —
+           see .profile-layout below. -->
+      <div class="profile-layout">
+      <div class="profile-sidebar">
 
       <!-- ── PROFILE HEADER ───────────────────────────── -->
       <section class="profile-card">
@@ -116,7 +123,7 @@
       </section>
 
       <!-- ── HOTBAR ───────────────────────────────────── -->
-      <nav class="hotbar">
+      <nav class="hotbar" ref="hotbarRef">
         <template v-for="tab in TABS" :key="tab.key">
           <router-link v-if="tab.to" :to="tab.to" class="hotbar-btn">
             <span class="hotbar-icon" v-html="tab.icon"></span>
@@ -138,6 +145,9 @@
           <span class="hotbar-label">Admin</span>
         </router-link>
       </nav>
+
+      </div>
+      <div class="profile-main">
 
       <!-- ── PANEL ────────────────────────────────────── -->
       <!-- No <transition> wrapper here on purpose: an out-in Vue transition
@@ -337,6 +347,8 @@
 
         <p v-else key="hint" class="hotbar-hint">Tap an option above to get started.</p>
 
+      </div>
+      </div>
     </div>
 
     <Footer />
@@ -507,6 +519,7 @@ const promoSuccess = ref(false)
 // the old /my-strategies, /boards or /cases links).
 const VALID_QUERY_TABS = ['strategies', 'board', 'cases']
 const activeTab = ref(VALID_QUERY_TABS.includes(route.query.tab) ? route.query.tab : 'referral')
+const hotbarRef = ref(null)
 function toggleTab(key) {
   activeTab.value = activeTab.value === key ? null : key
   if (activeTab.value === 'favorites' && !favoritesLoaded.value) loadFavorites()
@@ -517,7 +530,10 @@ function toggleTab(key) {
   // scrollBehavior never runs for it — without this, leaving a tall panel
   // (e.g. Cases) for a short one can leave the page scrolled well past its
   // new (shorter) content, stranding the reader down near the footer.
-  if (activeTab.value) window.scrollTo({ top: 0, behavior: 'auto' })
+  // Scrolling the hotbar (not the page) to the top of the viewport fixes
+  // that without yanking the reader all the way up past the profile/wallet
+  // cards every time they're already scrolled down near the tabs.
+  if (activeTab.value) hotbarRef.value?.scrollIntoView({ block: 'start', behavior: 'auto' })
 }
 
 // ── Favorite maps ──────────────────────────────────────────────
@@ -1067,8 +1083,33 @@ const TABS = [
 
 <style scoped>
 .user-page { min-height: 100vh; background: var(--bg); }
-.user-content { max-width: 640px; padding: 20px 16px 100px; transition: max-width .2s; }
-.user-content-wide { max-width: 960px; }
+.user-content { max-width: 640px; padding: 20px 16px 100px; }
+
+/* ── Desktop/laptop: the whole content column gets more room to work
+   with (below, forms and grids inside each panel use it), and above a
+   wider breakpoint the profile card through the hotbar become a fixed
+   sidebar beside the active panel instead of stacking above it.
+   The sidebar split specifically waits for 1300px rather than the usual
+   900px — TacticsEditor (rendered inside the Board panel) has its own
+   900px-viewport breakpoint for a 420px-canvas-plus-tools layout, and
+   splitting the sidebar off any earlier would starve that panel of width
+   at exactly the range where it also wants to go two-column. Below
+   1300px these are just two stacked block divs, same as always — and
+   TacticsEditor still gets the (nearly) full content width to itself. ── */
+@media (min-width: 900px) {
+  .user-content { max-width: 1080px; }
+}
+@media (min-width: 1300px) {
+  .profile-layout { display: grid; grid-template-columns: 340px 1fr; align-items: start; column-gap: 28px; }
+  .profile-sidebar { position: sticky; top: 20px; }
+  .profile-main { min-width: 0; }
+  /* The hotbar's horizontal-scroll-with-hidden-scrollbar treatment is a
+     mobile swipe pattern — inside a fixed 340px sidebar there's no room
+     for 9 buttons in a row and no visible hint that it scrolls, so it
+     wraps into a grid instead, trading the unused horizontal room a
+     sidebar doesn't have for the vertical room it does. */
+  .hotbar { flex-wrap: wrap; overflow-x: visible; display: grid; grid-template-columns: repeat(3, 1fr); }
+}
 
 /* ── Profile card ─────────────────────────────── */
 .profile-card {
