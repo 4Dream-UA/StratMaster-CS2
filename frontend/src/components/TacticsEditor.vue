@@ -9,11 +9,26 @@
 
     <template v-else>
       <div class="te-mode-toggle">
-        <button type="button" class="te-mode-btn" :class="{ active: mode === 'paths' }" @click="setMode('paths')">Player Paths</button>
-        <button type="button" class="te-mode-btn" :class="{ active: mode === 'grenades' }" @click="setMode('grenades')">Grenade Trajectories</button>
-        <button type="button" class="te-mode-btn" :class="{ active: mode === 'draw' }" @click="setMode('draw')">Draw</button>
-        <button type="button" class="te-mode-btn" :class="{ active: mode === 'notes' }" @click="setMode('notes')">Notes</button>
-        <button type="button" class="te-mode-btn" :class="{ active: mode === 'bomb' }" @click="setMode('bomb')">C4</button>
+        <button type="button" class="te-mode-btn" :class="{ active: mode === 'paths' }" @click="setMode('paths')">
+          <svg viewBox="0 0 20 20" fill="none" width="16" height="16"><circle cx="4" cy="16" r="2" fill="currentColor"/><circle cx="16" cy="4" r="2" fill="currentColor"/><path d="M4 16C4 10 10 10 10 10C10 10 16 10 16 4" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 2"/></svg>
+          <span>Player Paths</span>
+        </button>
+        <button type="button" class="te-mode-btn" :class="{ active: mode === 'grenades' }" @click="setMode('grenades')">
+          <svg viewBox="0 0 20 20" fill="none" width="16" height="16"><circle cx="10" cy="12" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M10 6V3M8 3h4M13 5l1.5-1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <span>Grenade Trajectories</span>
+        </button>
+        <button type="button" class="te-mode-btn" :class="{ active: mode === 'draw' }" @click="setMode('draw')">
+          <svg viewBox="0 0 20 20" fill="none" width="16" height="16"><path d="M4 16l1-4L13 4l3 3-8 8-4 1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          <span>Draw</span>
+        </button>
+        <button type="button" class="te-mode-btn" :class="{ active: mode === 'notes' }" @click="setMode('notes')">
+          <svg viewBox="0 0 20 20" fill="none" width="16" height="16"><path d="M4 3h12v10l-4 4H4V3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 17v-4h4" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          <span>Notes</span>
+        </button>
+        <button type="button" class="te-mode-btn" :class="{ active: mode === 'bomb' }" @click="setMode('bomb')">
+          <svg viewBox="0 0 20 20" fill="none" width="16" height="16"><circle cx="10" cy="12" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M10 6V3M14 3l2-1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <span>C4</span>
+        </button>
       </div>
 
       <p class="te-hint-drag">Drag a point to move it. Click a point (without dragging) to delete it.</p>
@@ -449,9 +464,11 @@ function onImageClick(event) {
 
 .te-mode-toggle { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .te-mode-btn {
+  display: inline-flex; align-items: center; gap: 6px;
   padding: 6px 13px; border-radius: 99px; background: var(--bg-elevated); border: 1.5px solid var(--line);
   color: var(--text-dim); font-size: 12px; font-weight: 700; cursor: pointer; transition: all .15s;
 }
+.te-mode-btn svg { flex-shrink: 0; }
 .te-mode-btn.active { background: rgba(255,154,0,.12); border-color: var(--accent); color: var(--accent); }
 
 .te-hint-drag { font-size: 11.5px; color: var(--text-dim); margin: -6px 0 10px; }
@@ -544,7 +561,7 @@ function onImageClick(event) {
 @media (min-width: 900px) {
   .tactics-editor {
     display: grid;
-    grid-template-columns: 1fr 300px;
+    grid-template-columns: 420px 1fr;
     grid-template-areas:
       "header header"
       "empty  empty"
@@ -552,14 +569,17 @@ function onImageClick(event) {
       "canvas hint"
       "canvas panel";
     align-items: start;
-    column-gap: 20px;
+    column-gap: 24px;
   }
   .te-header { grid-area: header; }
   .te-empty { grid-area: empty; }
-  .te-mode-toggle { grid-area: toggle; flex-direction: column; flex-wrap: nowrap; margin-bottom: 0; }
-  .te-mode-btn { text-align: left; }
+  .te-mode-toggle {
+    grid-area: toggle; flex-wrap: nowrap; margin-bottom: 0;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  }
+  .te-mode-btn { justify-content: flex-start; padding: 9px 14px; }
   .te-hint-drag { grid-area: hint; margin: 10px 0 0; }
-  .te-canvas-wrap { grid-area: canvas; margin-bottom: 0; }
-  .te-panel { grid-area: panel; margin-top: 10px; max-height: 480px; overflow-y: auto; padding-right: 4px; }
+  .te-canvas-wrap { grid-area: canvas; margin-bottom: 0; max-width: 420px; }
+  .te-panel { grid-area: panel; margin-top: 12px; max-height: 480px; overflow-y: auto; padding-right: 4px; }
 }
 </style>
