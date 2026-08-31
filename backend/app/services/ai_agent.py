@@ -70,12 +70,9 @@ How to reply:
 
 # Appended in code, never asked of the model: the guarantee that every reply
 # is marked as automated must not depend on the model remembering to do it.
-# Both languages, because the reply itself follows whichever one the player
-# wrote in.
-SIGNATURE = (
-    "\n\n— Automated first reply. Someone from the team will follow up if this didn't sort it."
-    "\n— Автоматический первый ответ. Если это не помогло, с вами свяжется команда."
-)
+# English only, deliberately — the reply above it follows whatever language
+# the player wrote in, but the marker itself is a fixed product string.
+SIGNATURE = "\n\n— Automated first reply. Someone from the team will follow up if this didn't sort it."
 
 
 def is_configured() -> bool:

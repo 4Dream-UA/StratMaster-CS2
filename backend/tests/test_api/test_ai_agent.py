@@ -304,7 +304,9 @@ def test_request_body_omits_temperature_unless_it_is_configured(monkeypatch):
     assert ai_agent._request_body([{"role": "user", "content": "hi"}])["temperature"] == 0.3
 
 
-async def test_every_reply_is_marked_automated_in_both_languages(client, db_session, auth_as, monkeypatch):
+async def test_the_automated_marker_is_english_whatever_language_the_reply_is(client, db_session, auth_as, monkeypatch):
+    """The marker is a fixed product string, not something translated per
+    reply — a reply in any language carries the English one, and only that."""
     await make_ai_agent_user(db_session)
     player = await make_user(db_session, subscribed=True)
     auth_as(player)
@@ -313,7 +315,7 @@ async def test_every_reply_is_marked_automated_in_both_languages(client, db_sess
     thread = await open_ticket(client)
     body = ai_posts(await get_thread(client, thread["id"]))[0]["body"]
     assert "Automated first reply" in body
-    assert "Автоматический первый ответ" in body
+    assert "Автоматический" not in body
 
 
 async def test_it_answers_an_admin_who_opens_their_own_ticket(client, db_session, auth_as, monkeypatch):
