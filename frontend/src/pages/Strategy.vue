@@ -45,28 +45,6 @@
           <span class="tag tag-plant">Site {{ strategy.plant }}</span>
           <span class="tag tag-speed">{{ strategy.speed }}</span>
 
-          <span class="meta-divider" aria-hidden="true"></span>
-
-          <!-- Difficulty -->
-          <span class="difficulty-group">
-            <span class="difficulty-label">Difficulty</span>
-            <span class="stars">
-              <span
-                v-for="i in 5" :key="i"
-                class="star"
-                :class="{ filled: i <= strategy.difficulty_stars }"
-              >★</span>
-            </span>
-          </span>
-
-          <span class="meta-divider" aria-hidden="true"></span>
-
-          <!-- Success rate -->
-          <span class="success-rate">
-            <span class="rate-num">{{ strategy.success_rate }}%</span>
-            <span class="rate-lbl">win rate</span>
-          </span>
-
           <!-- Author -->
           <span v-if="strategy.author" class="author">
             by <strong>{{ strategy.author }}</strong>
@@ -76,6 +54,37 @@
           <span class="access-badge" :class="strategy.is_free ? 'free' : 'premium'">
             {{ strategy.is_free ? 'Free' : 'Premium' }}
           </span>
+        </div>
+
+        <!-- ═══ AT A GLANCE ═══════════════════════
+             The three numbers a player actually decides on — how hard it is
+             to run, how often it works, and how much setup it needs — as
+             readable figures rather than tag soup in the row above. -->
+        <div class="glance-row">
+          <div class="glance-card">
+            <span class="glance-label">Difficulty</span>
+            <span class="glance-value difficulty-chip" :class="difficultyKey(strategy.difficulty_stars)">
+              {{ difficultyLabel(strategy.difficulty_stars) }}
+            </span>
+          </div>
+
+          <div class="glance-card">
+            <span class="glance-label">Win rate</span>
+            <span class="glance-value">{{ strategy.success_rate }}%</span>
+            <span class="rate-meter"><span class="rate-meter-fill" :class="winRateKey" :style="{ width: strategy.success_rate + '%' }"></span></span>
+          </div>
+
+          <div class="glance-card">
+            <span class="glance-label">Utility</span>
+            <span class="glance-value">{{ strategy.grenades?.length || 0 }}</span>
+            <span class="glance-sub">{{ (strategy.grenades?.length || 0) === 1 ? 'lineup' : 'lineups' }}</span>
+          </div>
+
+          <div class="glance-card">
+            <span class="glance-label">Execute</span>
+            <span class="glance-value">{{ executeLength }}</span>
+            <span class="glance-sub">{{ timings.length ? `${timings.length} ${timings.length === 1 ? 'step' : 'steps'}` : 'no timeline' }}</span>
+          </div>
         </div>
 
         <div class="header-actions-row">
@@ -128,44 +137,60 @@
            Each timing at index N links to images[N+1]
       ════════════════════════════════════════════ -->
       <section v-if="timings.length" id="timings" class="timings-section">
-        <h2 class="section-title">Timings</h2>
-
-        <div class="timings-list">
-          <div
-            v-for="(t, i) in timings"
-            :key="i"
-            class="timing-item"
-          >
-            <!-- Timing label: "1) 00:10" -->
-            <div class="timing-header">
-              <span class="timing-index">{{ i + 1 }})</span>
-              <span class="timing-time">{{ t.time }}</span>
-              <span class="timing-desc">{{ t.description }}</span>
-            </div>
-
-            <!-- Spoiler image: images[i+1] -->
-            <div v-if="timingImages[i]" class="spoiler">
-              <button
-                class="spoiler-toggle"
-                @click="toggleSpoiler(i)"
-                :aria-expanded="openSpoilers[i]"
-              >
-                <span class="spoiler-arrow">{{ openSpoilers[i] ? '▼' : '▶' }}</span>
-                {{ openSpoilers[i] ? 'Hide screenshot' : 'Show screenshot' }}
-              </button>
-              <transition name="expand">
-                <div v-show="openSpoilers[i]" class="spoiler-content">
-                  <img :src="timingImages[i].image_url" :alt="`Timing ${i + 1}`" class="spoiler-img" />
-                </div>
-              </transition>
-            </div>
-          </div>
+        <div class="section-head">
+          <h2 class="section-title">Execution timeline</h2>
+          <button v-if="timingImages.length" type="button" class="section-action" @click="toggleAllSpoilers">
+            {{ allSpoilersOpen ? 'Collapse all' : 'Expand all' }}
+          </button>
         </div>
+
+        <!-- A rail with a dot per step, rather than a flat list: the round
+             number and the gap to the next one are the point of a timing
+             list, and a bare "1) 00:10" line doesn't show either. -->
+        <ol class="timeline">
+          <li v-for="(t, i) in timings" :key="i" class="timeline-step">
+            <span class="timeline-dot">{{ i + 1 }}</span>
+            <div class="timeline-body">
+              <div class="timeline-head">
+                <span class="timeline-time">{{ t.time }}</span>
+                <span v-if="gapAfter(i)" class="timeline-gap">+{{ gapAfter(i) }}</span>
+              </div>
+              <p class="timeline-desc">{{ t.description }}</p>
+
+              <div v-if="timingImages[i]" class="spoiler">
+                <button
+                  class="spoiler-toggle"
+                  @click="toggleSpoiler(i)"
+                  :aria-expanded="openSpoilers[i]"
+                >
+                  <span class="spoiler-arrow">{{ openSpoilers[i] ? '▼' : '▶' }}</span>
+                  {{ openSpoilers[i] ? 'Hide screenshot' : 'Show screenshot' }}
+                </button>
+                <div v-show="openSpoilers[i]" class="spoiler-content">
+                  <img :src="timingImages[i].image_url" :alt="`Step ${i + 1}`" class="spoiler-img" loading="lazy" />
+                </div>
+              </div>
+            </div>
+          </li>
+        </ol>
       </section>
 
       <!-- ═══ GRENADES ════════════════════════════ -->
       <section v-if="strategy.grenades && strategy.grenades.length" id="grenades" class="grenades-section">
-        <h2 class="section-title">Grenades</h2>
+        <div class="section-head">
+          <h2 class="section-title">Grenades</h2>
+          <button v-if="strategy.grenades.length > 1" type="button" class="section-action" @click="toggleAllGrenades">
+            {{ allGrenadesOpen ? 'Collapse all' : 'Expand all' }}
+          </button>
+        </div>
+
+        <!-- What the team needs to buy, before the lineup-by-lineup detail. -->
+        <div class="utility-summary">
+          <span v-for="g in grenadeCounts" :key="g.type" class="utility-chip">
+            <span class="utility-chip-icon" v-html="grenadeIcon(g.type)"></span>
+            <span>{{ g.count }}× {{ grenadeTypeLabel(g.type) }}</span>
+          </span>
+        </div>
 
         <div class="grenades-list">
           <div
@@ -185,8 +210,10 @@
               <span class="spoiler-arrow ml-auto">{{ openGrenades[i] ? '▼' : '▶' }}</span>
             </button>
 
-            <transition name="expand">
-              <div v-show="openGrenades[i]" class="spoiler-content grenade-content">
+            <!-- Rendered only once opened (v-if, not v-show): a strategy
+                 with a dozen lineups would otherwise start a dozen looping
+                 videos on page load, all of them behind a collapsed panel. -->
+            <div v-if="openGrenades[i]" class="spoiler-content grenade-content">
               <video
                 v-if="g.video_url && isVideo(g.video_url)"
                 :src="g.video_url"
@@ -198,10 +225,10 @@
                 :src="g.video_url"
                 :alt="`${g.grenade_type} to ${g.target}`"
                 class="grenade-media"
+                loading="lazy"
               />
               <p v-else class="grenade-no-media">No lineup video available yet.</p>
-              </div>
-            </transition>
+            </div>
           </div>
         </div>
       </section>
@@ -228,6 +255,7 @@ import Footer from '../components/Footer.vue'
 import Breadcrumbs from '../components/Breadcrumbs.vue'
 import TacticsPlayer from '../components/TacticsPlayer.vue'
 import { grenadeTypeLabel } from '../utils/grenadeLabels'
+import { difficultyKey, difficultyLabel } from '../utils/difficulty'
 import { botDeepLink } from '../config'
 
 const route  = useRoute()
@@ -290,6 +318,47 @@ const timingImages = computed(() => {
     .sort((a, b) => a.order - b.order)
 })
 
+// ── At-a-glance figures ────────────────────────────────────────
+const winRateKey = computed(() => {
+  const rate = strategy.value?.success_rate ?? 0
+  if (rate >= 70) return 'high'
+  return rate >= 50 ? 'mid' : 'low'
+})
+
+function timeToSeconds(mmss) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(mmss || '')
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null
+}
+function formatSeconds(total) {
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+}
+
+// How long the whole execute runs, from the first timing to the last —
+// null when the timings aren't all mm:ss (they're free text on the admin
+// side, so a strategy can legitimately have labels we can't do maths on).
+const executeLength = computed(() => {
+  const seconds = timings.value.map(t => timeToSeconds(t.time)).filter(s => s != null)
+  if (seconds.length < 2) return '—'
+  return formatSeconds(Math.max(...seconds) - Math.min(...seconds))
+})
+
+// Gap between this step and the next one, so the timeline shows pace and
+// not just absolute clock marks.
+function gapAfter(i) {
+  const a = timeToSeconds(timings.value[i]?.time)
+  const b = timeToSeconds(timings.value[i + 1]?.time)
+  if (a == null || b == null || b <= a) return null
+  return `${b - a}s`
+}
+
+const grenadeCounts = computed(() => {
+  const counts = new Map()
+  for (const g of strategy.value?.grenades || []) {
+    counts.set(g.grenade_type, (counts.get(g.grenade_type) || 0) + 1)
+  }
+  return [...counts].map(([type, count]) => ({ type, count }))
+})
+
 // Side display label
 const sideLabel = computed(() => {
   if (!strategy.value) return ''
@@ -346,6 +415,18 @@ function toggleGrenade(i) {
   openGrenades.value[i] = !openGrenades.value[i]
 }
 
+const allSpoilersOpen = computed(() => timingImages.value.length > 0 && timings.value.every((_, i) => !timingImages.value[i] || openSpoilers.value[i]))
+const allGrenadesOpen = computed(() => (strategy.value?.grenades || []).every((_, i) => openGrenades.value[i]))
+
+function toggleAllSpoilers() {
+  const next = !allSpoilersOpen.value
+  openSpoilers.value = Object.fromEntries(timings.value.map((_, i) => [i, next]))
+}
+function toggleAllGrenades() {
+  const next = !allGrenadesOpen.value
+  openGrenades.value = Object.fromEntries((strategy.value?.grenades || []).map((_, i) => [i, next]))
+}
+
 // ── Grenade helpers ────────────────────────────────────────────
 // Simple stroke-based SVGs matching the rest of the site's icon style —
 // emoji rendered inconsistently across OS/browsers (blank on some Android/Linux fonts).
@@ -375,12 +456,11 @@ onMounted(async () => {
   window.scrollTo({ top: 0, behavior: 'auto' })
 
   try {
-    const [strategyRes, mapsRes] = await Promise.all([
-      strategiesAPI.getStrategy(route.params.id),
-      strategiesAPI.getMaps({ limit: 100 }),
-    ])
+    // The strategy carries its own map_name — this used to pull the whole
+    // map list on every strategy view purely to resolve one breadcrumb.
+    const strategyRes = await strategiesAPI.getStrategy(route.params.id)
     strategy.value = strategyRes
-    mapName.value = mapsRes.maps.find(m => m.id === strategyRes.map_id)?.name ?? 'Map'
+    mapName.value = strategyRes.map_name || 'Map'
     loadFavoriteStatus()
   } catch (err) {
     const status = err.response?.status
@@ -508,51 +588,47 @@ onMounted(async () => {
 .tag-plant { border-color: var(--line); }
 .tag-speed { border-color: var(--line); }
 
-/* Divider between meta groups */
-.meta-divider {
-  width: 1px;
-  height: 18px;
-  background: var(--line);
-  flex-shrink: 0;
+/* ── At a glance ──────────────────────────── */
+.glance-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  margin-top: 18px;
 }
+.glance-card {
+  display: flex; flex-direction: column; gap: 6px;
+  background: var(--bg-elevated); border: 1px solid var(--line);
+  border-radius: 12px; padding: 14px 16px;
+}
+.glance-label {
+  font-size: 10.5px; font-weight: 700; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: .06em;
+}
+.glance-value {
+  font-size: 22px; font-weight: 800; color: var(--text); line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.glance-sub { font-size: 11.5px; color: var(--text-dim); font-weight: 600; }
 
-/* Difficulty */
-.difficulty-group {
-  display: flex;
-  align-items: center;
-  gap: 7px;
+/* Difficulty as a word, colour-coded — see utils/difficulty.js for why
+   this replaced a five-star row. */
+.difficulty-chip {
+  align-self: flex-start;
+  font-size: 14px; font-weight: 800;
+  padding: 4px 12px; border-radius: 99px;
+  border: 1px solid;
 }
-.difficulty-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
+.difficulty-chip.easy   { color: var(--success); border-color: color-mix(in srgb, var(--success) 45%, transparent); background: color-mix(in srgb, var(--success) 12%, transparent); }
+.difficulty-chip.medium { color: var(--accent);  border-color: color-mix(in srgb, var(--accent) 45%, transparent);  background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.difficulty-chip.hard   { color: var(--danger);  border-color: color-mix(in srgb, var(--danger) 45%, transparent);  background: color-mix(in srgb, var(--danger) 12%, transparent); }
 
-/* Stars */
-.stars { display: flex; gap: 2px; }
-.star { font-size: 16px; color: var(--line); line-height: 1; }
-.star.filled { color: var(--accent); }
-
-/* Success rate */
-.success-rate {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
+.rate-meter {
+  height: 5px; border-radius: 99px; background: var(--line); overflow: hidden;
 }
-.rate-num {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--accent);
-  line-height: 1;
-}
-.rate-lbl {
-  font-size: 11px;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
+.rate-meter-fill { display: block; height: 100%; border-radius: 99px; }
+.rate-meter-fill.high { background: var(--success); }
+.rate-meter-fill.mid  { background: var(--accent); }
+.rate-meter-fill.low  { background: var(--danger); }
 
 /* Author */
 .author { font-size: 13px; color: var(--text-dim); }
@@ -627,50 +703,71 @@ onMounted(async () => {
   margin-bottom: 22px;
 }
 
-/* ── Timings ──────────────────────────────── */
-.timings-section { margin-bottom: 56px; }
-
-.timings-list {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+/* ── Section heading with an action on the right ─────── */
+.section-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin-bottom: 22px;
 }
-
-.timing-item {
-  background: var(--bg-elevated);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 18px 20px;
-  transition: border-color 0.2s;
+.section-head .section-title { margin-bottom: 0; }
+.section-action {
+  background: none; border: none; padding: 0;
+  color: var(--text-dim); font-size: 12px; font-weight: 700;
+  cursor: pointer; text-decoration: underline; white-space: nowrap;
 }
 @media (hover: hover) and (pointer: fine) {
-  .timing-item:hover { border-color: rgba(255,154,0,0.25); }
+  .section-action:hover { color: var(--accent); }
 }
 
-.timing-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
+/* ── Execution timeline ───────────────────── */
+.timings-section { margin-bottom: 56px; }
+
+.timeline { list-style: none; margin: 0; padding: 0; }
+.timeline-step {
+  position: relative;
+  display: grid; grid-template-columns: 30px 1fr; gap: 14px;
+  padding-bottom: 18px;
 }
-.timing-index {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-dim);
-  min-width: 18px;
+/* The rail: a line from this step's dot down to the next one. The last
+   step has no ::before, so the rail stops at the final dot instead of
+   trailing off into empty space. */
+.timeline-step:not(:last-child)::before {
+  content: '';
+  position: absolute; left: 14px; top: 30px; bottom: 0;
+  width: 2px; background: var(--line);
 }
-.timing-time {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--accent);
+.timeline-dot {
+  width: 30px; height: 30px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-elevated); border: 1.5px solid var(--accent);
+  color: var(--accent); font-size: 12.5px; font-weight: 800;
+  flex-shrink: 0; z-index: 1;
+}
+.timeline-body {
+  background: var(--bg-elevated); border: 1px solid var(--line);
+  border-radius: 12px; padding: 14px 18px;
+  min-width: 0;
+}
+.timeline-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+.timeline-time {
+  font-size: 16px; font-weight: 800; color: var(--accent);
   font-variant-numeric: tabular-nums;
-  min-width: 48px;
 }
-.timing-desc {
-  font-size: 14px;
-  color: var(--text);
-  line-height: 1.5;
+.timeline-gap {
+  font-size: 11px; font-weight: 700; color: var(--text-dim);
+  padding: 2px 8px; border-radius: 99px; background: var(--bg);
 }
+.timeline-desc { font-size: 14px; color: var(--text); line-height: 1.5; }
+.timeline-body .spoiler { margin-top: 12px; }
+
+/* ── Utility summary ──────────────────────── */
+.utility-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+.utility-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 13px; border-radius: 99px;
+  background: var(--bg-elevated); border: 1px solid var(--line);
+  color: var(--text); font-size: 12.5px; font-weight: 700;
+}
+.utility-chip-icon { display: flex; color: var(--accent); }
 
 /* ── Spoiler shared ───────────────────────── */
 .spoiler { margin-top: 4px; }
@@ -741,15 +838,6 @@ onMounted(async () => {
   font-size: 12px;
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
-}
-
-/* Smooth expand/collapse for spoilers */
-.expand-enter-active, .expand-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-.expand-enter-from, .expand-leave-to {
-  opacity: 0;
-  transform: translateY(-6px);
 }
 
 .grenade-content {

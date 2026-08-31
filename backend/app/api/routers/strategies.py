@@ -112,6 +112,7 @@ async def get_strategy_detail(strategy_id: uuid.UUID, db: DBSession, current_use
             selectinload(StrategyModel.images),
             selectinload(StrategyModel.grenades),
             selectinload(StrategyModel.player_paths),
+            selectinload(StrategyModel.map),
         )
         .where(StrategyModel.id == strategy_id)
     )
@@ -134,6 +135,7 @@ async def get_strategy_detail(strategy_id: uuid.UUID, db: DBSession, current_use
 
     sorted_images = sorted(strategy.images, key=lambda i: i.order)
     detail = StrategyDetailResponse.model_validate(strategy)
+    detail.map_name = strategy.map.name if strategy.map else None
     detail.main_image_url = sorted_images[0].image_url if sorted_images else None
     detail.images = [ImageOut.model_validate(i) for i in sorted_images]
     detail.grenades = [GrenadeOut.model_validate(g) for g in sorted(strategy.grenades, key=lambda g: g.order)]

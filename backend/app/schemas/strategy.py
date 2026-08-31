@@ -77,6 +77,9 @@ class StrategyPreviewResponse(BaseModel):
 
 
 class StrategyDetailResponse(StrategyPreviewResponse):
+    # Included so the page doesn't have to pull the entire map list just to
+    # turn map_id into a breadcrumb label.
+    map_name: str | None = None
     roles_description: str | None = None
     timings_description: str | None = None
     images: list[ImageOut] = []

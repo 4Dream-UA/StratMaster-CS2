@@ -161,11 +161,8 @@
           <div class="card-body">
             <h3>{{ s.title }}</h3>
             <div class="card-meta">
-              <span class="difficulty-group">
-                <span class="difficulty-label">Difficulty</span>
-                <span class="stars">
-                  <span v-for="i in 5" :key="i" class="star" :class="{ on: i <= s.difficulty_stars }">★</span>
-                </span>
+              <span class="difficulty-chip" :class="difficultyKey(s.difficulty_stars)">
+                {{ difficultyLabel(s.difficulty_stars) }}
               </span>
               <span class="meta-divider" aria-hidden="true"></span>
               <span class="win-rate">{{ s.success_rate }}% win rate</span>
@@ -195,6 +192,7 @@ import Header from '../components/Header.vue'
 import Footer from '../components/Footer.vue'
 import Breadcrumbs from '../components/Breadcrumbs.vue'
 import Pagination from '../components/Pagination.vue'
+import { difficultyKey, difficultyLabel } from '../utils/difficulty'
 
 const route  = useRoute()
 const router = useRouter()
@@ -549,15 +547,6 @@ onMounted(async () => {
 }
 .card-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 
-.difficulty-group { display: flex; align-items: center; gap: 6px; }
-.difficulty-label {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
 .meta-divider {
   width: 1px;
   height: 12px;
@@ -565,9 +554,15 @@ onMounted(async () => {
   flex-shrink: 0;
 }
 
-.stars { display: flex; gap: 2px; }
-.star { font-size: 13px; color: var(--line); }
-.star.on { color: var(--accent); }
+/* Word, not a star row — see utils/difficulty.js. */
+.difficulty-chip {
+  font-size: 11px; font-weight: 800;
+  padding: 2px 10px; border-radius: 99px;
+  border: 1px solid; white-space: nowrap;
+}
+.difficulty-chip.easy   { color: var(--success); border-color: color-mix(in srgb, var(--success) 45%, transparent); background: color-mix(in srgb, var(--success) 12%, transparent); }
+.difficulty-chip.medium { color: var(--accent);  border-color: color-mix(in srgb, var(--accent) 45%, transparent);  background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.difficulty-chip.hard   { color: var(--danger);  border-color: color-mix(in srgb, var(--danger) 45%, transparent);  background: color-mix(in srgb, var(--danger) 12%, transparent); }
 
 .win-rate { font-size: 12px; color: var(--text-dim); }
 

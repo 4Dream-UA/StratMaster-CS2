@@ -92,9 +92,13 @@
                 <option value="slow">Slow (120s+)</option>
               </select>
             </label>
+            <!-- Three levels, stored in the existing 1–5 column as 1/3/5 —
+                 players see the word, not the number (utils/difficulty.js). -->
             <label class="field">
-              <span>Difficulty (1–5)</span>
-              <input v-model.number="form.difficulty_stars" type="number" min="1" max="5" />
+              <span>Difficulty</span>
+              <select v-model.number="form.difficulty_stars">
+                <option v-for="l in DIFFICULTY_LEVELS" :key="l.value" :value="l.value">{{ l.label }}</option>
+              </select>
             </label>
             <label class="field">
               <span>Success rate (%)</span>
@@ -196,6 +200,7 @@ import Pagination from '../components/Pagination.vue'
 import ImageUploadField from '../components/ImageUploadField.vue'
 import TacticsEditor from '../components/TacticsEditor.vue'
 import { grenadeTypeLabel } from '../utils/grenadeLabels'
+import { DIFFICULTY_LEVELS, snapDifficulty } from '../utils/difficulty'
 
 const router = useRouter()
 const { user } = storeToRefs(useUserStore())
@@ -311,7 +316,7 @@ function openEdit(strategy) {
     side: strategy.side,
     plant: strategy.plant,
     speed: strategy.speed,
-    difficulty_stars: strategy.difficulty_stars,
+    difficulty_stars: snapDifficulty(strategy.difficulty_stars),
     success_rate: strategy.success_rate,
     author: strategy.author || '',
     is_free: strategy.is_free,
