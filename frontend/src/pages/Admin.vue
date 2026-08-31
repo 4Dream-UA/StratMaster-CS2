@@ -68,6 +68,28 @@
         </button>
       </section>
 
+      <!-- ── AI SUPPORT ASSISTANT ─────────────────────────── -->
+      <section class="settings-card">
+        <div class="settings-head">
+          <h3>AI Support Assistant</h3>
+          <label class="switch">
+            <input
+              type="checkbox" :checked="aiEnabled" :disabled="!aiConfigured || savingAi"
+              @change="setAiEnabled($event.target.checked)"
+            />
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+          </label>
+        </div>
+        <p class="settings-hint">
+          Answers the first pass on new support tickets and marks its replies as automated. It stops
+          as soon as an admin replies in a ticket, and never posts in the Lounge.
+        </p>
+        <p class="settings-hint" :class="aiConfigured ? 'ok' : 'warn'">
+          <template v-if="aiConfigured">Model: <strong>{{ aiModel }}</strong></template>
+          <template v-else>No API key configured on the server — set OPENAI_API_KEY to switch this on.</template>
+        </p>
+      </section>
+
       <!-- ── SITE SETTINGS ───────────────────────────────── -->
       <section class="settings-card">
         <h3>Site Logo</h3>
@@ -151,10 +173,39 @@ const savingLogo = ref(false)
 async function saveLogo() {
   savingLogo.value = true
   try {
-    const updated = await settingsAPI.update(logoUrlDraft.value.trim() || null)
+    const updated = await settingsAPI.update({ logo_url: logoUrlDraft.value.trim() || null })
     settingsStore.logoUrl = updated.logo_url
+    applyAiSettings(updated)
   } finally {
     savingLogo.value = false
+  }
+}
+
+// ── AI support assistant ──────────────────────────────────────────
+// `configured` is the server having an API key at all; `enabled` is the
+// admin switch. Both have to be true for it to say anything, and the two
+// need telling apart — "off" is a choice, "no key" is a deployment gap.
+const aiEnabled = ref(true)
+const aiConfigured = ref(false)
+const aiModel = ref('')
+const savingAi = ref(false)
+
+function applyAiSettings(data) {
+  aiEnabled.value = data.ai_agent_enabled
+  aiConfigured.value = data.ai_agent_configured
+  aiModel.value = data.ai_agent_model
+}
+
+async function setAiEnabled(checked) {
+  savingAi.value = true
+  const previous = aiEnabled.value
+  aiEnabled.value = checked
+  try {
+    applyAiSettings(await settingsAPI.update({ ai_agent_enabled: checked }))
+  } catch (e) {
+    aiEnabled.value = previous // put the switch back rather than lying about the state
+  } finally {
+    savingAi.value = false
   }
 }
 
@@ -189,6 +240,11 @@ onMounted(async () => {
   }
   await settingsStore.load()
   logoUrlDraft.value = logoUrl.value || ''
+  try {
+    applyAiSettings(await settingsAPI.get())
+  } catch (e) {
+    console.warn('[Admin] AI assistant settings unavailable:', e)
+  }
 })
 </script>
 
@@ -270,6 +326,30 @@ onMounted(async () => {
   border-radius: var(--radius-lg); padding: 22px;
 }
 .settings-card h3 { font-size: 15px; font-weight: 800; color: var(--text); margin-bottom: 4px; }
+/* Same toggle as the profile page's — scoped styles don't cross files, so
+   it's repeated here rather than shared through a component nobody else
+   would use. */
+.switch { position: relative; flex-shrink: 0; cursor: pointer; display: inline-flex; }
+.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.switch-track {
+  width: 44px; height: 26px; border-radius: 99px;
+  background: var(--bg); border: 1px solid var(--line);
+  display: inline-flex; align-items: center; padding: 2px;
+  transition: background .2s, border-color .2s;
+}
+.switch-thumb {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--text-dim);
+  transition: transform .2s, background .2s;
+}
+.switch input:checked + .switch-track { background: rgba(255,154,0,0.18); border-color: var(--accent); }
+.switch input:checked + .switch-track .switch-thumb { transform: translateX(18px); background: var(--accent); }
+.switch input:disabled + .switch-track { opacity: .45; cursor: not-allowed; }
+
+.settings-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 4px; }
+.settings-head h3 { margin-bottom: 0; }
+.settings-hint.ok { color: var(--text-dim); }
+.settings-hint.warn { color: var(--accent); }
 .settings-hint { font-size: 12.5px; color: var(--text-dim); margin-bottom: 14px; }
 .settings-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .logo-preview {

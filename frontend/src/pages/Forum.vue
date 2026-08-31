@@ -160,7 +160,7 @@
           <div class="post-list">
             <div
               v-for="p in activeThread.posts" :key="p.id" :id="'post-' + p.id" class="post-card"
-              :class="{ mine: p.author_id === currentUserId, staff: p.author_is_admin, deleted: p.deleted_at, highlighted: p.id === highlightedPostId }"
+              :class="{ mine: p.author_id === currentUserId, staff: p.author_is_admin, ai: p.author_is_ai, deleted: p.deleted_at, highlighted: p.id === highlightedPostId }"
             >
               <div class="post-sidebar">
                 <Avatar
@@ -169,7 +169,9 @@
                 />
                 <span class="post-username">{{ p.author_display_name || (p.author_username ? '@' + p.author_username : 'Player') }}</span>
                 <span v-if="p.author_display_name && p.author_username" class="post-username-sub">@{{ p.author_username }}</span>
-                <span class="post-role" :class="{ admin: p.author_is_admin }">{{ p.author_is_admin ? 'Admin' : 'Player' }}</span>
+                <span class="post-role" :class="{ admin: p.author_is_admin, ai: p.author_is_ai }">
+                  {{ p.author_is_ai ? 'AI Assistant' : p.author_is_admin ? 'Admin' : 'Player' }}
+                </span>
               </div>
               <div class="post-main">
                 <div class="post-head">
@@ -1389,6 +1391,11 @@ async function highlightPost(postId) {
 .post-username-sub { font-size: 9.5px; color: var(--text-dim); word-break: break-word; margin-top: -2px; }
 .post-role { font-size: 9.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--text-dim); }
 .post-role.admin { color: var(--danger); }
+.post-role.ai { color: #4b9eff; }
+/* Its own left rail and tint, in a colour neither a player nor an admin
+   uses — an automated first pass has to be obvious at a glance, not
+   something you notice from the small print at the end. */
+.post-card.ai { border-left: 3px solid #4b9eff; background: rgba(75,158,255,.045); }
 
 .post-main { flex: 1; min-width: 0; }
 .post-head { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }

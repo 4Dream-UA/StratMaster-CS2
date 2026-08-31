@@ -3,13 +3,14 @@ import re
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from backend.app.api.deps import AdminUser, DBSession, PremiumUser
 from backend.app.core.config import settings
 from backend.app.core.rate_limit import rate_limit
+from backend.app.services import ai_agent
 from backend.app.db.models import (
     REACTION_EMOJIS,
     ForumCategoryModel,
@@ -267,7 +268,9 @@ async def list_threads(
     "/forum/categories/{key}/threads", response_model=ForumThreadDetail, status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(rate_limit("forum_post", max_requests=10, window_seconds=60))],
 )
-async def create_thread(key: str, payload: CreateThreadRequest, db: DBSession, user: PremiumUser):
+async def create_thread(
+    key: str, payload: CreateThreadRequest, background: BackgroundTasks, db: DBSession, user: PremiumUser,
+):
     category = await _get_category(db, key)
 
     thread = ForumThreadModel(
@@ -280,6 +283,12 @@ async def create_thread(key: str, payload: CreateThreadRequest, db: DBSession, u
     await db.flush()
     await _auto_watch(db, thread.id, user.id)
     await db.commit()
+
+    # A new support ticket gets a first pass from the assistant. Scheduled
+    # rather than awaited so opening a ticket never waits on (or fails
+    # because of) a third-party API call.
+    if await ai_agent.should_handle(db, thread, category, user):
+        background.add_task(ai_agent.reply_to_ticket, thread.id)
 
     return await _get_thread_detail(db, thread.id, user)
 
@@ -353,6 +362,7 @@ def _post_out(
         id=p.id, author_username=author_username, author_display_name=author_display_name,
         author_avatar_url=p.user.avatar_url, author_id=p.user_id,
         author_is_admin=p.user.is_admin,
+        author_is_ai=p.user.is_ai_agent,
         body="[deleted]" if p.deleted_at and not is_admin_viewer else p.body,
         reply_to=reply_to,
         reactions=_reaction_summary(p, viewer_id), created_at=p.created_at,
@@ -527,7 +537,10 @@ async def _notify_mentions(db, thread: ForumThreadModel, poster, body: str, alre
     "/forum/threads/{thread_id}/posts", response_model=ForumThreadDetail, status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(rate_limit("forum_post", max_requests=20, window_seconds=60))],
 )
-async def add_post(thread_id: uuid.UUID, payload: CreatePostRequest, db: DBSession, user: PremiumUser):
+async def add_post(
+    thread_id: uuid.UUID, payload: CreatePostRequest, background: BackgroundTasks,
+    db: DBSession, user: PremiumUser,
+):
     thread = await _get_thread_or_404(db, thread_id)
     if not _can_access_thread(thread, thread.category, user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found")
@@ -567,6 +580,11 @@ async def add_post(thread_id: uuid.UUID, payload: CreatePostRequest, db: DBSessi
         already_notified.add(reply_to_post.user_id)
     await _notify_new_post(db, thread, user, reply_to_post)
     await _notify_mentions(db, thread, user, payload.body, already_notified)
+
+    # Whether it actually speaks is decided in reply_to_ticket against fresh
+    # state — it stays quiet once an admin has joined the thread.
+    if await ai_agent.should_handle(db, thread, thread.category, user):
+        background.add_task(ai_agent.reply_to_ticket, thread.id)
 
     return await _get_thread_detail(db, thread_id, user)
 

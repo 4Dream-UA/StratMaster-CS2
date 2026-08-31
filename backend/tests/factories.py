@@ -29,6 +29,29 @@ async def make_user(db_session, *, telegram_id=None, is_admin=False, subscribed=
     return user
 
 
+async def make_ai_agent_user(db_session):
+    """The system user the AI support assistant posts as. Seeded by migration
+    0035 in the real database; the test schema is built straight from the
+    models, so tests that exercise the assistant create it themselves."""
+    from backend.app.services.ai_agent import AGENT_TELEGRAM_ID
+
+    user = UserModel(
+        telegram_id=AGENT_TELEGRAM_ID,
+        username="stratmaster_ai",
+        display_name="StratMaster Assistant",
+        is_ai_agent=True,
+        is_trade_banned=True,
+    )
+    db_session.add(user)
+    await db_session.flush()
+    wallet = WalletModel(user_id=user.id, wallet_id=generate_wallet_id(), balance_coins=0)
+    db_session.add(wallet)
+    await db_session.commit()
+    await db_session.refresh(user)
+    user.wallet = wallet
+    return user
+
+
 async def make_map(db_session, *, name=None, is_active=True):
     map_ = MapModel(name=name or f"Map_{uuid.uuid4().hex[:6]}", is_active=is_active)
     db_session.add(map_)

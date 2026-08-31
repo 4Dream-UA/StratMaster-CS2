@@ -95,6 +95,10 @@ class UserModel(Base):
     display_name: Mapped[str | None] = mapped_column(String(32), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # The AI support assistant posts as a real user row (forum_posts.user_id
+    # is NOT NULL) — this is what tells it apart from a player, so the forum
+    # can label its messages rather than passing them off as a human's.
+    is_ai_agent: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     # Full account ban — enforced in get_current_user, locks every endpoint.
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Lighter than is_banned: still full app access, just can't send P2P
@@ -801,6 +805,9 @@ class AppSettingsModel(Base):
     # in by the aggregate picture just as easily as by its own history.
     case_total_spent_coins: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     case_total_paid_coins: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    # Admin kill switch for the AI support assistant — a bad answer needs to
+    # be stoppable in one click, not a redeploy.
+    ai_agent_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
 
 
 # ─────────────────────────────────────────────

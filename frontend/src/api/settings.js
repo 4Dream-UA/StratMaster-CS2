@@ -5,8 +5,11 @@ export const settingsAPI = {
     const response = await apiClient.get('/api/settings')
     return response.data
   },
-  async update(logoUrl) {
-    const response = await apiClient.patch('/api/admin/settings', { logo_url: logoUrl })
+  // Fields left undefined are not sent, and the backend leaves those alone —
+  // so saving a logo can't silently flip the AI assistant back on, and vice
+  // versa.
+  async update(patch) {
+    const response = await apiClient.patch('/api/admin/settings', patch)
     return response.data
   },
 }

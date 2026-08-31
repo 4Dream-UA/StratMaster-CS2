@@ -802,7 +802,10 @@ async def list_all_tickets(
             author_id=t.user_id,
             author_username=t.user.username, author_display_name=t.user.display_name,
             post_count=len(posts),
-            awaiting_reply=bool(last and not last.user.is_admin and not t.is_closed),
+            awaiting_reply=bool(
+                last and not last.user.is_admin and not last.user.is_ai_agent and not t.is_closed
+            ),
+            ai_handled=any(p.user.is_ai_agent for p in posts),
             created_at=t.created_at, updated_at=t.updated_at,
         ))
     return AdminTicketsListResponse(total=total, tickets=tickets)

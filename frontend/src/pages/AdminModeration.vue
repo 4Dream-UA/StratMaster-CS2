@@ -87,6 +87,7 @@
                 <td>
                   <span class="status-pill" :class="t.is_closed ? 'off' : 'on'">{{ t.is_closed ? 'Closed' : 'Open' }}</span>
                   <span v-if="t.awaiting_reply" class="status-pill waiting">Needs reply</span>
+                  <span v-if="t.ai_handled" class="status-pill ai" title="The assistant has already replied in this ticket">AI replied</span>
                 </td>
                 <td class="queue-time">{{ formatTime(t.updated_at) }}</td>
                 <td class="row-arrow">→</td>
@@ -325,4 +326,5 @@ onMounted(() => { load(); loadCounts() })
 .status-pill.on { color: var(--success); border-color: color-mix(in srgb, var(--success) 45%, transparent); }
 .status-pill.off { color: var(--text-dim); border-color: var(--line); }
 .status-pill.waiting { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); margin-left: 6px; }
+.status-pill.ai { color: #4b9eff; border-color: rgba(75,158,255,.45); margin-left: 6px; }
 </style>

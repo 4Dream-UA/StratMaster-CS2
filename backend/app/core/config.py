@@ -46,6 +46,19 @@ class Settings(BaseSettings):
     cryptopay_token: str = ""
     cryptopay_webhook_secret: str = ""
 
+    # AI support assistant (OpenAI-compatible chat completions)
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    # Model id sent to the API verbatim. Kept as a setting rather than a
+    # constant so it can be repointed without a redeploy — including at a
+    # self-hosted or proxied OpenAI-compatible endpoint via openai_base_url.
+    ai_agent_model: str = "gpt-4o-mini"
+    ai_agent_timeout_seconds: float = 20.0
+    # Hard stop on how many times the assistant will speak in one ticket, so
+    # a confused exchange can't turn into an endless back-and-forth that
+    # buries the actual question from whoever picks the ticket up.
+    ai_agent_max_replies_per_thread: int = 3
+
     # App
     debug: bool = False
     secret_key: str = "change-me"

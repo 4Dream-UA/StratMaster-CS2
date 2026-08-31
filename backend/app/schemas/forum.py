@@ -44,6 +44,9 @@ class ForumPostOut(BaseModel):
     author_avatar_url: str | None = None
     author_id: uuid.UUID
     author_is_admin: bool = False
+    # Written by the AI support assistant, not a person — the forum labels
+    # these so nobody mistakes an automated first pass for the team's answer.
+    author_is_ai: bool = False
     body: str
     reply_to: ReplyToOut | None = None
     reactions: list[ReactionSummary] = []
@@ -222,9 +225,12 @@ class AdminTicketOut(BaseModel):
     author_username: str | None = None
     author_display_name: str | None = None
     post_count: int
-    # Whether the most recent message came from someone other than an
-    # admin — i.e. whether the ticket is waiting on the team.
+    # Whether the player wrote the most recent message — i.e. whether the
+    # ticket is waiting on a human. The assistant having replied does not
+    # clear this: it is not the team.
     awaiting_reply: bool
+    # Whether the assistant has already had a go at this one.
+    ai_handled: bool = False
     created_at: datetime
     updated_at: datetime
 
