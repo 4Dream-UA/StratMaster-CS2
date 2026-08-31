@@ -1,19 +1,25 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Home from '../pages/Home.vue'
-import Strategy from '../pages/Strategy.vue'
-import Strategies from '../pages/Strategies.vue'
-import SharedBoard from '../pages/SharedBoard.vue'
-import SharedThread from '../pages/SharedThread.vue'
-import User from '../pages/User.vue'
-import Forum from '../pages/Forum.vue'
-import Pricing from '../pages/Pricing.vue'
-import Admin from '../pages/Admin.vue'
-import AdminMaps from '../pages/AdminMaps.vue'
-import AdminStrategies from '../pages/AdminStrategies.vue'
-import AdminUsers from '../pages/AdminUsers.vue'
-import AdminPromo from '../pages/AdminPromo.vue'
-import AdminTransactions from '../pages/AdminTransactions.vue'
-import Legal from '../pages/Legal.vue'
+
+// Home is the landing route for essentially every session, so it stays in
+// the main bundle. Everything else is split out: the admin pages alone are
+// a large slice of the app that no ordinary player ever loads, and on a
+// phone over mobile data the whole thing arriving up front is the single
+// biggest thing standing between tapping the bot and seeing the app.
+const Strategy = () => import('../pages/Strategy.vue')
+const Strategies = () => import('../pages/Strategies.vue')
+const SharedBoard = () => import('../pages/SharedBoard.vue')
+const SharedThread = () => import('../pages/SharedThread.vue')
+const User = () => import('../pages/User.vue')
+const Forum = () => import('../pages/Forum.vue')
+const Pricing = () => import('../pages/Pricing.vue')
+const Admin = () => import('../pages/Admin.vue')
+const AdminMaps = () => import('../pages/AdminMaps.vue')
+const AdminStrategies = () => import('../pages/AdminStrategies.vue')
+const AdminUsers = () => import('../pages/AdminUsers.vue')
+const AdminPromo = () => import('../pages/AdminPromo.vue')
+const AdminTransactions = () => import('../pages/AdminTransactions.vue')
+const Legal = () => import('../pages/Legal.vue')
 
 const routes = [
   { path: '/', name: 'Home', component: Home },
