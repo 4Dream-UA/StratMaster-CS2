@@ -10,6 +10,11 @@
       </button>
     </div>
 
+    <!-- errorMsg was being set on every failed buy/open and never rendered,
+         so a purchase that failed (insufficient balance, rate limit) looked
+         like nothing happened at all. -->
+    <p v-if="errorMsg" class="panel-error">{{ errorMsg }}</p>
+
     <div v-if="loading" class="loader-row"><div class="spinner"></div></div>
     <div v-else-if="!cases.length" class="empty">No cases available right now.</div>
 
@@ -79,9 +84,9 @@
         <div class="item-grid">
           <button
             v-for="v in vouchers" :key="v.id" type="button" class="item-tile"
-            style="--case-accent: #4b69ff" @click="openVoucherPopup(v)"
+            :style="{ '--case-accent': voucherColor(v.days) }" @click="openVoucherPopup(v)"
           >
-            <PremiumIcon :size="36" color="#4b69ff" />
+            <PremiumIcon :size="36" :color="voucherColor(v.days)" />
             <span class="item-tile-name">{{ formatDays(v.days) }}</span>
             <span class="item-tile-count">Premium</span>
           </button>
@@ -109,7 +114,7 @@
           </div>
         </div>
         <div v-for="o in incomingVoucherOffers" :key="o.id" class="offer-row">
-          <PremiumIcon :size="40" color="#4b69ff" />
+          <PremiumIcon :size="40" :color="voucherColor(o.days)" />
           <div class="offer-info">
             <span class="offer-title">Sale offer: {{ formatDays(o.days) }} Premium</span>
             <span class="offer-sub">
@@ -140,7 +145,7 @@
           </div>
         </div>
         <div v-for="o in outgoingVoucherOffers" :key="o.id" class="offer-row">
-          <PremiumIcon :size="40" color="#4b69ff" />
+          <PremiumIcon :size="40" :color="voucherColor(o.days)" />
           <div class="offer-info">
             <span class="offer-title">Sale offer: {{ formatDays(o.days) }} Premium</span>
             <span class="offer-sub">
@@ -174,6 +179,11 @@
             >{{ opening ? '…' : `Open ×${q}` }}</button>
           </div>
 
+          <label class="fast-open-row">
+            <input type="checkbox" :checked="fastOpen" @change="toggleFastOpen" />
+            <span>Quick open — skip the animation</span>
+          </label>
+
           <button type="button" class="odds-toggle" @click="sendFormOpenId = sendFormOpenId === preOpenInv.case_id ? null : preOpenInv.case_id">
             {{ sendFormOpenId === preOpenInv.case_id ? 'Hide gift/sell ▲' : 'Gift or sell ▼' }}
           </button>
@@ -200,7 +210,8 @@
               <span class="history-time">{{ formatHistoryTime(h.created_at) }}</span>
               <span class="history-amounts">
                 <span class="spent">-{{ h.coins_spent }} MC</span>
-                <span v-if="h.premium_days_won != null" class="won">+{{ formatDays(h.premium_days_won) }} Premium</span>
+                <span v-if="h.premium_days_won" class="won">+{{ formatDays(h.premium_days_won) }} Premium</span>
+                <span v-else-if="h.premium_days_won === 0" class="history-nothing">Nothing</span>
                 <span v-else class="won">+{{ h.coins_won }} MC</span>
               </span>
             </div>
@@ -212,14 +223,23 @@
       <div v-if="voucherPopup" class="modal-backdrop" @click.self="closeVoucherPopup">
         <div class="modal preopen-modal">
           <button class="modal-close" @click="closeVoucherPopup">✕</button>
-          <div class="preopen-icon" style="--case-accent: #4b69ff"><PremiumIcon :size="52" color="#4b69ff" /></div>
+          <div class="preopen-icon" :style="{ '--case-accent': voucherColor(voucherPopup.days) }">
+            <PremiumIcon :size="52" :color="voucherColor(voucherPopup.days)" />
+          </div>
           <h3 class="preopen-title">{{ formatDays(voucherPopup.days) }} Premium</h3>
-          <p class="inventory-line">Stacks on top of any active Premium you already have.</p>
+          <p class="inventory-line">
+            Activating sets your Premium to exactly <strong>{{ formatDays(voucherPopup.days) }}</strong> from now.
+            <template v-if="premiumDaysLeft > voucherPopup.days">
+              You currently have {{ formatDays(premiumDaysLeft) }} left — activating this would replace them.
+            </template>
+          </p>
 
-          <button class="btn-primary reveal-btn" :disabled="voucherBusy" @click="doActivateVoucher">
-            {{ voucherBusy ? 'Activating…' : 'Activate' }}
-          </button>
-          <p v-if="voucherActivateMessage" class="case-hint" :class="{ success: voucherActivateMessage === 'Activated!' }">{{ voucherActivateMessage }}</p>
+          <div class="open-row">
+            <button class="grey-btn activate-btn" :disabled="voucherBusy" @click="doActivateVoucher">
+              {{ voucherBusy ? 'Activating…' : 'Activate' }}
+            </button>
+          </div>
+          <p v-if="voucherActivateMessage" class="case-hint" :class="{ success: voucherActivateOk }">{{ voucherActivateMessage }}</p>
 
           <button type="button" class="odds-toggle" @click="voucherSendOpen = !voucherSendOpen">
             {{ voucherSendOpen ? 'Hide gift/sell ▲' : 'Gift or sell ▼' }}
@@ -268,9 +288,17 @@
 
           <template v-if="revealDone">
             <p v-if="revealTotalWon > 0" class="reveal-amount"><CoinIcon :size="24" /> +{{ revealTotalWon }} <span>MC</span></p>
-            <p v-if="revealPremiumDaysWon > 0" class="reveal-amount"><PremiumIcon :size="24" /> +{{ formatDays(revealPremiumDaysWon) }} <span>Premium</span></p>
-            <p v-if="!revealTotalWon && !revealPremiumDaysWon" class="reveal-amount reveal-amount-empty">Better luck next time</p>
-            <p class="reveal-sub">{{ revealReels.length > 1 ? 'Total added to your account' : 'Added to your account' }}</p>
+            <!-- Vouchers are listed individually rather than summed: each is
+                 its own inventory item, and activating one *sets* premium to
+                 the days written on it, so "+62 days" for two 31-day
+                 vouchers would describe something you can't actually get. -->
+            <p v-if="revealVouchersWon.length" class="reveal-amount">
+              <PremiumIcon :size="24" />
+              +{{ revealVouchersWon.length }} <span>Premium {{ revealVouchersWon.length === 1 ? 'voucher' : 'vouchers' }}</span>
+            </p>
+            <p v-if="revealVouchersWon.length" class="reveal-voucher-list">{{ revealVouchersWon.map(d => formatDays(d)).join(' · ') }}</p>
+            <p v-if="!revealTotalWon && !revealVouchersWon.length" class="reveal-amount reveal-amount-empty">Better luck next time</p>
+            <p class="reveal-sub">{{ revealVouchersWon.length ? 'Coins added to your balance; vouchers are in your inventory' : (revealReels.length > 1 ? 'Total added to your account' : 'Added to your account') }}</p>
             <button class="btn-primary reveal-btn" @click="closeReveal">Nice!</button>
           </template>
           <p v-else class="reveal-sub">Opening…</p>
@@ -280,7 +308,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '../store/user'
 import { casesAPI } from '../api/cases'
@@ -288,6 +316,10 @@ import { casesAPI } from '../api/cases'
 const props = defineProps({
   initialView: { type: String, default: 'shop' }, // 'shop' | 'inventory' | 'offers'
 })
+// Fired whenever MasterCoins actually leave the wallet on this panel, so
+// the profile page can play its wallet-card confirmation flourish — the
+// card itself lives up in User.vue, not here.
+const emit = defineEmits(['spent'])
 
 const userStore = useUserStore()
 const { wallet } = storeToRefs(userStore)
@@ -302,11 +334,10 @@ const history = ref([])
 const inventory = ref([]) // [{ case_id, case_name, count }]
 const vouchers = ref([]) // [{ id, days, created_at }]
 const activeView = ref(props.initialView === 'inventory' || props.initialView === 'offers' ? props.initialView : 'shop')
-// Shop/Inventory/Offers is internal state, not a route change, so
-// vue-router's scrollBehavior never runs for it — without this, switching
-// views can leave the page scrolled well past the new (possibly shorter)
-// content, stranding the reader down near the footer.
-watch(activeView, () => window.scrollTo({ top: 0, behavior: 'auto' }))
+// Deliberately does not scroll on view switch — see toggleTab in User.vue.
+// Moving the reader's scroll position for them reads as the app yanking
+// the page around, and browsers already clamp scrollTop when the document
+// gets shorter.
 
 function caseById(id) {
   return cases.value.find(c => c.id === id)
@@ -349,6 +380,7 @@ const voucherSendPrice = ref(null)
 const voucherSendBusy = ref(false)
 const voucherSendError = ref('')
 const voucherActivateMessage = ref('')
+const voucherActivateOk = ref(false)
 
 function openVoucherPopup(v) {
   voucherSendOpen.value = false
@@ -356,6 +388,7 @@ function openVoucherPopup(v) {
   voucherSendPrice.value = null
   voucherSendError.value = ''
   voucherActivateMessage.value = ''
+  voucherActivateOk.value = false
   voucherPopup.value = v
 }
 function closeVoucherPopup() {
@@ -365,12 +398,15 @@ async function doActivateVoucher() {
   if (!voucherPopup.value || voucherBusy.value) return
   voucherBusy.value = true
   try {
+    const days = voucherPopup.value.days
     const res = await casesAPI.activateVoucher(voucherPopup.value.id)
     if (wallet.value) wallet.value.subscription_expires_at = res.premium_expires_at
-    voucherActivateMessage.value = 'Activated!'
+    voucherActivateOk.value = true
+    voucherActivateMessage.value = `Premium set to ${formatDays(days)}!`
     await loadVouchers()
-    setTimeout(closeVoucherPopup, 900)
+    setTimeout(closeVoucherPopup, 1400)
   } catch (e) {
+    voucherActivateOk.value = false
     voucherActivateMessage.value = e.response?.data?.detail || 'Could not activate that voucher.'
   } finally {
     voucherBusy.value = false
@@ -432,7 +468,11 @@ async function loadOffers() {
 async function respondToVoucherOffer(offer, action) {
   offerBusyId.value = offer.id
   try {
-    if (action === 'accept') await casesAPI.acceptVoucherOffer(offer.id)
+    if (action === 'accept') {
+      await casesAPI.acceptVoucherOffer(offer.id)
+      await userStore.fetchMe() // the accept charged this wallet — resync the balance
+      emit('spent')
+    }
     else if (action === 'decline') await casesAPI.declineVoucherOffer(offer.id)
     else await casesAPI.cancelVoucherOffer(offer.id)
     await Promise.all([loadOffers(), loadVouchers()])
@@ -470,7 +510,13 @@ async function submitSend(inv) {
 async function respondToOffer(offer, action) {
   offerBusyId.value = offer.id
   try {
-    if (action === 'accept') await casesAPI.acceptOffer(offer.id)
+    if (action === 'accept') {
+      await casesAPI.acceptOffer(offer.id)
+      if (offer.offer_type === 'sale') {
+        await userStore.fetchMe() // the accept charged this wallet — resync the balance
+        emit('spent')
+      }
+    }
     else if (action === 'decline') await casesAPI.declineOffer(offer.id)
     else await casesAPI.cancelOffer(offer.id)
     await Promise.all([loadOffers(), loadInventory()])
@@ -538,15 +584,33 @@ function tierColor(tier) {
   return TIER_COLORS[tier] || TIER_COLORS.grey
 }
 
-// Premium-day rewards render as "Nothing" / "7d" / "31d" / "3mo" style
-// labels instead of a coin count.
+// Always an exact day count, never "1mo"/"3mo" — activating a voucher sets
+// premium to precisely the number written on it, so rounding 31 days to
+// "1 month" in the label would be describing something the app doesn't do.
 function formatDays(days) {
   if (days === 0) return 'Nothing'
-  if (days % 30 === 0) return `${days / 30}mo`
-  return `${days}d`
+  return days === 1 ? '1 day' : `${days} days`
+}
+// Short form for the 76px reel tiles and inventory chips, where "360 days"
+// doesn't fit.
+function formatDaysShort(days) {
+  return days === 0 ? 'Nothing' : `${days}d`
+}
+// Mirrors the tiers the Premium Case's own reward table is seeded with
+// (0027_case_economy_rebalance), so a voucher sitting in the inventory is
+// the same colour as the tile it was won from — they were all rendered
+// blue regardless of size before.
+function voucherTier(days) {
+  if (days >= 360) return 'red'
+  if (days >= 90) return 'purple'
+  if (days >= 14) return 'blue'
+  return 'grey'
+}
+function voucherColor(days) {
+  return tierColor(voucherTier(days)).border
 }
 function rewardLabel(r) {
-  return r.premium_days != null ? formatDays(r.premium_days) : String(r.coins)
+  return r.premium_days != null ? formatDaysShort(r.premium_days) : String(r.coins)
 }
 function isPremiumReward(r) {
   return r.premium_days != null
@@ -587,9 +651,47 @@ const revealOpen = ref(false)
 const revealDone = ref(false)
 const revealReels = ref([]) // [{ items, offset, animating }]
 const revealTotalWon = ref(0)
-const revealPremiumDaysWon = ref(0)
+const revealVouchersWon = ref([]) // day counts of the premium vouchers won this batch
 const carouselWrapRefs = ref([])
 const errorMsg = ref('')
+
+// Skips the 4.2s reel entirely and shows the result immediately. Persisted
+// so a player who has opened a few hundred cases doesn't have to re-tick it
+// every session.
+const FAST_OPEN_KEY = 'sm.fastOpen'
+const fastOpen = ref(readFastOpen())
+function readFastOpen() {
+  try {
+    return localStorage.getItem(FAST_OPEN_KEY) === '1'
+  } catch (e) {
+    return false // private mode / storage blocked — just default to the animation
+  }
+}
+function toggleFastOpen() {
+  fastOpen.value = !fastOpen.value
+  try {
+    localStorage.setItem(FAST_OPEN_KEY, fastOpen.value ? '1' : '0')
+  } catch (e) {
+    // Preference stays for this session only — not worth surfacing.
+  }
+}
+
+// Cleared on unmount so a reveal still in flight when the player leaves the
+// tab can't fire into a dead component.
+let spinTimers = []
+function clearSpinTimers() {
+  spinTimers.forEach(clearTimeout)
+  spinTimers = []
+}
+onUnmounted(clearSpinTimers)
+
+// Whole days of premium left, for the "this would replace them" warning on
+// the voucher popup — activating sets the expiry rather than extending it.
+const premiumDaysLeft = computed(() => {
+  const exp = wallet.value?.subscription_expires_at
+  if (!exp || wallet.value?.is_lifetime) return 0
+  return Math.max(0, Math.floor((new Date(exp) - new Date()) / 86400000))
+})
 
 async function loadCases() {
   loading.value = true
@@ -633,6 +735,7 @@ async function buyCase(c, quantity) {
   try {
     const res = await casesAPI.buy(c.id, quantity)
     if (wallet.value) wallet.value.balance_coins = res.new_balance
+    emit('spent')
     await loadInventory()
     activeView.value = 'inventory'
   } catch (e) {
@@ -649,20 +752,32 @@ async function openCases(c, quantity) {
   opening.value = true
   errorMsg.value = ''
   revealDone.value = false
+  clearSpinTimers()
   carouselWrapRefs.value = []
-  revealReels.value = Array.from({ length: quantity }, () => ({ items: [], offset: 0, animating: false }))
+  revealReels.value = fastOpen.value
+    ? []
+    : Array.from({ length: quantity }, () => ({ items: [], offset: 0, animating: false }))
   revealOpen.value = true
 
   try {
     const res = await casesAPI.openInventory(c.id, quantity)
     if (wallet.value) wallet.value.balance_coins = res.new_balance
     revealTotalWon.value = res.total_won
-    revealPremiumDaysWon.value = res.rewards.reduce((sum, r) => sum + (r.premium_days || 0), 0)
+    revealVouchersWon.value = res.rewards.map(r => r.premium_days).filter(d => d > 0)
+
+    // The reel is the only thing the fast path skips — everything else
+    // (result, balance, inventory refresh, history) is identical.
+    if (fastOpen.value) {
+      revealDone.value = true
+      opening.value = false
+      await finishOpen()
+      return
+    }
+
     revealReels.value = res.rewards.map(reward => {
       const withTier = { ...reward, tier: findTier(c.rewards, reward) }
       return { items: buildStrip(c.rewards, withTier), offset: 0, animating: false }
     })
-    await Promise.all([loadInventory(), loadVouchers()])
 
     // Two steps: one to mount each strip at offset 0 with no transition, a
     // second (a hair later, not on the same tick) so the browser paints
@@ -673,7 +788,7 @@ async function openCases(c, quantity) {
     // entirely while a tab isn't actively compositing (backgrounded, some
     // embedded WebViews), which would leave the strip stuck at rest forever.
     await nextTick()
-    setTimeout(() => {
+    spinTimers.push(setTimeout(() => {
       revealReels.value.forEach((reel, i) => {
         const containerWidth = carouselWrapRefs.value[i]?.clientWidth ?? 300
         const jitter = (Math.random() - 0.5) * (CASE_TILE_WIDTH - 24)
@@ -681,22 +796,30 @@ async function openCases(c, quantity) {
         reel.animating = true
         reel.offset = target
       })
-    }, 30)
+    }, 30))
 
     // A timer, not transitionend, drives the reveal — for the same reason
     // the modal-close fix doesn't wait on that event either: it can simply
     // never fire (backgrounded tab, reduced motion), hanging the reveal.
-    setTimeout(() => {
+    //
+    // The inventory refresh waits for this too, not just for the API call:
+    // reloading it straight away made a premium voucher appear in the
+    // inventory grid behind the reel while it was still spinning, spoiling
+    // its own result before the player got to see it land.
+    spinTimers.push(setTimeout(() => {
       revealDone.value = true
       opening.value = false
-    }, SPIN_DURATION_MS)
-
-    await loadHistory()
+      finishOpen()
+    }, SPIN_DURATION_MS))
   } catch (e) {
     revealOpen.value = false
     opening.value = false
     errorMsg.value = e.response?.data?.detail || 'Could not open — please try again.'
   }
+}
+
+async function finishOpen() {
+  await Promise.all([loadInventory(), loadVouchers(), loadHistory()])
 }
 
 function closeReveal() {
@@ -834,8 +957,17 @@ export default { components: { CoinIcon, CaseIcon, PremiumIcon } }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .empty { text-align: center; padding: 40px 20px; color: var(--text-dim); font-size: 14px; }
+.panel-error {
+  margin-bottom: 16px; padding: 10px 14px; border-radius: 10px;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  color: var(--danger); font-size: 12.5px; font-weight: 600; text-align: center;
+}
 
-.case-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+/* align-items: start is load-bearing, not cosmetic — grid items stretch to
+   their row's height by default, so expanding one card's odds panel made
+   every other card in the same row grow to match it. */
+.case-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; align-items: start; }
 .case-card {
   --case-accent: var(--accent);
   background: linear-gradient(160deg, color-mix(in srgb, var(--case-accent) 10%, transparent), var(--bg-elevated) 60%);
@@ -899,7 +1031,7 @@ export default { components: { CoinIcon, CaseIcon, PremiumIcon } }
   letter-spacing: .05em; margin: 20px 0 12px;
 }
 .inventory-heading:first-child { margin-top: 0; }
-.item-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
+.item-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; align-items: start; }
 .item-tile {
   --case-accent: var(--accent);
   display: flex; flex-direction: column; align-items: center; gap: 6px;
@@ -912,9 +1044,19 @@ export default { components: { CoinIcon, CaseIcon, PremiumIcon } }
 .item-tile-name { font-size: 12px; font-weight: 800; color: var(--text); text-align: center; line-height: 1.3; }
 .item-tile-count { font-size: 11px; font-weight: 700; color: var(--case-accent); }
 
-.open-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.open-row { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
 .open-btn { flex: 1; min-width: 70px; padding: 10px 6px; font-size: 12px; }
 .open-btn:disabled { opacity: .4; cursor: not-allowed; }
+/* Compact and neutral, not a full-width accent CTA — activating a voucher
+   you already own is a plain inventory action, not a purchase. */
+.activate-btn { padding: 8px 22px; font-size: 12px; }
+
+.fast-open-row {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  margin-top: 12px; font-size: 11.5px; font-weight: 700; color: var(--text-dim);
+  cursor: pointer; user-select: none;
+}
+.fast-open-row input { accent-color: var(--accent); cursor: pointer; }
 /* Grey, not accent-colored — this is a neutral "pick a quantity" choice,
    not a call to action like Buy/Pay. */
 .grey-btn {
@@ -955,6 +1097,7 @@ export default { components: { CoinIcon, CaseIcon, PremiumIcon } }
 .history-amounts { display: flex; gap: 8px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .spent { color: var(--danger); }
 .won { color: var(--success); }
+.history-nothing { color: var(--text-dim); }
 
 /* ── Gift / sell form ─────────────────────────────── */
 .send-form {
@@ -1036,6 +1179,7 @@ export default { components: { CoinIcon, CaseIcon, PremiumIcon } }
 .reveal-amount + .reveal-amount { margin-top: 6px; }
 .reveal-amount span { font-size: 15px; color: var(--text-dim); font-weight: 700; }
 .reveal-amount-empty { font-size: 16px; color: var(--text-dim); font-weight: 700; }
+.reveal-voucher-list { font-size: 13px; font-weight: 700; color: var(--text); margin-top: 4px; }
 .reveal-sub { font-size: 12.5px; color: var(--text-dim); margin-top: 4px; margin-bottom: 18px; }
 .reveal-btn { width: 100%; padding: 12px; }
 

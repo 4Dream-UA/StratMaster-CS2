@@ -123,7 +123,7 @@
       </section>
 
       <!-- ── HOTBAR ───────────────────────────────────── -->
-      <nav class="hotbar" ref="hotbarRef">
+      <nav class="hotbar">
         <template v-for="tab in TABS" :key="tab.key">
           <router-link v-if="tab.to" :to="tab.to" class="hotbar-btn">
             <span class="hotbar-icon" v-html="tab.icon"></span>
@@ -223,6 +223,10 @@
             <button type="submit" class="btn-primary p2p-submit" :disabled="p2pLoading || !p2pWalletId">
               {{ p2pLoading ? '...' : 'Gift' }}
             </button>
+            <!-- A gifted plan *sets* the recipient's Premium to that
+                 duration rather than adding to it, so a short gift to
+                 someone already well covered leaves them worse off. -->
+            <p class="p2p-gift-note">Sets the recipient's Premium to this duration from now — it doesn't add to what they already have.</p>
           </form>
 
           <p v-if="p2pMessage" class="panel-message" :class="p2pSuccess ? 'success' : 'error'">{{ p2pMessage }}</p>
@@ -306,7 +310,7 @@
         </section>
 
         <section v-else-if="activeTab === 'cases'" key="cases" class="panel-wrap">
-          <CasesPanel :initial-view="route.query.sub === 'offers' ? 'offers' : 'shop'" />
+          <CasesPanel :initial-view="route.query.sub === 'offers' ? 'offers' : 'shop'" @spent="flashCard" />
         </section>
 
         <section v-else-if="activeTab === 'settings'" key="settings" class="panel-wrap panel-card">
@@ -352,6 +356,19 @@
     </div>
 
     <Footer />
+
+    <!-- ── PURCHASE CONFIRMATION TOAST (mobile only) ────────
+         Not wrapped in <transition> — same reasoning as the modals below;
+         it animates itself on mount via a CSS keyframe instead, which can't
+         get stuck half-way and leave anything covering the page. It's
+         pointer-events:none regardless, so even a stuck one is harmless. -->
+    <div v-if="purchaseToast" class="purchase-toast">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none">
+        <circle cx="12" cy="12" r="10" fill="var(--success)"/>
+        <path d="M7.5 12.5l3 3 6-6.5" stroke="#0d1a10" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>Paid — balance updated</span>
+    </div>
 
     <!-- ── TOP UP POPUP ─────────────────────────────────── -->
     <!-- No <transition> here on purpose — an explicit :duration doesn't
@@ -519,26 +536,20 @@ const promoSuccess = ref(false)
 // the old /my-strategies, /boards or /cases links).
 const VALID_QUERY_TABS = ['strategies', 'board', 'cases']
 const activeTab = ref(VALID_QUERY_TABS.includes(route.query.tab) ? route.query.tab : 'referral')
-const hotbarRef = ref(null)
+// Deliberately does NOT move the scroll position. An earlier version
+// scrolled the hotbar to the top of the viewport on every tab switch, to
+// stop a tall panel (e.g. Store) leaving the page stranded past a shorter
+// one's content — but since the hotbar sits below the profile and wallet
+// cards, "scroll the hotbar to the top" reads as "yank me to the bottom"
+// every single time you pick a category, on desktop and mobile alike.
+// Browsers already clamp scrollTop when the document shrinks, which covers
+// the original problem on its own.
 function toggleTab(key) {
   activeTab.value = activeTab.value === key ? null : key
   if (activeTab.value === 'favorites' && !favoritesLoaded.value) loadFavorites()
   if (activeTab.value === 'strategies' && !favStrategiesLoaded.value) loadFavStrategies()
   if (activeTab.value === 'p2p' && !blockedList.value.length) loadBlocked()
   if (activeTab.value === 'settings') resetProfileInfoDraft()
-  // Switching tabs is internal state, not a route change, so vue-router's
-  // scrollBehavior never runs for it — without this, leaving a tall panel
-  // (e.g. Cases) for a short one can leave the page scrolled well past its
-  // new (shorter) content, stranding the reader down near the footer.
-  // Scrolling the hotbar (not the page) to the top of the viewport fixes
-  // that without yanking the reader all the way up past the profile/wallet
-  // cards every time they're already scrolled down near the tabs.
-  //
-  // Only below the 1300px sidebar breakpoint (see .profile-layout below) —
-  // above it the hotbar lives in a sticky sidebar that's always visible,
-  // so there's nothing to strand and forcing a scroll on every click just
-  // yanks the page around for no reason.
-  if (activeTab.value && window.innerWidth < 1300) hotbarRef.value?.scrollIntoView({ block: 'start', behavior: 'auto' })
 }
 
 // ── Favorite maps ──────────────────────────────────────────────
@@ -796,10 +807,22 @@ const topupPolling = ref(false)
 const topupMessage = ref('')
 const topupSuccess = ref(false)
 const cardFlash = ref(false) // brief checkmark/glow flourish on the wallet card
+// Every coin purchase on this page runs through here. On desktop the wallet
+// card lives in a sticky sidebar and is always on screen, so the card's own
+// checkmark is the whole confirmation. On mobile everything stacks, so by
+// the time you're buying a case down in the Store panel the card is far off
+// screen and its flourish plays where nobody can see it — hence the toast,
+// which CSS hides again at the sidebar breakpoint.
+const purchaseToast = ref(false)
+let purchaseToastTimer = null
 function flashCard() {
   cardFlash.value = true
+  purchaseToast.value = true
   setTimeout(() => { cardFlash.value = false }, 2200)
+  if (purchaseToastTimer) clearTimeout(purchaseToastTimer)
+  purchaseToastTimer = setTimeout(() => { purchaseToast.value = false }, 1800)
 }
+onUnmounted(() => { if (purchaseToastTimer) clearTimeout(purchaseToastTimer) })
 let topupPollTimer = null
 
 function stopTopupPolling() {
@@ -1019,7 +1042,7 @@ async function redeemPromo() {
         wallet.value.is_lifetime = res.is_lifetime
       }
     } else if (res.reward_type === 'case') {
-      promoMessage.value = `You received ${res.case_quantity}× ${res.case_name}! Check your Cases inventory.`
+      promoMessage.value = `You received ${res.case_quantity}× ${res.case_name}! Check your Store inventory.`
     } else {
       promoMessage.value = `+${res.coins_awarded} MasterCoins added!`
       if (wallet.value) wallet.value.balance_coins = res.new_balance
@@ -1081,7 +1104,7 @@ const TABS = [
   { key: 'favorites',  label: 'Maps',       icon: ICONS.favorites },
   { key: 'strategies', label: 'Strategies', icon: ICONS.strategies },
   { key: 'board',      label: 'My Board',   icon: ICONS.board },
-  { key: 'cases',      label: 'Cases',      icon: ICONS.cases },
+  { key: 'cases',      label: 'Store',      icon: ICONS.cases },
   { key: 'settings',   label: 'Settings',   icon: ICONS.settings },
 ]
 </script>
@@ -1109,6 +1132,35 @@ const TABS = [
      wraps into a grid instead, trading the unused horizontal room a
      sidebar doesn't have for the vertical room it does. */
   .hotbar { flex-wrap: wrap; overflow-x: visible; display: grid; grid-template-columns: repeat(3, 1fr); }
+}
+
+/* ── Purchase confirmation toast ─────────────────────── */
+.purchase-toast {
+  position: fixed; left: 50%; bottom: 24px; z-index: 600;
+  display: flex; align-items: center; gap: 9px;
+  padding: 11px 18px; border-radius: 99px;
+  background: var(--bg-elevated); border: 1px solid var(--success);
+  color: var(--text); font-size: 13px; font-weight: 700;
+  box-shadow: 0 10px 30px -8px rgba(0,0,0,.6);
+  pointer-events: none;
+  /* Holds it centred once the keyframe (which has no fill-mode) stops
+     applying — without it the toast would snap to the right on landing. */
+  transform: translateX(-50%);
+  animation: toast-rise .28s cubic-bezier(.2,.9,.3,1.2);
+}
+@keyframes toast-rise {
+  from { opacity: 0; transform: translate(-50%, 16px) scale(.94); }
+  to   { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+/* Has to come *after* the base rule, not inside the sidebar media block
+   further up: same specificity, so source order decides. From the sidebar
+   breakpoint up the wallet card is sticky and always on screen, and its
+   own checkmark flourish already says everything this toast would. */
+@media (min-width: 900px) {
+  .purchase-toast { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .purchase-toast { animation: none; }
 }
 
 /* ── Profile card ─────────────────────────────── */
@@ -1485,6 +1537,7 @@ const TABS = [
 .p2p-mode-btn.active { background: var(--bg-elevated-2); color: var(--accent); }
 
 .p2p-form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.p2p-gift-note { width: 100%; font-size: 11.5px; color: var(--text-dim); line-height: 1.45; }
 .p2p-input {
   flex: 1; min-width: 140px;
   padding: 11px 12px;
