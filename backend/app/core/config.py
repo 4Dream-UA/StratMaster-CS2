@@ -54,6 +54,14 @@ class Settings(BaseSettings):
     # self-hosted or proxied OpenAI-compatible endpoint via openai_base_url.
     ai_agent_model: str = "gpt-5.6-luna"
     ai_agent_timeout_seconds: float = 20.0
+    # Ceiling on one reply. Generous next to the two-or-three sentences the
+    # prompt asks for, because on a reasoning-capable model this budget also
+    # covers thinking tokens — set it too tight and the reply comes back empty.
+    ai_agent_max_tokens: int = 800
+    # Left unset by default: the GPT-5.x family accepts only its own default
+    # and rejects the request otherwise, so the parameter is sent only when
+    # someone deliberately points this at a model that takes one.
+    ai_agent_temperature: float | None = None
     # Hard stop on how many times the assistant will speak in one ticket, so
     # a confused exchange can't turn into an endless back-and-forth that
     # buries the actual question from whoever picks the ticket up.

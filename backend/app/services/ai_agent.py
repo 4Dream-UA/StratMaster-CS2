@@ -68,7 +68,14 @@ How to reply:
 - Plain text only. No markdown headings, no bullet lists, no links.
 """
 
-SIGNATURE = "\n\n— Automated first reply. Someone from the team will follow up if this didn't sort it."
+# Appended in code, never asked of the model: the guarantee that every reply
+# is marked as automated must not depend on the model remembering to do it.
+# Both languages, because the reply itself follows whichever one the player
+# wrote in.
+SIGNATURE = (
+    "\n\n— Automated first reply. Someone from the team will follow up if this didn't sort it."
+    "\n— Автоматический первый ответ. Если это не помогло, с вами свяжется команда."
+)
 
 
 def is_configured() -> bool:
@@ -99,12 +106,7 @@ async def complete(messages: list[dict]) -> str | None:
                     "Authorization": f"Bearer {settings.openai_api_key}",
                     "Content-Type": "application/json",
                 },
-                json={
-                    "model": settings.ai_agent_model,
-                    "messages": messages,
-                    "temperature": 0.3,
-                    "max_tokens": 400,
-                },
+                json=_request_body(messages),
             )
             response.raise_for_status()
             content = response.json()["choices"][0]["message"]["content"]
@@ -114,6 +116,25 @@ async def complete(messages: list[dict]) -> str | None:
 
     text = (content or "").strip()
     return text[:MAX_REPLY_CHARS] if text else None
+
+
+def _request_body(messages: list[dict]) -> dict:
+    """`max_completion_tokens`, not `max_tokens`: the GPT-5.x family rejects
+    the old name outright (400 unsupported_parameter), and it is the current
+    spelling everywhere else too.
+
+    Temperature is only sent when explicitly configured. The same family
+    accepts nothing but the default and 400s on anything else, so a
+    hard-coded value would make the assistant impossible to run on the model
+    it ships pointed at."""
+    body = {
+        "model": settings.ai_agent_model,
+        "messages": messages,
+        "max_completion_tokens": settings.ai_agent_max_tokens,
+    }
+    if settings.ai_agent_temperature is not None:
+        body["temperature"] = settings.ai_agent_temperature
+    return body
 
 
 def _build_messages(thread_title: str, posts: list[ForumPostModel], agent_id) -> list[dict]:

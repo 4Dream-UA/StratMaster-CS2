@@ -277,3 +277,40 @@ async def test_the_agent_user_is_not_an_admin(client, db_session):
     assert agent.is_ai_agent is True
     # It can't be dragged into trades even if something tried.
     assert agent.is_trade_banned is True
+
+
+# ── The wire format ──────────────────────────────────────────────────
+# These pin the request body itself. Every other test stubs `complete()`,
+# so nothing above would have caught the real API rejecting the payload —
+# which is exactly what happened: the GPT-5.x family 400s on `max_tokens`
+# and on any temperature but its own default.
+
+
+def test_request_body_uses_max_completion_tokens_not_max_tokens(monkeypatch):
+    monkeypatch.setattr(app_config, "ai_agent_model", "gpt-5.6-luna")
+    monkeypatch.setattr(app_config, "ai_agent_max_tokens", 800)
+    body = ai_agent._request_body([{"role": "user", "content": "hi"}])
+
+    assert body["max_completion_tokens"] == 800
+    assert "max_tokens" not in body
+    assert body["model"] == "gpt-5.6-luna"
+
+
+def test_request_body_omits_temperature_unless_it_is_configured(monkeypatch):
+    monkeypatch.setattr(app_config, "ai_agent_temperature", None)
+    assert "temperature" not in ai_agent._request_body([{"role": "user", "content": "hi"}])
+
+    monkeypatch.setattr(app_config, "ai_agent_temperature", 0.3)
+    assert ai_agent._request_body([{"role": "user", "content": "hi"}])["temperature"] == 0.3
+
+
+async def test_every_reply_is_marked_automated_in_both_languages(client, db_session, auth_as, monkeypatch):
+    await make_ai_agent_user(db_session)
+    player = await make_user(db_session, subscribed=True)
+    auth_as(player)
+    stub_reply(monkeypatch, "Ответ на русском.")
+
+    thread = await open_ticket(client)
+    body = ai_posts(await get_thread(client, thread["id"]))[0]["body"]
+    assert "Automated first reply" in body
+    assert "Автоматический первый ответ" in body
