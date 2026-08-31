@@ -185,6 +185,12 @@
             </div>
           </template>
 
+          <!-- Premium is set to exactly the duration bought, counted from
+               the moment of purchase — it doesn't stack on top of what's
+               left. Anyone who'd come out behind needs to know that before
+               they pay, not after. -->
+          <p v-if="shorteningWarning" class="modal-warning">{{ shorteningWarning }}</p>
+
           <p class="modal-label">Choose payment method</p>
 
           <div class="payment-options">
@@ -309,6 +315,17 @@ const LIFETIME = { usd: 49.99, mc: 4999 }
 const popupOpen = ref(false)
 const selectedPlanKey = ref('') // 'premium' | 'lifetime'
 const selectedDurationIdx = ref(0)
+
+// Non-null when buying the currently-selected premium duration would leave
+// the player with *less* premium than they have now (a plan sets the expiry
+// rather than extending it). Lifetime never shortens anything.
+const shorteningWarning = computed(() => {
+  if (selectedPlanKey.value !== 'premium' || !isSubscribed.value) return null
+  const buyingDays = PREMIUM_DURATIONS[selectedDurationIdx.value].months * 30
+  if (daysRemaining.value <= buyingDays) return null
+  return `Heads up: Premium is set to the duration you buy, not added on top. `
+    + `You have ${daysRemaining.value} days left — buying ${buyingDays} days would replace them.`
+})
 const selectedMethod = ref('mastercoins') // pre-selected on open, per spec
 const payMessage = ref('')
 const paySuccess = ref(false)
@@ -658,6 +675,13 @@ const Cross = () => h('svg', { viewBox: '0 0 16 16', width: 14, height: 14, fill
   margin-bottom: 20px;
 }
 .modal-price + .modal-label { margin-top: 20px; }
+
+.modal-warning {
+  margin-top: 16px; padding: 10px 14px; border-radius: 10px;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  color: var(--text); font-size: 12px; font-weight: 600; line-height: 1.45;
+}
 
 .modal-label {
   font-size: 11px; font-weight: 700; letter-spacing: .06em;

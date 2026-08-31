@@ -53,39 +53,47 @@ def has_active_subscription(wallet) -> bool:
     return exp is not None and exp > datetime.now(timezone.utc)
 
 
-def extend_subscription(wallet, plan: str, months: int | None) -> datetime:
-    """Extends from the later of "now" and the current expiry, then returns the new expiry."""
-    now = datetime.now(timezone.utc)
-    base = wallet.subscription_expires_at if (wallet.subscription_expires_at and wallet.subscription_expires_at > now) else now
+# Every path that grants premium — buying a plan, renewing, auto-renew,
+# gifting, a promo code, activating a case voucher — sets the expiry to
+# exactly the granted duration counted from now, rather than stacking on
+# top of whatever is left. What the offer says ("31 days") is exactly what
+# the player ends up holding, with no arithmetic to explain.
+#
+# The flip side is that granting a *shorter* duration to someone who still
+# has a longer one running shortens it. The two places a player can walk
+# into that by accident — buying a plan on /pricing and gifting one from
+# the profile — warn about it first, off the expiry the wallet already
+# reports.
 
-    if plan == "lifetime":
-        new_expiry = now + timedelta(days=365 * LIFETIME_YEARS)
-        wallet.is_lifetime = True
-        wallet.last_plan_months = None
-    else:
-        new_expiry = base + timedelta(days=30 * months)
-        wallet.last_plan_months = months
 
+def _set_expiry(wallet, days: int) -> datetime:
+    new_expiry = datetime.now(timezone.utc) + timedelta(days=days)
     wallet.subscription_expires_at = new_expiry
-    # A fresh (or extended) expiry means the 24h-out reminder needs to be
-    # able to fire again for this new date.
+    # A fresh expiry means the 24h-out reminder needs to be able to fire
+    # again for this new date.
     wallet.reminder_sent_for_expiry = None
     return new_expiry
+
+
+def _set_lifetime(wallet) -> datetime:
+    wallet.is_lifetime = True
+    wallet.last_plan_months = None
+    return _set_expiry(wallet, 365 * LIFETIME_YEARS)
+
+
+def extend_subscription(wallet, plan: str, months: int | None) -> datetime:
+    """Sets the expiry to exactly `months` months (30-day months) from now,
+    then returns it."""
+    if plan == "lifetime":
+        return _set_lifetime(wallet)
+    wallet.last_plan_months = months
+    return _set_expiry(wallet, 30 * months)
 
 
 def grant_premium_days(wallet, days: int) -> datetime:
     """Day-granularity variant of extend_subscription, used by promo code
-    rewards. days == 0 means lifetime access, matching the ТЗ (any number
-    of days, 0 = forever)."""
-    now = datetime.now(timezone.utc)
+    rewards and case vouchers. days == 0 means lifetime access, matching the
+    ТЗ (any number of days, 0 = forever)."""
     if days == 0:
-        new_expiry = now + timedelta(days=365 * LIFETIME_YEARS)
-        wallet.is_lifetime = True
-        wallet.last_plan_months = None
-    else:
-        base = wallet.subscription_expires_at if (wallet.subscription_expires_at and wallet.subscription_expires_at > now) else now
-        new_expiry = base + timedelta(days=days)
-
-    wallet.subscription_expires_at = new_expiry
-    wallet.reminder_sent_for_expiry = None
-    return new_expiry
+        return _set_lifetime(wallet)
+    return _set_expiry(wallet, days)

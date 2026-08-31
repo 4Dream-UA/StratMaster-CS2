@@ -521,9 +521,10 @@ async def admin_set_user_avatar(user_id: uuid.UUID, payload: UpdateAvatarRequest
 @router.patch("/admin/users/{user_id}/premium", response_model=UserAdminOut)
 async def admin_set_user_premium(user_id: uuid.UUID, payload: AdminSetPremiumRequest, db: DBSession, admin_user: AdminUser):
     """Sets the expiry to an ABSOLUTE now + duration, overwriting whatever
-    was left — unlike /subscription (extend_subscription), which stacks on
-    top of the current expiry. E.g. a user with a month left gets set to
-    exactly 1 minute if the admin picks unit=minute, amount=1."""
+    was left — the same semantics every other grant path now uses (see
+    backend/app/services/subscription.py), just at arbitrary units. E.g. a
+    user with a month left gets set to exactly 1 minute if the admin picks
+    unit=minute, amount=1."""
     result = await db.execute(
         select(UserModel).options(selectinload(UserModel.wallet)).where(UserModel.id == user_id)
     )

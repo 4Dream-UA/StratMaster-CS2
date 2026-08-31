@@ -8,6 +8,7 @@ from backend.app.services.subscription import (
     apply_discount,
     assert_purchasable,
     extend_subscription,
+    grant_premium_days,
     has_active_referral_discount,
     price_for,
 )
@@ -64,12 +65,21 @@ def test_extend_subscription_from_now_when_no_prior_expiry():
     assert wallet.subscription_expires_at == new_expiry
 
 
-def test_extend_subscription_stacks_on_top_of_active_subscription():
+def test_extend_subscription_sets_the_bought_duration_rather_than_stacking():
+    # A plan is "you have N months of premium", not "N months are added to
+    # your pile" — buying 1 month leaves exactly 1 month, whatever was there.
     current_expiry = datetime.now(timezone.utc) + timedelta(days=10)
     wallet = FakeWallet(subscription_expires_at=current_expiry)
+    before = datetime.now(timezone.utc)
     new_expiry = extend_subscription(wallet, "premium", 1)
-    # Extends from the existing expiry, not from "now" — otherwise renewing early loses time already paid for.
-    assert new_expiry > current_expiry + timedelta(days=29)
+    assert timedelta(days=29, hours=23) <= new_expiry - before <= timedelta(days=30, hours=1)
+
+
+def test_extend_subscription_can_shorten_a_longer_running_subscription():
+    current_expiry = datetime.now(timezone.utc) + timedelta(days=300)
+    wallet = FakeWallet(subscription_expires_at=current_expiry)
+    new_expiry = extend_subscription(wallet, "premium", 1)
+    assert new_expiry < current_expiry
 
 
 def test_extend_subscription_ignores_expired_subscription_and_extends_from_now():
@@ -78,6 +88,19 @@ def test_extend_subscription_ignores_expired_subscription_and_extends_from_now()
     before = datetime.now(timezone.utc)
     new_expiry = extend_subscription(wallet, "premium", 1)
     assert new_expiry - before >= timedelta(days=29, hours=23)
+
+
+def test_grant_premium_days_sets_exactly_the_granted_days():
+    wallet = FakeWallet(subscription_expires_at=datetime.now(timezone.utc) + timedelta(days=5))
+    before = datetime.now(timezone.utc)
+    new_expiry = grant_premium_days(wallet, 31)
+    assert timedelta(days=30, hours=23) <= new_expiry - before <= timedelta(days=31, hours=1)
+
+
+def test_grant_premium_days_zero_means_lifetime():
+    wallet = FakeWallet(subscription_expires_at=None)
+    grant_premium_days(wallet, 0)
+    assert wallet.is_lifetime is True
 
 
 def test_extend_subscription_lifetime_is_far_future():
