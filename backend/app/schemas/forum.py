@@ -108,6 +108,9 @@ class ForumThreadPreview(BaseModel):
     is_closed: bool = False
     post_count: int
     updated_at: datetime
+    # Always 0 for non-admin viewers — reporting is invisible to everyone
+    # but the admins who act on it.
+    report_count: int = 0
 
 
 class ForumThreadsListResponse(BaseModel):
@@ -120,10 +123,12 @@ class ForumThreadDetail(BaseModel):
     category_key: str
     title: str
     author_id: uuid.UUID
+    author_is_admin: bool = False
     is_pinned: bool = False
     is_closed: bool = False
     is_watching: bool = False
     share_token: str | None = None
+    report_count: int = 0
     posts: list[ForumPostOut]
 
 

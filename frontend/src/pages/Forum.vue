@@ -89,14 +89,16 @@
           <div v-else class="thread-list">
             <ThreadRow
               v-for="t in pinnedThreads" :key="t.id" :thread="t"
-              :can-pin="isAdmin" :can-modify="canModifyThread(t)"
+              :can-pin="isAdmin" :can-modify="canModifyThread(t)" :can-report="canReportThread(t)" :is-admin="isAdmin"
               @open="openThread(t.id)" @toggle-pin="togglePin(t)" @remove="removeThreadRow(t)" @open-profile="openProfile"
+              @report="openReportPrompt('thread', t.id)" @view-reports="openReportsPopup('thread', t.id)"
             />
             <div v-if="pinnedThreads.length && otherThreads.length" class="thread-divider"><span>Other threads</span></div>
             <ThreadRow
               v-for="t in otherThreads" :key="t.id" :thread="t"
-              :can-pin="isAdmin" :can-modify="canModifyThread(t)"
+              :can-pin="isAdmin" :can-modify="canModifyThread(t)" :can-report="canReportThread(t)" :is-admin="isAdmin"
               @open="openThread(t.id)" @toggle-pin="togglePin(t)" @remove="removeThreadRow(t)" @open-profile="openProfile"
+              @report="openReportPrompt('thread', t.id)" @view-reports="openReportsPopup('thread', t.id)"
             />
           </div>
         </section>
@@ -118,6 +120,14 @@
             <div class="thread-actions">
               <button class="icon-btn" :class="{ active: activeThread?.is_watching }" :title="activeThread?.is_watching ? 'Stop watching' : 'Watch for replies'" @click="toggleWatch"><WatchIcon /></button>
               <button class="icon-btn" title="Share" @click="openShare"><ShareIcon /></button>
+              <button
+                v-if="canReportThread(activeThread)" class="icon-btn" title="Report this thread"
+                @click="openReportPrompt('thread', activeThread.id)"
+              ><FlagIcon /></button>
+              <button
+                v-if="isAdmin && activeThread?.report_count" type="button" class="report-badge" title="View thread reports"
+                @click="openReportsPopup('thread', activeThread.id)"
+              >🚩 {{ activeThread.report_count }}</button>
               <template v-if="canModifyActiveThread">
                 <button class="icon-btn" title="Edit title" @click="startEditTitle"><EditIcon /></button>
                 <button v-if="isAdmin" class="icon-btn" :title="activeThread?.is_pinned ? 'Unpin' : 'Pin'" @click="toggleActiveThreadPin"><PinIcon /></button>
@@ -176,13 +186,13 @@
                   </span>
                   <button
                     v-if="isAdmin && p.report_count" type="button" class="report-badge" title="View reports"
-                    @click="openReportsPopup(p)"
+                    @click="openReportsPopup('post', p.id)"
                   >🚩 {{ p.report_count }}</button>
                   <button v-if="!activeThread.is_closed || isAdmin" class="icon-btn small" title="Reply" @click="startReplyTo(p)"><ReplyIcon :size="11" /></button>
                   <button class="icon-btn small" :title="copiedPostId === p.id ? 'Copied!' : 'Copy link to this message'" @click="sharePost(p)"><ShareIcon :size="11" /></button>
                   <button v-if="canModifyPost(p) && editingPostId !== p.id && !p.deleted_at" class="icon-btn small" title="Edit" @click="startEditPost(p)"><EditIcon :size="11" /></button>
                   <button v-if="canModifyPost(p) && !p.deleted_at" class="icon-btn small danger" title="Delete" @click="deletePost(p)"><TrashIcon :size="11" /></button>
-                  <button v-if="!canModifyPost(p) && !p.deleted_at" class="icon-btn small" title="Report" @click="openReportPrompt(p)"><FlagIcon :size="11" /></button>
+                  <button v-if="canReportPost(p)" class="icon-btn small" title="Report this message" @click="openReportPrompt('post', p.id)"><FlagIcon :size="11" /></button>
                 </div>
 
                 <div v-if="p.deleted_at" class="deleted-banner">
@@ -336,26 +346,30 @@
     </div>
 
     <!-- ═══ Report popup (player) ═══════════════════════ -->
-    <div v-if="reportPost" class="modal-backdrop" @click.self="closeReportPrompt">
+    <div v-if="reportTarget" class="modal-backdrop" @click.self="closeReportPrompt">
       <div class="modal">
         <button class="modal-close" @click="closeReportPrompt">✕</button>
-        <h3 class="modal-title">Report this message</h3>
+        <h3 class="modal-title">Report this {{ reportTarget.kind === 'thread' ? 'thread' : 'message' }}</h3>
         <p class="modal-hint">Tell the admins what's wrong with it — optional, but it helps.</p>
-        <textarea v-model="reportReason" class="thread-input" rows="3" placeholder="What's wrong with this message? (optional)"></textarea>
+        <textarea
+          v-model="reportReason" class="thread-input" rows="3"
+          :placeholder="`What's wrong with this ${reportTarget.kind === 'thread' ? 'thread' : 'message'}? (optional)`"
+        ></textarea>
         <div class="form-actions">
           <button class="btn-primary" :disabled="reportBusy || reportSent" @click="submitReport">
             {{ reportSent ? 'Reported!' : reportBusy ? 'Sending…' : 'Report' }}
           </button>
           <button class="mini-btn" @click="closeReportPrompt">Cancel</button>
         </div>
+        <p v-if="reportError" class="err">{{ reportError }}</p>
       </div>
     </div>
 
     <!-- ═══ Reports popup (admin) ═══════════════════════ -->
-    <div v-if="reportsPopupPost" class="modal-backdrop" @click.self="closeReportsPopup">
+    <div v-if="reportsPopupTarget" class="modal-backdrop" @click.self="closeReportsPopup">
       <div class="modal">
         <button class="modal-close" @click="closeReportsPopup">✕</button>
-        <h3 class="modal-title">Reports</h3>
+        <h3 class="modal-title">Reports on this {{ reportsPopupTarget.kind === 'thread' ? 'thread' : 'message' }}</h3>
         <div v-if="reportsLoading" class="loading-row">Loading…</div>
         <div v-else class="edit-history-list">
           <div v-for="(r, i) in reportsList" :key="i" class="edit-history-row">
@@ -548,16 +562,28 @@ const Avatar = {
 // template partial) purely so the pin/delete icon buttons can
 // event.stopPropagation() cleanly without fighting the row's own click.
 const ThreadRow = {
-  props: { thread: Object, canPin: Boolean, canModify: Boolean },
-  emits: ['open', 'toggle-pin', 'remove', 'open-profile'],
+  props: { thread: Object, canPin: Boolean, canModify: Boolean, canReport: Boolean, isAdmin: Boolean },
+  emits: ['open', 'toggle-pin', 'remove', 'open-profile', 'report', 'view-reports'],
   render() {
     const t = this.thread
     const actions = []
+    if (this.isAdmin && t.report_count) {
+      actions.push(h('button', {
+        class: 'report-badge', title: 'View thread reports',
+        onClick: (e) => { e.stopPropagation(); this.$emit('view-reports') },
+      }, `🚩 ${t.report_count}`))
+    }
     if (this.canPin) {
       actions.push(h('button', {
         class: 'icon-btn small', title: t.is_pinned ? 'Unpin' : 'Pin',
         onClick: (e) => { e.stopPropagation(); this.$emit('toggle-pin') },
       }, [h(PinIcon, { size: 11 })]))
+    }
+    if (this.canReport) {
+      actions.push(h('button', {
+        class: 'icon-btn small', title: 'Report this thread',
+        onClick: (e) => { e.stopPropagation(); this.$emit('report') },
+      }, [h(FlagIcon, { size: 11 })]))
     }
     if (this.canModify) {
       actions.push(h('button', {
@@ -1053,53 +1079,83 @@ async function permanentlyDeletePost(post) {
   activeThread.value = await forumAPI.getThread(activeThread.value.id)
 }
 
-// ── Report a post (player) ─────────────────────────────────────────
-const reportPost = ref(null)
+// ── Reporting (player) ───────────────────────────────────────────────
+// One popup covers both kinds of target: a single message, or the whole
+// thread. `reportTarget` is { kind: 'post' | 'thread', id }.
+const reportTarget = ref(null)
 const reportReason = ref('')
 const reportBusy = ref(false)
 const reportSent = ref(false)
-function openReportPrompt(post) {
-  reportPost.value = post
+const reportError = ref('')
+
+// An admin's content routes nowhere useful (reports go *to* the admins),
+// and neither does your own — the backend rejects both, this keeps the
+// button from being offered in the first place.
+function canReportPost(p) {
+  return !p.author_is_admin && p.author_id !== currentUserId.value && !p.deleted_at
+}
+function canReportThread(t) {
+  return !!t && !t.author_is_admin && t.author_id !== currentUserId.value
+}
+
+function openReportPrompt(kind, id) {
+  reportTarget.value = { kind, id }
   reportReason.value = ''
   reportSent.value = false
+  reportError.value = ''
 }
 function closeReportPrompt() {
-  reportPost.value = null
+  reportTarget.value = null
 }
 async function submitReport() {
-  if (!reportPost.value || reportBusy.value) return
+  if (!reportTarget.value || reportBusy.value) return
   reportBusy.value = true
+  reportError.value = ''
+  const { kind, id } = reportTarget.value
   try {
-    await forumAPI.reportPost(reportPost.value.id, reportReason.value.trim() || null)
+    const reason = reportReason.value.trim() || null
+    if (kind === 'thread') await forumAPI.reportThread(id, reason)
+    else await forumAPI.reportPost(id, reason)
     reportSent.value = true
     setTimeout(closeReportPrompt, 1200)
   } catch (e) {
-    errorMsg.value = e.response?.data?.detail || 'Could not send that report.'
+    reportError.value = e.response?.data?.detail || 'Could not send that report.'
   } finally {
     reportBusy.value = false
   }
 }
 
-// ── View reports on a post (admin) ───────────────────────────────────
-const reportsPopupPost = ref(null)
+// ── Viewing reports (admin) ──────────────────────────────────────────
+const reportsPopupTarget = ref(null) // { kind, id }
 const reportsList = ref([])
 const reportsLoading = ref(false)
-async function openReportsPopup(post) {
-  reportsPopupPost.value = post
+async function openReportsPopup(kind, id) {
+  reportsPopupTarget.value = { kind, id }
   reportsLoading.value = true
   try {
-    reportsList.value = await forumAPI.getPostReports(post.id)
+    reportsList.value = kind === 'thread'
+      ? await forumAPI.getThreadReports(id)
+      : await forumAPI.getPostReports(id)
   } finally {
     reportsLoading.value = false
   }
 }
 function closeReportsPopup() {
-  reportsPopupPost.value = null
+  reportsPopupTarget.value = null
 }
 async function dismissReports() {
-  if (!reportsPopupPost.value) return
-  await forumAPI.dismissPostReports(reportsPopupPost.value.id)
-  activeThread.value = await forumAPI.getThread(activeThread.value.id)
+  if (!reportsPopupTarget.value) return
+  const { kind, id } = reportsPopupTarget.value
+  if (kind === 'thread') {
+    await forumAPI.dismissThreadReports(id)
+    // The flag lives on the row in the list view as well as the header
+    // here, so both need to hear about it.
+    if (view.value === 'threads') await loadThreads(activeCategory.value.key)
+    else activeThread.value = await forumAPI.getThread(id)
+  } else {
+    await forumAPI.dismissPostReports(id)
+    activeThread.value = await forumAPI.getThread(activeThread.value.id)
+  }
   closeReportsPopup()
 }
 

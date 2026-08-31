@@ -18,6 +18,7 @@ from backend.app.db.models import (
     ForumPostReactionModel,
     ForumPostReportModel,
     ForumThreadModel,
+    ForumThreadReportModel,
     ForumThreadWatcherModel,
     UserModel,
 )
@@ -88,24 +89,57 @@ def _visible_identity(author: UserModel, viewer: UserModel) -> tuple[str | None,
     return author.username, author.display_name
 
 
-async def _thread_preview(db, thread: ForumThreadModel, viewer: UserModel) -> ForumThreadPreview:
-    post_count = (
-        await db.execute(select(func.count()).select_from(ForumPostModel).where(ForumPostModel.thread_id == thread.id))
-    ).scalar() or 0
-    username, display_name = _visible_identity(thread.user, viewer)
-    return ForumThreadPreview(
-        id=thread.id,
-        title=thread.title,
-        author_username=username,
-        author_display_name=display_name,
-        author_avatar_url=thread.user.avatar_url,
-        author_id=thread.user_id,
-        author_is_admin=thread.user.is_admin,
-        is_pinned=thread.is_pinned,
-        is_closed=thread.is_closed,
-        post_count=post_count,
-        updated_at=thread.updated_at,
+async def _thread_previews(db, threads: list[ForumThreadModel], viewer: UserModel) -> list[ForumThreadPreview]:
+    """Both counts are fetched for the whole page in one grouped query each,
+    rather than per thread — a 100-thread page was previously 100 sequential
+    COUNT round-trips just to render the reply counter."""
+    if not threads:
+        return []
+    thread_ids = [t.id for t in threads]
+
+    post_counts = dict(
+        (
+            await db.execute(
+                select(ForumPostModel.thread_id, func.count())
+                .where(ForumPostModel.thread_id.in_(thread_ids))
+                .group_by(ForumPostModel.thread_id)
+            )
+        ).all()
     )
+
+    report_counts: dict[uuid.UUID, int] = {}
+    if viewer.is_admin:
+        report_counts = dict(
+            (
+                await db.execute(
+                    select(ForumThreadReportModel.thread_id, func.count())
+                    .where(
+                        ForumThreadReportModel.thread_id.in_(thread_ids),
+                        ForumThreadReportModel.resolved_at.is_(None),
+                    )
+                    .group_by(ForumThreadReportModel.thread_id)
+                )
+            ).all()
+        )
+
+    previews = []
+    for thread in threads:
+        username, display_name = _visible_identity(thread.user, viewer)
+        previews.append(ForumThreadPreview(
+            id=thread.id,
+            title=thread.title,
+            author_username=username,
+            author_display_name=display_name,
+            author_avatar_url=thread.user.avatar_url,
+            author_id=thread.user_id,
+            author_is_admin=thread.user.is_admin,
+            is_pinned=thread.is_pinned,
+            is_closed=thread.is_closed,
+            post_count=post_counts.get(thread.id, 0),
+            updated_at=thread.updated_at,
+            report_count=report_counts.get(thread.id, 0),
+        ))
+    return previews
 
 
 def _can_access_thread(thread: ForumThreadModel, category: ForumCategoryModel, user) -> bool:
@@ -226,7 +260,7 @@ async def list_threads(
     result = await db.execute(query.limit(limit).offset(offset))
     threads = result.scalars().all()
 
-    return ForumThreadsListResponse(total=total, threads=[await _thread_preview(db, t, user) for t in threads])
+    return ForumThreadsListResponse(total=total, threads=await _thread_previews(db, list(threads), user))
 
 
 @router.post(
@@ -355,6 +389,8 @@ async def _get_thread_detail(db, thread_id: uuid.UUID, user) -> ForumThreadDetai
             selectinload(ForumThreadModel.posts).selectinload(ForumPostModel.reply_to).selectinload(ForumPostModel.user),
             selectinload(ForumThreadModel.posts).selectinload(ForumPostModel.reactions),
             selectinload(ForumThreadModel.posts).selectinload(ForumPostModel.reports),
+            selectinload(ForumThreadModel.user),
+            selectinload(ForumThreadModel.reports),
         )
         .where(ForumThreadModel.id == thread_id)
     )
@@ -370,10 +406,12 @@ async def _get_thread_detail(db, thread_id: uuid.UUID, user) -> ForumThreadDetai
         category_key=thread.category.key,
         title=thread.title,
         author_id=thread.user_id,
+        author_is_admin=thread.user.is_admin,
         is_pinned=thread.is_pinned,
         is_closed=thread.is_closed,
         is_watching=await _is_watching(db, thread.id, user.id),
         share_token=thread.share_token,
+        report_count=(sum(1 for r in thread.reports if r.resolved_at is None) if user.is_admin else 0),
         posts=[_post_out(p, user, users_by_id) for p in visible_posts],
     )
 
@@ -595,6 +633,20 @@ async def react_to_post(post_id: uuid.UUID, payload: ReactRequest, db: DBSession
     return await _get_thread_detail(db, post.thread_id, user)
 
 
+def _assert_reportable(author_id: uuid.UUID, author_is_admin: bool, reporter: UserModel) -> None:
+    """Reports route to the admins, so there's nothing for one to do about
+    an admin's own content — and reporting yourself is never meaningful.
+    The frontend hides the button in both cases; this is what makes it
+    actually true rather than just invisible."""
+    if author_is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Admin content can't be reported — open a support ticket instead",
+        )
+    if author_id == reporter.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You can't report your own content")
+
+
 @router.post(
     "/forum/posts/{post_id}/report", status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(rate_limit("forum_report", max_requests=10, window_seconds=60))],
@@ -605,12 +657,16 @@ async def report_post(post_id: uuid.UUID, payload: ReportPostRequest, db: DBSess
     (see ForumPostOut.report_count) until dismissed."""
     result = await db.execute(
         select(ForumPostModel)
-        .options(selectinload(ForumPostModel.thread).selectinload(ForumThreadModel.category))
+        .options(
+            selectinload(ForumPostModel.thread).selectinload(ForumThreadModel.category),
+            selectinload(ForumPostModel.user),
+        )
         .where(ForumPostModel.id == post_id)
     )
     post = result.scalar_one_or_none()
     if post is None or not _can_access_thread(post.thread, post.thread.category, user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+    _assert_reportable(post.user_id, post.user.is_admin, user)
 
     db.add(ForumPostReportModel(post_id=post_id, reporter_id=user.id, reason=payload.reason))
     await db.commit()
@@ -638,6 +694,59 @@ async def dismiss_post_reports(post_id: uuid.UUID, db: DBSession, admin_user: Ad
     result = await db.execute(
         select(ForumPostReportModel).where(
             ForumPostReportModel.post_id == post_id, ForumPostReportModel.resolved_at.is_(None)
+        )
+    )
+    now = datetime.now(timezone.utc)
+    for report in result.scalars().all():
+        report.resolved_at = now
+    await db.commit()
+
+
+# ── Thread-level reports — the same three operations as above, flagging a
+#    whole thread (its topic/title) rather than one message inside it. ──
+
+
+@router.post(
+    "/forum/threads/{thread_id}/report", status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(rate_limit("forum_report", max_requests=10, window_seconds=60))],
+)
+async def report_thread(thread_id: uuid.UUID, payload: ReportPostRequest, db: DBSession, user: PremiumUser):
+    result = await db.execute(
+        select(ForumThreadModel)
+        .options(selectinload(ForumThreadModel.category), selectinload(ForumThreadModel.user))
+        .where(ForumThreadModel.id == thread_id)
+    )
+    thread = result.scalar_one_or_none()
+    if thread is None or not _can_access_thread(thread, thread.category, user):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found")
+    _assert_reportable(thread.user_id, thread.user.is_admin, user)
+
+    db.add(ForumThreadReportModel(thread_id=thread_id, reporter_id=user.id, reason=payload.reason))
+    await db.commit()
+
+
+@router.get("/forum/threads/{thread_id}/reports", response_model=list[ReportOut])
+async def list_thread_reports(thread_id: uuid.UUID, db: DBSession, admin_user: AdminUser):
+    result = await db.execute(
+        select(ForumThreadReportModel)
+        .options(selectinload(ForumThreadReportModel.reporter))
+        .where(ForumThreadReportModel.thread_id == thread_id, ForumThreadReportModel.resolved_at.is_(None))
+        .order_by(ForumThreadReportModel.created_at.desc())
+    )
+    return [
+        ReportOut(
+            reporter_username=r.reporter.username, reporter_display_name=r.reporter.display_name,
+            reason=r.reason, created_at=r.created_at,
+        )
+        for r in result.scalars().all()
+    ]
+
+
+@router.post("/forum/threads/{thread_id}/reports/dismiss", status_code=status.HTTP_204_NO_CONTENT)
+async def dismiss_thread_reports(thread_id: uuid.UUID, db: DBSession, admin_user: AdminUser):
+    result = await db.execute(
+        select(ForumThreadReportModel).where(
+            ForumThreadReportModel.thread_id == thread_id, ForumThreadReportModel.resolved_at.is_(None)
         )
     )
     now = datetime.now(timezone.utc)

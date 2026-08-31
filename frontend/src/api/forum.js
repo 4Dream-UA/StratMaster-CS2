@@ -75,6 +75,16 @@ export const forumAPI = {
   async dismissPostReports(id) {
     await apiClient.post(`/api/forum/posts/${id}/reports/dismiss`)
   },
+  async reportThread(id, reason) {
+    await apiClient.post(`/api/forum/threads/${id}/report`, { reason })
+  },
+  async getThreadReports(id) {
+    const response = await apiClient.get(`/api/forum/threads/${id}/reports`)
+    return response.data
+  },
+  async dismissThreadReports(id) {
+    await apiClient.post(`/api/forum/threads/${id}/reports/dismiss`)
+  },
   async react(postId, emoji) {
     const response = await apiClient.post(`/api/forum/posts/${postId}/react`, { emoji })
     return response.data  // full thread, same shape as getThread

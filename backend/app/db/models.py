@@ -597,6 +597,9 @@ class ForumThreadModel(Base):
     posts: Mapped[list["ForumPostModel"]] = relationship(
         "ForumPostModel", back_populates="thread", cascade="all, delete-orphan", order_by="ForumPostModel.created_at"
     )
+    reports: Mapped[list["ForumThreadReportModel"]] = relationship(
+        "ForumThreadReportModel", cascade="all, delete-orphan"
+    )
 
 
 class ForumThreadWatcherModel(Base):
@@ -696,6 +699,27 @@ class ForumPostReportModel(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     post_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("forum_posts.id", ondelete="CASCADE"), nullable=False
+    )
+    reporter_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    reporter: Mapped["UserModel"] = relationship("UserModel")
+
+
+class ForumThreadReportModel(Base):
+    """The thread-level counterpart of ForumPostReportModel — reporting a
+    whole thread (its topic, its title) rather than one message inside it.
+    Kept as its own table rather than a nullable post_id on the post one so
+    neither foreign key has to be optional."""
+    __tablename__ = "forum_thread_reports"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    thread_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("forum_threads.id", ondelete="CASCADE"), nullable=False
     )
     reporter_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
