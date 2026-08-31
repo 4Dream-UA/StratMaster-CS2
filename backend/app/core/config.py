@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     # Model id sent to the API verbatim. Kept as a setting rather than a
     # constant so it can be repointed without a redeploy — including at a
     # self-hosted or proxied OpenAI-compatible endpoint via openai_base_url.
-    ai_agent_model: str = "gpt-4o-mini"
+    ai_agent_model: str = "gpt-5.6-luna"
     ai_agent_timeout_seconds: float = 20.0
     # Hard stop on how many times the assistant will speak in one ticket, so
     # a confused exchange can't turn into an endless back-and-forth that
