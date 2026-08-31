@@ -598,7 +598,7 @@ class ForumThreadModel(Base):
         "ForumPostModel", back_populates="thread", cascade="all, delete-orphan", order_by="ForumPostModel.created_at"
     )
     reports: Mapped[list["ForumThreadReportModel"]] = relationship(
-        "ForumThreadReportModel", cascade="all, delete-orphan"
+        "ForumThreadReportModel", back_populates="thread", cascade="all, delete-orphan"
     )
 
 
@@ -666,7 +666,8 @@ class ForumPostModel(Base):
         "ForumPostEditModel", cascade="all, delete-orphan", order_by="ForumPostEditModel.edited_at.desc()"
     )
     reports: Mapped[list["ForumPostReportModel"]] = relationship(
-        "ForumPostReportModel", cascade="all, delete-orphan", order_by="ForumPostReportModel.created_at.desc()"
+        "ForumPostReportModel", back_populates="post", cascade="all, delete-orphan",
+        order_by="ForumPostReportModel.created_at.desc()"
     )
 
 
@@ -708,6 +709,10 @@ class ForumPostReportModel(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     reporter: Mapped["UserModel"] = relationship("UserModel")
+    # Read-only side of the ForumPostModel.reports collection — the admin
+    # moderation queue walks from the report to the post it flags, which is
+    # the opposite direction from the in-thread flag badge.
+    post: Mapped["ForumPostModel"] = relationship("ForumPostModel", back_populates="reports")
 
 
 class ForumThreadReportModel(Base):
@@ -729,6 +734,9 @@ class ForumThreadReportModel(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     reporter: Mapped["UserModel"] = relationship("UserModel")
+    # Other side of ForumThreadModel.reports — the admin moderation queue
+    # walks report → thread, the opposite direction from the flag badge.
+    thread: Mapped["ForumThreadModel"] = relationship("ForumThreadModel", back_populates="reports")
 
 
 # A curated palette a player can react to a post with — a user may react

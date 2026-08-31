@@ -33,15 +33,18 @@
           <span class="stat-value">{{ stats?.transactions_count ?? '—' }}</span>
           <span class="stat-label">Transactions</span>
         </div>
-        <button type="button" class="stat-box stat-box-link" @click="router.push('/forum')">
-          <span class="stat-value">{{ stats?.open_tickets_count ?? '—' }}</span>
+        <!-- These used to dump you on the forum's category list with no hint
+             of which thread the number referred to. They now open the queue
+             that actually lists them. -->
+        <button type="button" class="stat-box stat-box-link" @click="router.push('/admin/tickets')">
+          <span class="stat-value" :class="{ warn: stats?.open_tickets_count > 0 }">{{ stats?.open_tickets_count ?? '—' }}</span>
           <span class="stat-label">Open Tickets</span>
         </button>
         <button type="button" class="stat-box stat-box-link" @click="router.push('/forum')">
           <span class="stat-value" :class="{ warn: stats?.pending_deleted_posts_count > 0 }">{{ stats?.pending_deleted_posts_count ?? '—' }}</span>
           <span class="stat-label">Deleted Posts</span>
         </button>
-        <button type="button" class="stat-box stat-box-link" @click="router.push('/forum')">
+        <button type="button" class="stat-box stat-box-link" @click="router.push('/admin/reports')">
           <span class="stat-value" :class="{ warn: stats?.pending_reports_count > 0 }">{{ stats?.pending_reports_count ?? '—' }}</span>
           <span class="stat-label">Reports</span>
         </button>
@@ -160,11 +163,15 @@ const ICON_TARGET = `<svg viewBox="0 0 24 24" fill="none" width="22" height="22"
 const ICON_USERS = `<svg viewBox="0 0 24 24" fill="none" width="22" height="22"><circle cx="9" cy="8" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="17" cy="9" r="2.5" stroke="currentColor" stroke-width="1.4"/><path d="M15.5 14.2c2.5.4 4.5 2.6 4.5 5.3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`
 const ICON_P2P = `<svg viewBox="0 0 24 24" fill="none" width="22" height="22"><rect x="2" y="7" width="20" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="13" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M6 7V6a2 2 0 012-2h8a2 2 0 012 2v1" stroke="currentColor" stroke-width="1.4"/></svg>`
 const ICON_PROMO = `<svg viewBox="0 0 24 24" fill="none" width="22" height="22"><path d="M11 4h6a1 1 0 011 1v6a1 1 0 01-.3.7l-8 8a1 1 0 01-1.4 0l-6-6a1 1 0 010-1.4l8-8A1 1 0 0111 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="15.5" cy="8.5" r="1.3" fill="currentColor"/></svg>`
+const ICON_FLAG = `<svg viewBox="0 0 24 24" fill="none" width="22" height="22"><path d="M5 4v16M5 4h12l-2.2 3.8L17 12H5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`
+const ICON_TICKET = `<svg viewBox="0 0 24 24" fill="none" width="22" height="22"><path d="M4 6h16v3.5a2.5 2.5 0 000 5V18H4v-3.5a2.5 2.5 0 000-5V6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 8v2M12 13v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`
 
 const TILES = [
   { title: 'Work with Maps',      desc: 'Add, edit, or disable maps',            icon: ICON_MAP,   route: '/admin/maps' },
   { title: 'Work with Strategies',desc: 'Create and manage strategy content',    icon: ICON_TARGET,route: '/admin/strategies' },
   { title: 'Work with Users',     desc: 'View users, roles and subscriptions',   icon: ICON_USERS, route: '/admin/users' },
+  { title: 'Reports',             desc: 'Every reported thread and message in one queue', icon: ICON_FLAG, route: '/admin/reports' },
+  { title: 'Support Tickets',     desc: 'Open tickets and which ones need a reply', icon: ICON_TICKET, route: '/admin/tickets' },
   { title: 'Promo Codes',         desc: 'Generate and manage MasterCoin codes',  icon: ICON_PROMO, route: '/admin/promo' },
   { title: 'Check Transactions',  desc: 'Monitor coin transfers, purchases and payouts', icon: ICON_P2P, route: '/admin/transactions' },
 ]

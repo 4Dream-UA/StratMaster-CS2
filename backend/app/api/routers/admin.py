@@ -23,6 +23,13 @@ from backend.app.db.models import (
     UserModel,
     WalletModel,
 )
+from backend.app.schemas.forum import (
+    AdminReportOut,
+    AdminReportsListResponse,
+    AdminTicketOut,
+    AdminTicketsListResponse,
+    ReporterOut,
+)
 from backend.app.schemas.strategy import (
     AdminStrategiesListResponse,
     MapCreate,
@@ -75,7 +82,12 @@ async def get_admin_stats(db: DBSession, admin_user: AdminUser) -> dict:
         )
     ).scalar() or 0
 
-    from backend.app.db.models import ErrorLogModel, ForumCategoryModel, ForumPostReportModel
+    from backend.app.db.models import (
+        ErrorLogModel,
+        ForumCategoryModel,
+        ForumPostReportModel,
+        ForumThreadReportModel,
+    )
 
     open_tickets_count = (
         await db.execute(
@@ -87,11 +99,17 @@ async def get_admin_stats(db: DBSession, admin_user: AdminUser) -> dict:
     pending_deleted_posts_count = (
         await db.execute(select(func.count()).select_from(ForumPostModel).where(ForumPostModel.deleted_at.isnot(None)))
     ).scalar() or 0
-    pending_reports_count = (
+    # Both kinds — a thread reported as a whole counts the same as a single
+    # message; the stat is "things waiting on an admin", not "reported posts".
+    pending_reports_count = ((
         await db.execute(
             select(func.count()).select_from(ForumPostReportModel).where(ForumPostReportModel.resolved_at.is_(None))
         )
-    ).scalar() or 0
+    ).scalar() or 0) + ((
+        await db.execute(
+            select(func.count()).select_from(ForumThreadReportModel).where(ForumThreadReportModel.resolved_at.is_(None))
+        )
+    ).scalar() or 0)
     recent_errors_count = (
         await db.execute(
             select(func.count()).select_from(ErrorLogModel)
@@ -625,3 +643,166 @@ async def admin_list_transactions(
     transactions = result.scalars().all()
 
     return TransactionsListResponse(total=total, transactions=transactions)
+
+
+# ─────────────────────────────────────────────
+#  Moderation queues — reports and support tickets
+#
+#  The forum itself only ever surfaces these in place: a flag on the one
+#  thread you happen to be looking at, a ticket buried in a category you
+#  have to go browse. That works as a detail view and not at all as a work
+#  queue, which is what an admin actually needs — hence these two flat,
+#  cross-forum lists.
+# ─────────────────────────────────────────────
+
+REPORT_EXCERPT_LEN = 240
+
+
+@router.get("/admin/reports", response_model=AdminReportsListResponse)
+async def list_all_reports(
+    db: DBSession,
+    admin_user: AdminUser,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """Every unresolved report across the whole forum, post and thread
+    reports interleaved by recency."""
+    from backend.app.db.models import ForumCategoryModel, ForumPostReportModel, ForumThreadReportModel
+
+    post_reports = (await db.execute(
+        select(ForumPostReportModel)
+        .options(
+            selectinload(ForumPostReportModel.reporter),
+            selectinload(ForumPostReportModel.post).selectinload(ForumPostModel.user),
+            selectinload(ForumPostReportModel.post)
+            .selectinload(ForumPostModel.thread)
+            .selectinload(ForumThreadModel.category),
+        )
+        .where(ForumPostReportModel.resolved_at.is_(None))
+    )).scalars().all()
+
+    thread_reports = (await db.execute(
+        select(ForumThreadReportModel)
+        .options(
+            selectinload(ForumThreadReportModel.reporter),
+            selectinload(ForumThreadReportModel.thread).selectinload(ForumThreadModel.user),
+            selectinload(ForumThreadReportModel.thread).selectinload(ForumThreadModel.category),
+        )
+        .where(ForumThreadReportModel.resolved_at.is_(None))
+    )).scalars().all()
+
+    def excerpt(text: str) -> str:
+        return text[:REPORT_EXCERPT_LEN] + ("…" if len(text) > REPORT_EXCERPT_LEN else "")
+
+    # Grouped by the item reported, not by report row: dismissing resolves
+    # every open report on a post or thread at once, so a queue of
+    # individual rows would shrink by three when an admin clicks Dismiss
+    # once. Three people flagging the same message is one job.
+    grouped: dict[tuple[str, uuid.UUID], AdminReportOut] = {}
+
+    def add(key, build, reporter, reason, created_at):
+        entry = grouped.get(key)
+        if entry is None:
+            entry = build()
+            grouped[key] = entry
+        entry.reports.append(ReporterOut(
+            reporter_username=reporter.username, reporter_display_name=reporter.display_name,
+            reason=reason, created_at=created_at,
+        ))
+        entry.last_reported_at = max(entry.last_reported_at, created_at)
+
+    for r in post_reports:
+        post = r.post
+        # A report whose post was hard-deleted has nothing left to act on.
+        if post is None or post.thread is None:
+            continue
+        add(
+            ("post", post.id),
+            lambda post=post, r=r: AdminReportOut(
+                target_kind="post", target_id=post.id,
+                thread_id=post.thread_id, thread_title=post.thread.title,
+                category_key=post.thread.category.key,
+                excerpt=excerpt(post.body),
+                author_username=post.user.username, author_display_name=post.user.display_name,
+                author_id=post.user_id,
+                reports=[], last_reported_at=r.created_at,
+            ),
+            r.reporter, r.reason, r.created_at,
+        )
+    for r in thread_reports:
+        thread = r.thread
+        if thread is None:
+            continue
+        add(
+            ("thread", thread.id),
+            lambda thread=thread, r=r: AdminReportOut(
+                target_kind="thread", target_id=thread.id,
+                thread_id=thread.id, thread_title=thread.title,
+                category_key=thread.category.key,
+                excerpt=excerpt(thread.title),
+                author_username=thread.user.username, author_display_name=thread.user.display_name,
+                author_id=thread.user_id,
+                reports=[], last_reported_at=r.created_at,
+            ),
+            r.reporter, r.reason, r.created_at,
+        )
+
+    rows = sorted(grouped.values(), key=lambda x: x.last_reported_at, reverse=True)
+    for row in rows:
+        row.reports.sort(key=lambda x: x.created_at, reverse=True)
+    # Paginated in Python rather than SQL: these are two separate tables
+    # that have to be merged and grouped before they can be sliced, and the
+    # queue is small by nature — anything else means an admin isn't working
+    # through it.
+    return AdminReportsListResponse(total=len(rows), reports=rows[offset:offset + limit])
+
+
+@router.get("/admin/tickets", response_model=AdminTicketsListResponse)
+async def list_all_tickets(
+    db: DBSession,
+    admin_user: AdminUser,
+    status_filter: str = Query("open", pattern="^(open|closed|all)$", alias="status"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    from backend.app.db.models import ForumCategoryModel
+
+    query = (
+        select(ForumThreadModel)
+        .join(ForumCategoryModel, ForumThreadModel.category_id == ForumCategoryModel.id)
+        .options(
+            selectinload(ForumThreadModel.user),
+            selectinload(ForumThreadModel.posts).selectinload(ForumPostModel.user),
+        )
+        .where(ForumCategoryModel.key == "support")
+    )
+    count_query = (
+        select(func.count()).select_from(ForumThreadModel)
+        .join(ForumCategoryModel, ForumThreadModel.category_id == ForumCategoryModel.id)
+        .where(ForumCategoryModel.key == "support")
+    )
+    if status_filter != "all":
+        is_closed = status_filter == "closed"
+        query = query.where(ForumThreadModel.is_closed.is_(is_closed))
+        count_query = count_query.where(ForumThreadModel.is_closed.is_(is_closed))
+
+    total = (await db.execute(count_query)).scalar() or 0
+    threads = (await db.execute(
+        # Open tickets first, then oldest-touched first: the one that has
+        # been waiting longest is the one to answer next.
+        query.order_by(ForumThreadModel.is_closed, ForumThreadModel.updated_at).limit(limit).offset(offset)
+    )).scalars().all()
+
+    tickets = []
+    for t in threads:
+        posts = sorted(t.posts, key=lambda p: p.created_at)
+        last = posts[-1] if posts else None
+        tickets.append(AdminTicketOut(
+            id=t.id, title=t.title, is_closed=t.is_closed,
+            author_id=t.user_id,
+            author_username=t.user.username, author_display_name=t.user.display_name,
+            post_count=len(posts),
+            awaiting_reply=bool(last and not last.user.is_admin and not t.is_closed),
+            created_at=t.created_at, updated_at=t.updated_at,
+        ))
+    return AdminTicketsListResponse(total=total, tickets=tickets)

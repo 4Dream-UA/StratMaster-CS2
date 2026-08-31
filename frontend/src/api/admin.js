@@ -114,4 +114,14 @@ export const adminAPI = {
     const response = await apiClient.get('/api/admin/transactions', { params })
     return response.data
   },
+
+  // ── Moderation queues ─────────────────────
+  async getReports(params = {}) {
+    const response = await apiClient.get('/api/admin/reports', { params })
+    return response.data  // { total, reports }
+  },
+  async getTickets(params = {}) {
+    const response = await apiClient.get('/api/admin/tickets', { params })
+    return response.data  // { total, tickets }
+  },
 }

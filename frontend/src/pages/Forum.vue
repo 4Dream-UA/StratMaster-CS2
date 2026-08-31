@@ -160,7 +160,7 @@
           <div class="post-list">
             <div
               v-for="p in activeThread.posts" :key="p.id" :id="'post-' + p.id" class="post-card"
-              :class="{ mine: p.author_id === currentUserId, staff: p.author_is_admin, deleted: p.deleted_at }"
+              :class="{ mine: p.author_id === currentUserId, staff: p.author_is_admin, deleted: p.deleted_at, highlighted: p.id === highlightedPostId }"
             >
               <div class="post-sidebar">
                 <Avatar
@@ -392,7 +392,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, h } from 'vue'
+import { ref, computed, onMounted, nextTick, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '../store/user'
@@ -1198,12 +1198,26 @@ onMounted(async () => {
       activeCategory.value = categories.value.find(c => c.key === thread.category_key) || { key: thread.category_key, name: thread.category_key }
       activeThread.value = thread
       view.value = 'thread'
+      // ?post=<id> alongside it (the admin report queue links this way)
+      // scrolls to and briefly outlines that one message — a reported
+      // reply is often a long way down a busy thread.
+      if (route.query.post) await highlightPost(route.query.post)
     } catch (e) {
       // Invalid/inaccessible thread id — fall through to the category list.
     }
     router.replace({ query: {} })
   }
 })
+
+const highlightedPostId = ref(null)
+async function highlightPost(postId) {
+  await nextTick()
+  const el = document.getElementById('post-' + postId)
+  if (!el) return
+  el.scrollIntoView({ block: 'center', behavior: 'auto' })
+  highlightedPostId.value = postId
+  setTimeout(() => { highlightedPostId.value = null }, 3000)
+}
 </script>
 
 <style scoped>
@@ -1394,6 +1408,12 @@ onMounted(async () => {
 .post-body :deep(code) { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 
 .post-card.deleted { opacity: .7; border-style: dashed; }
+/* Arriving from the admin report queue — says "this is the one" for a few
+   seconds without leaving a permanent mark on the thread. */
+.post-card.highlighted {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 35%, transparent);
+}
 .deleted-banner {
   font-size: 12px; color: var(--danger); background: rgba(235,75,75,.08);
   border: 1px dashed rgba(235,75,75,.35); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px;

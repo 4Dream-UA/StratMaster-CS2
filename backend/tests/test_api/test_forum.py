@@ -877,3 +877,143 @@ async def test_thread_detail_exposes_whether_the_author_is_an_admin(client, db_s
     auth_as(admin)
     thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "..."})).json()
     assert thread["author_is_admin"] is True
+
+
+# ── Admin moderation queues ──────────────────────────────────────────
+
+
+async def test_admin_reports_queue_lists_post_and_thread_reports_together(client, db_session, auth_as):
+    author = await make_user(db_session, subscribed=True)
+    reporter = await make_user(db_session, subscribed=True)
+    admin = await make_user(db_session, subscribed=True, is_admin=True)
+
+    auth_as(author)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "Spammy title", "body": "spam body here"})).json()
+    post_id = thread["posts"][0]["id"]
+
+    auth_as(reporter)
+    await client.post(f"/api/forum/posts/{post_id}/report", json={"reason": "bad message"})
+    await client.post(f"/api/forum/threads/{thread['id']}/report", json={"reason": "bad thread"})
+
+    auth_as(admin)
+    body = (await client.get("/api/admin/reports")).json()
+    assert body["total"] == 2
+    by_kind = {r["target_kind"]: r for r in body["reports"]}
+    assert set(by_kind) == {"post", "thread"}
+    assert by_kind["post"]["excerpt"] == "spam body here"
+    assert by_kind["post"]["thread_id"] == thread["id"]
+    assert by_kind["thread"]["excerpt"] == "Spammy title"
+    assert [x["reason"] for x in by_kind["post"]["reports"]] == ["bad message"]
+    assert [x["reason"] for x in by_kind["thread"]["reports"]] == ["bad thread"]
+    assert all(r["author_username"] == author.username for r in body["reports"])
+    assert all(x["reporter_username"] == reporter.username for r in body["reports"] for x in r["reports"])
+    assert all(r["category_key"] == "lounge" for r in body["reports"])
+
+
+async def test_admin_reports_queue_groups_repeat_reports_on_one_item(client, db_session, auth_as):
+    """Dismissing resolves every open report on a target at once, so the
+    queue has to show one card per target — otherwise a single Dismiss
+    click makes three rows vanish."""
+    author = await make_user(db_session, subscribed=True)
+    r1 = await make_user(db_session, subscribed=True)
+    r2 = await make_user(db_session, subscribed=True)
+    admin = await make_user(db_session, subscribed=True, is_admin=True)
+
+    auth_as(author)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "b"})).json()
+    post_id = thread["posts"][0]["id"]
+
+    auth_as(r1)
+    await client.post(f"/api/forum/posts/{post_id}/report", json={"reason": "first"})
+    auth_as(r2)
+    await client.post(f"/api/forum/posts/{post_id}/report", json={"reason": "second"})
+
+    auth_as(admin)
+    body = (await client.get("/api/admin/reports")).json()
+    assert body["total"] == 1
+    entry = body["reports"][0]
+    assert len(entry["reports"]) == 2
+    assert sorted(x["reason"] for x in entry["reports"]) == ["first", "second"]
+
+    # And one Dismiss clears the whole card, leaving nothing half-resolved.
+    await client.post(f"/api/forum/posts/{post_id}/reports/dismiss")
+    assert (await client.get("/api/admin/reports")).json()["total"] == 0
+
+
+async def test_admin_reports_queue_drops_dismissed_ones(client, db_session, auth_as):
+    author = await make_user(db_session, subscribed=True)
+    reporter = await make_user(db_session, subscribed=True)
+    admin = await make_user(db_session, subscribed=True, is_admin=True)
+
+    auth_as(author)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "b"})).json()
+    post_id = thread["posts"][0]["id"]
+
+    auth_as(reporter)
+    await client.post(f"/api/forum/posts/{post_id}/report", json={"reason": None})
+
+    auth_as(admin)
+    assert (await client.get("/api/admin/reports")).json()["total"] == 1
+    await client.post(f"/api/forum/posts/{post_id}/reports/dismiss")
+    assert (await client.get("/api/admin/reports")).json()["total"] == 0
+
+
+async def test_non_admin_cannot_read_the_moderation_queues(client, db_session, auth_as):
+    user = await make_user(db_session, subscribed=True)
+    auth_as(user)
+    assert (await client.get("/api/admin/reports")).status_code == 403
+    assert (await client.get("/api/admin/tickets")).status_code == 403
+
+
+async def test_admin_ticket_queue_flags_the_ones_waiting_on_a_reply(client, db_session, auth_as):
+    player = await make_user(db_session, subscribed=True)
+    admin = await make_user(db_session, subscribed=True, is_admin=True)
+
+    auth_as(player)
+    waiting = (await client.post("/api/forum/categories/support/threads", json={"title": "Help me", "body": "it broke"})).json()
+    answered = (await client.post("/api/forum/categories/support/threads", json={"title": "Other", "body": "question"})).json()
+
+    auth_as(admin)
+    await client.post(f"/api/forum/threads/{answered['id']}/posts", json={"body": "Here you go."})
+
+    tickets = {t["title"]: t for t in (await client.get("/api/admin/tickets")).json()["tickets"]}
+    assert tickets["Help me"]["awaiting_reply"] is True
+    assert tickets["Other"]["awaiting_reply"] is False
+    assert tickets["Help me"]["author_username"] == player.username
+    assert tickets["Other"]["post_count"] == 2
+
+
+async def test_admin_ticket_queue_filters_by_status(client, db_session, auth_as):
+    player = await make_user(db_session, subscribed=True)
+    admin = await make_user(db_session, subscribed=True, is_admin=True)
+
+    auth_as(player)
+    open_ticket = (await client.post("/api/forum/categories/support/threads", json={"title": "Still open", "body": "x"})).json()
+    closed_ticket = (await client.post("/api/forum/categories/support/threads", json={"title": "Done", "body": "x"})).json()
+
+    auth_as(admin)
+    await client.patch(f"/api/forum/threads/{closed_ticket['id']}/close", json={"is_closed": True})
+
+    open_titles = [t["title"] for t in (await client.get("/api/admin/tickets?status=open")).json()["tickets"]]
+    closed_titles = [t["title"] for t in (await client.get("/api/admin/tickets?status=closed")).json()["tickets"]]
+    all_titles = [t["title"] for t in (await client.get("/api/admin/tickets?status=all")).json()["tickets"]]
+
+    assert open_titles == ["Still open"]
+    assert closed_titles == ["Done"]
+    assert sorted(all_titles) == ["Done", "Still open"]
+
+
+async def test_pending_reports_stat_counts_thread_reports_too(client, db_session, auth_as):
+    author = await make_user(db_session, subscribed=True)
+    reporter = await make_user(db_session, subscribed=True)
+    admin = await make_user(db_session, subscribed=True, is_admin=True)
+
+    auth_as(author)
+    thread = (await client.post("/api/forum/categories/lounge/threads", json={"title": "T", "body": "b"})).json()
+
+    auth_as(reporter)
+    await client.post(f"/api/forum/posts/{thread['posts'][0]['id']}/report", json={"reason": None})
+    await client.post(f"/api/forum/threads/{thread['id']}/report", json={"reason": None})
+
+    auth_as(admin)
+    assert (await client.get("/api/admin/stats")).json()["pending_reports_count"] == 2

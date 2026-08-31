@@ -173,3 +173,62 @@ class SharedThreadResponse(ForumThreadDetail):
     """Same shape as a normal thread detail, for the public unauthenticated
     share-link viewer."""
     pass
+
+
+# ── Admin moderation queues ──────────────────────────────────────────
+# The forum surfaces reports one thread at a time, which is fine when you
+# already know where to look and useless as a work queue. These back the
+# admin panel's cross-forum lists.
+
+
+class ReporterOut(BaseModel):
+    reporter_username: str | None = None
+    reporter_display_name: str | None = None
+    reason: str | None = None
+    created_at: datetime
+
+
+class AdminReportOut(BaseModel):
+    """One *reported item* — not one report row. Dismissing resolves every
+    open report on a post or thread at once, so grouping them here is what
+    makes the queue match what the button actually does; three people
+    flagging the same message is one job, not three."""
+    target_kind: str  # 'post' | 'thread'
+    target_id: uuid.UUID
+    thread_id: uuid.UUID
+    thread_title: str
+    category_key: str
+    # What was reported: the post body for a post report, the title again
+    # for a thread report.
+    excerpt: str
+    author_username: str | None = None
+    author_display_name: str | None = None
+    author_id: uuid.UUID
+    reports: list[ReporterOut]
+    # Most recent of the grouped reports — what the queue sorts on.
+    last_reported_at: datetime
+
+
+class AdminReportsListResponse(BaseModel):
+    total: int
+    reports: list[AdminReportOut]
+
+
+class AdminTicketOut(BaseModel):
+    id: uuid.UUID
+    title: str
+    is_closed: bool
+    author_id: uuid.UUID
+    author_username: str | None = None
+    author_display_name: str | None = None
+    post_count: int
+    # Whether the most recent message came from someone other than an
+    # admin — i.e. whether the ticket is waiting on the team.
+    awaiting_reply: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class AdminTicketsListResponse(BaseModel):
+    total: int
+    tickets: list[AdminTicketOut]

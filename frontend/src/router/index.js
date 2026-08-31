@@ -19,6 +19,7 @@ const AdminStrategies = () => import('../pages/AdminStrategies.vue')
 const AdminUsers = () => import('../pages/AdminUsers.vue')
 const AdminPromo = () => import('../pages/AdminPromo.vue')
 const AdminTransactions = () => import('../pages/AdminTransactions.vue')
+const AdminModeration = () => import('../pages/AdminModeration.vue')
 const Legal = () => import('../pages/Legal.vue')
 
 const routes = [
@@ -44,6 +45,9 @@ const routes = [
   { path: '/admin/promo', name: 'AdminPromo', component: AdminPromo },
   { path: '/admin/transactions', name: 'AdminTransactions', component: AdminTransactions },
   { path: '/admin/p2p', redirect: '/admin/transactions' },
+  // Two routes, one component — see AdminModeration.vue.
+  { path: '/admin/reports', name: 'AdminReports', component: AdminModeration },
+  { path: '/admin/tickets', name: 'AdminTickets', component: AdminModeration },
   { path: '/terms', name: 'Terms', component: Legal },
   { path: '/privacy', name: 'Privacy', component: Legal },
 ]
