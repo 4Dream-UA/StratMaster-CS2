@@ -8,7 +8,7 @@ admin can reply over the top at any point.
 
 Deliberately conservative about when it speaks:
   * support category only — never the Lounge,
-  * never once an admin has replied, so it can't talk over staff,
+  * never once staff have replied, so it can't talk over them,
   * never on a closed ticket,
   * at most `ai_agent_max_replies_per_thread` times in one thread,
   * not at all unless an API key is set and the admin switch is on.
@@ -182,8 +182,13 @@ async def reply_to_ticket(thread_id) -> bool:
             if not visible:
                 return False
 
-            # A human has taken this one — stay out of it from here on.
-            if any(p.user.is_admin for p in visible):
+            # Staff have taken this one — stay out of it from here on. Judged
+            # by "an admin other than the person who opened it has posted",
+            # not by "an admin has posted": in a support ticket the only
+            # people with access are the owner and the admins, so anyone but
+            # the owner writing *is* staff joining. An admin opening their
+            # own ticket is just someone with a question.
+            if any(p.user.is_admin and p.user_id != thread.user_id for p in visible):
                 return False
             # Never answer twice running: the last word is already ours, so
             # there is no new question on the table.
@@ -248,7 +253,14 @@ async def _notify_ticket_owner(thread_id, thread_title: str) -> None:
 
 async def should_handle(db, thread: ForumThreadModel, category: ForumCategoryModel, author: UserModel) -> bool:
     """Cheap pre-check on the request path, so an endpoint only schedules the
-    background task when it has a chance of doing anything."""
-    if not is_configured() or category.key != "support" or thread.is_closed or author.is_admin:
+    background task when it has a chance of doing anything.
+
+    Keyed on the author being the person the ticket belongs to. Anyone else
+    posting in a support ticket is staff (only the owner and admins can see
+    one at all), and staff replying is precisely when the assistant should
+    keep quiet."""
+    if not is_configured() or category.key != "support" or thread.is_closed:
+        return False
+    if author.id != thread.user_id:
         return False
     return await _is_enabled(db)

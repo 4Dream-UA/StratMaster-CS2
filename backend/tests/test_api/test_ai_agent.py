@@ -314,3 +314,35 @@ async def test_every_reply_is_marked_automated_in_both_languages(client, db_sess
     body = ai_posts(await get_thread(client, thread["id"]))[0]["body"]
     assert "Automated first reply" in body
     assert "Автоматический первый ответ" in body
+
+
+async def test_it_answers_an_admin_who_opens_their_own_ticket(client, db_session, auth_as, monkeypatch):
+    """Being staff doesn't stop you having a question. The "don't talk over
+    the team" rule is about staff joining someone else's ticket, and reading
+    it as "never answer an admin" left admins unable to use the assistant at
+    all — including to check that it works."""
+    await make_ai_agent_user(db_session)
+    admin = await make_user(db_session, subscribed=True, is_admin=True)
+    auth_as(admin)
+    stub_reply(monkeypatch)
+
+    thread = await open_ticket(client)
+    assert len(ai_posts(await get_thread(client, thread["id"]))) == 1
+
+
+async def test_a_second_admin_joining_still_silences_it(client, db_session, auth_as, monkeypatch):
+    await make_ai_agent_user(db_session)
+    owner = await make_user(db_session, subscribed=True, is_admin=True)
+    other_admin = await make_user(db_session, subscribed=True, is_admin=True)
+    auth_as(owner)
+    stub_reply(monkeypatch)
+
+    thread = await open_ticket(client)
+    assert len(ai_posts(await get_thread(client, thread["id"]))) == 1
+
+    auth_as(other_admin)
+    await client.post(f"/api/forum/threads/{thread['id']}/posts", json={"body": "I'll take this."})
+    auth_as(owner)
+    await client.post(f"/api/forum/threads/{thread['id']}/posts", json={"body": "Thanks"})
+
+    assert len(ai_posts(await get_thread(client, thread["id"]))) == 1
