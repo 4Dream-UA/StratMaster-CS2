@@ -121,7 +121,7 @@
               <button class="icon-btn" :class="{ active: activeThread?.is_watching }" :title="activeThread?.is_watching ? 'Stop watching' : 'Watch for replies'" @click="toggleWatch"><WatchIcon /></button>
               <button class="icon-btn" title="Share" @click="openShare"><ShareIcon /></button>
               <button
-                v-if="canReportThread(activeThread)" class="icon-btn" title="Report this thread"
+                v-if="canReportThread(activeThread)" class="icon-btn report" title="Report this thread" aria-label="Report this thread"
                 @click="openReportPrompt('thread', activeThread.id)"
               ><FlagIcon /></button>
               <button
@@ -192,7 +192,7 @@
                   <button class="icon-btn small" :title="copiedPostId === p.id ? 'Copied!' : 'Copy link to this message'" @click="sharePost(p)"><ShareIcon :size="11" /></button>
                   <button v-if="canModifyPost(p) && editingPostId !== p.id && !p.deleted_at" class="icon-btn small" title="Edit" @click="startEditPost(p)"><EditIcon :size="11" /></button>
                   <button v-if="canModifyPost(p) && !p.deleted_at" class="icon-btn small danger" title="Delete" @click="deletePost(p)"><TrashIcon :size="11" /></button>
-                  <button v-if="canReportPost(p)" class="icon-btn small" title="Report this message" @click="openReportPrompt('post', p.id)"><FlagIcon :size="11" /></button>
+                  <button v-if="canReportPost(p)" class="icon-btn small report" title="Report this message" aria-label="Report this message" @click="openReportPrompt('post', p.id)"><FlagIcon :size="11" /></button>
                 </div>
 
                 <div v-if="p.deleted_at" class="deleted-banner">
@@ -581,7 +581,7 @@ const ThreadRow = {
     }
     if (this.canReport) {
       actions.push(h('button', {
-        class: 'icon-btn small', title: 'Report this thread',
+        class: 'icon-btn small report', title: 'Report this thread', 'aria-label': 'Report this thread',
         onClick: (e) => { e.stopPropagation(); this.$emit('report') },
       }, [h(FlagIcon, { size: 11 })]))
     }
@@ -1321,6 +1321,15 @@ onMounted(async () => {
 .icon-btn.danger:hover { border-color: var(--danger); color: var(--danger); box-shadow: 0 4px 14px -4px rgba(235,75,75,.4); }
 .icon-btn.small { width: 26px; height: 26px; font-size: 11px; }
 .icon-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(255,154,0,.12); }
+/* Tinted at rest, not just on hover. Report is the one action in this row a
+   player goes looking for rather than stumbles onto, and as a fifth
+   identical grey square it reads as more of the same moderation furniture
+   next to Edit and Delete. */
+.icon-btn.report {
+  color: color-mix(in srgb, var(--danger) 78%, var(--text-dim));
+  border-color: color-mix(in srgb, var(--danger) 32%, var(--line));
+}
+.icon-btn.report:hover { border-color: var(--danger); color: var(--danger); box-shadow: 0 4px 14px -4px rgba(235,75,75,.4); }
 
 .thread-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .thread-actions { display: flex; gap: 6px; flex-shrink: 0; }
