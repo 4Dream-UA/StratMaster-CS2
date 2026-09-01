@@ -50,7 +50,7 @@
             <span class="eyebrow">{{ activeCategory?.name }}</span>
             <h1>{{ activeCategory?.key === 'support' ? 'Support Tickets' : 'Threads' }}</h1>
           </div>
-          <button class="btn-primary" @click="openNewThreadForm">
+          <button class="btn-neutral" @click="openNewThreadForm">
             {{ activeCategory?.key === 'support' ? '+ New Ticket' : '+ New Thread' }}
           </button>
         </section>
@@ -73,7 +73,7 @@
           </div>
           <div class="form-actions">
             <button type="button" class="mini-btn" title="Mention a player" @click="openMentionSearch('new')">@ Mention</button>
-            <button class="btn-primary" :disabled="!newThreadTitle.trim() || !newThreadBody.trim() || posting" @click="submitNewThread">
+            <button class="btn-neutral" :disabled="!newThreadTitle.trim() || !newThreadBody.trim() || posting" @click="submitNewThread">
               {{ posting ? 'Posting…' : (activeCategory?.key === 'support' ? 'Open Ticket' : 'Post Thread') }}
             </button>
             <button class="mini-btn" @click="newThreadOpen = false">Cancel</button>
@@ -286,7 +286,7 @@
             <div class="reply-toolbar">
               <button type="button" class="mini-btn" title="Mention a player" @click="openMentionSearch('reply')">@ Mention</button>
               <button type="button" class="mini-btn" :class="{ active: whisperOpen }" title="Send privately to specific players" @click="toggleWhisper">🔒 Private</button>
-              <button class="btn-primary reply-btn-compact" :disabled="!replyBody.trim() || posting" @click="submitReply">
+              <button class="btn-neutral reply-btn-compact" :disabled="!replyBody.trim() || posting" @click="submitReply">
                 {{ posting ? 'Sending…' : 'Reply' }}
               </button>
             </div>
@@ -358,7 +358,7 @@
           :placeholder="`What's wrong with this ${reportTarget.kind === 'thread' ? 'thread' : 'message'}? (optional)`"
         ></textarea>
         <div class="form-actions">
-          <button class="btn-primary" :disabled="reportBusy || reportSent" @click="submitReport">
+          <button class="btn-neutral" :disabled="reportBusy || reportSent" @click="submitReport">
             {{ reportSent ? 'Reported!' : reportBusy ? 'Sending…' : 'Report' }}
           </button>
           <button class="mini-btn" @click="closeReportPrompt">Cancel</button>

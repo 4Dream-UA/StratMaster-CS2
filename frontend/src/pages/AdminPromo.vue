@@ -55,7 +55,7 @@
           </label>
         </div>
         <div class="form-actions">
-          <button class="btn-primary" :disabled="!canSubmit || saving" @click="createPromo">
+          <button class="btn-neutral" :disabled="!canSubmit || saving" @click="createPromo">
             {{ saving ? 'Saving…' : 'Generate' }}
           </button>
           <p v-if="errorMsg" class="err">{{ errorMsg }}</p>

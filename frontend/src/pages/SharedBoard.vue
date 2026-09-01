@@ -10,7 +10,7 @@
       <div v-else-if="error" class="error-card">
         <h1>Link not found</h1>
         <p>{{ error }}</p>
-        <router-link to="/" class="btn-primary">Go home</router-link>
+        <router-link to="/" class="btn-neutral">Go home</router-link>
       </div>
 
       <template v-else>
@@ -81,7 +81,7 @@ onMounted(async () => {
 .error-card { text-align: center; padding: 60px 20px; }
 .error-card h1 { font-size: 22px; font-weight: 900; color: var(--text); margin-bottom: 8px; }
 .error-card p { font-size: 13.5px; color: var(--text-dim); margin-bottom: 20px; }
-.error-card .btn-primary { text-decoration: none; display: inline-block; }
+.error-card .btn-neutral { text-decoration: none; display: inline-flex; }
 
 .page-header { margin-bottom: 20px; }
 .eyebrow {

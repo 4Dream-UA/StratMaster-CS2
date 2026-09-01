@@ -299,7 +299,7 @@
             <p v-if="revealVouchersWon.length" class="reveal-voucher-list">{{ revealVouchersWon.map(d => formatDays(d)).join(' · ') }}</p>
             <p v-if="!revealTotalWon && !revealVouchersWon.length" class="reveal-amount reveal-amount-empty">Better luck next time</p>
             <p class="reveal-sub">{{ revealVouchersWon.length ? 'Coins added to your balance; vouchers are in your inventory' : (revealReels.length > 1 ? 'Total added to your account' : 'Added to your account') }}</p>
-            <button class="btn-primary reveal-btn" @click="closeReveal">Nice!</button>
+            <button class="btn-neutral reveal-btn" @click="closeReveal">Nice!</button>
           </template>
           <p v-else class="reveal-sub">Opening…</p>
         </div>
@@ -1181,7 +1181,10 @@ export default { components: { CoinIcon, CaseIcon, PremiumIcon } }
 .reveal-amount-empty { font-size: 16px; color: var(--text-dim); font-weight: 700; }
 .reveal-voucher-list { font-size: 13px; font-weight: 700; color: var(--text); margin-top: 4px; }
 .reveal-sub { font-size: 12.5px; color: var(--text-dim); margin-top: 4px; margin-bottom: 18px; }
-.reveal-btn { width: 100%; padding: 12px; }
+/* Not full-width any more: this only dismisses the reveal, so it shouldn't
+   look like the biggest thing on screen. The modal is centre-aligned, so an
+   inline-flex button centres itself. */
+.reveal-btn { padding: 9px 26px; }
 
 .fade-enter-active, .fade-leave-active { transition: opacity .2s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }

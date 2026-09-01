@@ -24,7 +24,7 @@
           </label>
         </div>
         <div class="form-actions">
-          <button class="btn-primary" :disabled="!form.name || saving" @click="createMap">
+          <button class="btn-neutral" :disabled="!form.name || saving" @click="createMap">
             {{ saving ? 'Saving…' : 'Add Map' }}
           </button>
           <p v-if="errorMsg" class="err">{{ errorMsg }}</p>

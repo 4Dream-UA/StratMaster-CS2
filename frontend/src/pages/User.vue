@@ -178,7 +178,7 @@
               :disabled="promoLoading"
             />
             <button
-              class="btn-primary promo-btn"
+              class="btn-neutral promo-btn"
               :disabled="!promoCode || promoLoading"
               @click="redeemPromo"
             >
@@ -206,7 +206,7 @@
           <form v-if="p2pMode === 'coins'" class="p2p-form" @submit.prevent="sendCoins">
             <input v-model="p2pWalletId" type="text" placeholder="Recipient Wallet ID" class="p2p-input" autocomplete="off" spellcheck="false" :disabled="p2pLoading" />
             <input v-model.number="p2pAmount" type="number" min="1" placeholder="Amount" class="p2p-input p2p-input-amount" :disabled="p2pLoading" />
-            <button type="submit" class="btn-primary p2p-submit" :disabled="p2pLoading || !p2pWalletId || !p2pAmount">
+            <button type="submit" class="btn-neutral p2p-submit" :disabled="p2pLoading || !p2pWalletId || !p2pAmount">
               {{ p2pLoading ? '...' : 'Send' }}
             </button>
           </form>
@@ -220,7 +220,7 @@
               <option value="premium-12">Premium — 12 Months (999 MC)</option>
               <option value="lifetime">Lifetime (4999 MC)</option>
             </select>
-            <button type="submit" class="btn-primary p2p-submit" :disabled="p2pLoading || !p2pWalletId">
+            <button type="submit" class="btn-neutral p2p-submit" :disabled="p2pLoading || !p2pWalletId">
               {{ p2pLoading ? '...' : 'Gift' }}
             </button>
             <!-- A gifted plan *sets* the recipient's Premium to that
@@ -342,7 +342,7 @@
             </label>
           </div>
           <div class="form-actions">
-            <button class="btn-primary" :disabled="profileInfoBusy" @click="saveProfileInfo">
+            <button class="btn-neutral" :disabled="profileInfoBusy" @click="saveProfileInfo">
               {{ profileInfoBusy ? 'Saving…' : 'Save' }}
             </button>
             <p v-if="profileInfoSaved" class="panel-message success">Saved!</p>

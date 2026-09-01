@@ -74,6 +74,38 @@ body {
 }
 .btn-primary:active { transform: translateY(0); filter: brightness(0.97); }
 
+/* The neutral action button. `.btn-primary` above is reserved for the
+   commerce funnel — buy, pay, renew, unlock Premium — because a page where
+   every action shouts equally has no call to action at all. Everything else
+   (save, post, create, send, dismiss) uses this: same shape, no weight.
+   Matches the per-component `.mini-btn` treatment, one size up, so a form's
+   main action still reads as the main thing in its own form. */
+.btn-neutral {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(160deg, var(--bg-elevated), var(--bg));
+  color: var(--text);
+  border: 1px solid var(--line);
+  padding: 9px 18px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0,0,0,.18);
+  transition: border-color .15s, color .15s, transform .15s, box-shadow .15s;
+}
+.btn-neutral:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 4px 14px -4px rgba(255,154,0,.4);
+  transform: translateY(-1px);
+}
+.btn-neutral:active:not(:disabled) { transform: translateY(0); }
+.btn-neutral:disabled { opacity: .5; cursor: not-allowed; }
+
 .btn-secondary {
   display: inline-flex;
   align-items: center;

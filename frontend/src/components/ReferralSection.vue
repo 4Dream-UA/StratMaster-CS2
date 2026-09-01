@@ -18,7 +18,7 @@
         <span class="ref-code-val">{{ stats.referral_code }}</span>
         <span class="ref-code-copy">{{ copied ? 'Copied!' : 'Tap to copy' }}</span>
       </button>
-      <button class="btn-primary ref-share-btn" @click="shareCode">
+      <button class="btn-neutral ref-share-btn" @click="shareCode">
         <svg viewBox="0 0 24 24" fill="none" width="16" height="16">
           <path d="M15 4l5 5-5 5M20 9H10a6 6 0 00-6 6v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>

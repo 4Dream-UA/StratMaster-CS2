@@ -22,7 +22,7 @@
           <span class="eyebrow">Premium</span>
           <h1>My Boards</h1>
         </div>
-        <button class="btn-primary" @click="openCreate">+ New Board</button>
+        <button class="btn-neutral" @click="openCreate">+ New Board</button>
       </section>
 
       <section class="list-card">
@@ -123,7 +123,7 @@
         </template>
 
         <div class="form-actions">
-          <button class="btn-primary" :disabled="!canSave || saving" @click="save">
+          <button class="btn-neutral" :disabled="!canSave || saving" @click="save">
             {{ saving ? 'Saving…' : (editingId ? 'Save changes' : 'Create board') }}
           </button>
           <button class="mini-btn" @click="mode = 'list'">Cancel</button>

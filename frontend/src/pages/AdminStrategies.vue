@@ -12,7 +12,7 @@
             <span class="eyebrow">Content</span>
             <h1>Strategies</h1>
           </div>
-          <button class="btn-primary" @click="openCreate">+ New Strategy</button>
+          <button class="btn-neutral" @click="openCreate">+ New Strategy</button>
         </section>
 
         <div class="admin-search-wrap">
@@ -172,7 +172,7 @@
           />
 
           <div class="form-actions">
-            <button class="btn-primary" :disabled="!canSave || saving" @click="save">
+            <button class="btn-neutral" :disabled="!canSave || saving" @click="save">
               {{ saving ? 'Saving…' : (editingId ? 'Save changes' : 'Create strategy') }}
             </button>
             <button class="mini-btn" @click="mode = 'list'">Cancel</button>
