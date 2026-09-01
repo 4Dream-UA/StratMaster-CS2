@@ -13,8 +13,11 @@ FROM nginx:1.25-alpine
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Nginx config for Vue Router history mode
-COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+# Which nginx config to bake in. Defaults to the plain-HTTP dev/staging one
+# (ngrok terminates TLS in front of it); docker-compose.prod.yml overrides
+# this with frontend/nginx.prod.conf, which serves TLS itself.
+ARG NGINX_CONF=frontend/nginx.conf
+COPY ${NGINX_CONF} /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 

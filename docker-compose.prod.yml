@@ -1,0 +1,117 @@
+# Production stack. Differs from docker-compose.yml (which stays the dev /
+# staging one) in the ways that matter on a public host:
+#
+#   * no source bind-mounts and no --reload — the image is the deployment,
+#     so a container restart can't pick up half-edited files;
+#   * Postgres and Redis are NOT published to the host. On a public EC2 box
+#     `ports: 5433:5432` is an open database, security group or not;
+#   * uploads live in a named volume. Without it every redeploy would drop
+#     every image players and admins have uploaded, because the directory
+#     would only exist inside a container that gets replaced;
+#   * nginx terminates TLS on 443 and redirects 80, with certbot renewing
+#     in the background;
+#   * no ngrok — that's the staging tunnel.
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: stratmaster_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: stratmaster_redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: stratmaster_backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - uploads_data:/app/backend/uploads
+    # Two workers, no reloader. Migrations still run on start, so a deploy
+    # that adds one needs no separate step.
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn backend.app.main_api:app --host 0.0.0.0 --port 8000 --workers 2"
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: stratmaster_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: python -m backend.app.main_bot
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        NGINX_CONF: frontend/nginx.prod.conf
+    container_name: stratmaster_frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - certbot_conf:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
+    depends_on:
+      - backend
+
+  # Renews the certificate every 12h and exits the loop on SIGTERM. nginx is
+  # reloaded separately (see DEPLOY.md) — certbot can't signal it across
+  # containers.
+  certbot:
+    image: certbot/certbot:latest
+    container_name: stratmaster_certbot
+    restart: unless-stopped
+    volumes:
+      - certbot_conf:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    entrypoint: >
+      sh -c "trap exit TERM;
+             while :; do certbot renew --webroot -w /var/www/certbot --quiet;
+             sleep 12h & wait $${!}; done"
+
+volumes:
+  postgres_data:
+  uploads_data:
+  certbot_conf:
+  certbot_www:
