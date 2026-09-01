@@ -18,7 +18,15 @@ RUN pip install --no-cache-dir poetry && \
 
 # Copy source
 COPY backend/ ./backend/
-COPY alembic.in[i] ./alembic.ini
+
+# Alembic runs with /app as its working directory, and alembic.ini's
+# script_location is the relative path `alembic` — so the config and the
+# migrations directory both have to sit at /app. The dev compose file gets
+# there by bind-mounting them; production mounts nothing, so the image has
+# to carry them itself or `alembic upgrade head` starts up with no config
+# at all ("No 'script_location' key found in configuration").
+COPY backend/alembic.ini ./alembic.ini
+COPY backend/alembic ./alembic
 
 ENV PYTHONPATH=/app
 ENV PYTHONDONTWRITEBYTECODE=1
