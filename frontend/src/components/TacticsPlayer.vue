@@ -3,12 +3,17 @@
     <div class="tp-canvas">
       <img :src="imageUrl" alt="Strategy map" class="tp-image" @load="onImageLoad" ref="imgRef" />
       <svg class="tp-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" ref="overlayRef">
-        <!-- landed grenade markers (persist once thrown) -->
+        <!-- Landing markers, persisting once thrown. Just the point of
+             impact: the translucent effect zone that used to sit under it
+             was a fifth of the map wide for a smoke, which buried the map
+             it was drawn on instead of telling you anything the landing
+             point doesn't. The flight is the only animation now. -->
         <g v-for="(g, i) in trajectoryGrenades" :key="'land'+i">
-          <g v-if="grenadeState(g, currentTime) === 'landed'" :transform="`translate(${g.to_x},${g.to_y})`" class="tp-landed">
-            <ellipse :rx="rx(grenadeEffectRadius(g.grenade_type))" :ry="grenadeEffectRadius(g.grenade_type)" :fill="grenadeColor(g.grenade_type)" fill-opacity="0.18" :stroke="grenadeColor(g.grenade_type)" stroke-width="0.4" />
-            <ellipse :rx="rx(0.6)" ry="0.6" :fill="grenadeColor(g.grenade_type)" />
-          </g>
+          <ellipse
+            v-if="grenadeState(g, currentTime) === 'landed'"
+            :cx="g.to_x" :cy="g.to_y" :rx="rx(0.9)" ry="0.9" :fill="grenadeColor(g.grenade_type)"
+            stroke="#111213" stroke-width="0.25"
+          />
         </g>
 
         <!-- player paths already walked (trail) -->
@@ -94,7 +99,7 @@
 
 <script setup>
 import { ref, computed, onUnmounted, watch, nextTick } from 'vue'
-import { grenadeColor, grenadeEffectRadius } from '../utils/grenadeLabels'
+import { grenadeColor } from '../utils/grenadeLabels'
 
 const props = defineProps({
   imageUrl: { type: String, required: true },
@@ -295,9 +300,6 @@ onUnmounted(() => { if (rafId) cancelAnimationFrame(rafId) })
 .tp-canvas { position: relative; line-height: 0; }
 .tp-image { width: 100%; height: auto; display: block; }
 .tp-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.tp-landed { animation: tp-pop .25s ease; }
-@keyframes tp-pop { from { transform-origin: center; } }
-
 .tp-legend {
   position: absolute; top: 10px; left: 10px;
   display: flex; flex-direction: column; gap: 4px;
