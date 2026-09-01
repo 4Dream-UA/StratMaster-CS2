@@ -36,7 +36,8 @@ class BoardPathOut(BoardPathCreate):
 
 
 class PersonalBoardCreate(BaseModel):
-    map_id: int
+    # Required: a board with no backdrop is a board you can't draw on.
+    image_url: str = Field(..., min_length=1, max_length=512)
     title: str = Field(..., min_length=1, max_length=64)
     paths: list[BoardPathCreate] = []
     grenades: list[BoardGrenadeCreate] = []
@@ -50,7 +51,7 @@ BoardUpdate = PersonalBoardCreate
 class PersonalBoardPreview(BaseModel):
     id: uuid.UUID
     user_id: uuid.UUID  # the owner — lets the frontend tell "mine" from "shared with me"
-    map_id: int
+    image_url: str | None = None
     title: str
     updated_at: datetime
     model_config = {"from_attributes": True}
@@ -85,8 +86,7 @@ class ShareTokenResponse(BaseModel):
 
 
 class SharedBoardResponse(PersonalBoardDetail):
-    """Same shape as a normal board detail, plus the map's name and cover
-    image — the public viewer is unauthenticated and has no other way to
-    look those up."""
-    map_name: str = ""              # filled in by the router after model_validate(board)
-    map_cover_image_url: str | None = None
+    """Same shape as a normal board detail. It used to carry the map's name
+    and cover as extra fields, because the public viewer is unauthenticated
+    and had no way to look them up — the board now carries its own image, so
+    there is nothing left to add."""

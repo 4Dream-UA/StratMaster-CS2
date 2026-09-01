@@ -13,4 +13,14 @@ export const uploadsAPI = {
     })
     return response.data  // { url }
   },
+  // Boards are a premium-user feature, so their uploads can't go through the
+  // admin route — a subscriber uploading a board backdrop would just get 403.
+  async uploadBoardImage(file) {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await apiClient.post('/api/boards/uploads', formData, {
+      headers: { 'Content-Type': undefined },
+    })
+    return response.data  // { url }
+  },
 }

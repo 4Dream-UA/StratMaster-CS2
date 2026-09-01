@@ -19,9 +19,13 @@
 import { ref } from 'vue'
 import { uploadsAPI } from '../api/uploads'
 
-defineProps({
+const props = defineProps({
   modelValue: { type: String, default: '' },
   placeholder: { type: String, default: 'Image URL' },
+  // Which upload endpoint to post to. 'admin' is the default because every
+  // original caller was an admin content form; 'board' routes to the
+  // premium-user endpoint so a subscriber isn't 403'd on their own board.
+  variant: { type: String, default: 'admin' },
 })
 const emit = defineEmits(['update:modelValue'])
 
@@ -38,7 +42,9 @@ async function onFileChange(e) {
   error.value = ''
   justUploaded.value = false
   try {
-    const res = await uploadsAPI.uploadImage(file)
+    const res = props.variant === 'board'
+      ? await uploadsAPI.uploadBoardImage(file)
+      : await uploadsAPI.uploadImage(file)
     emit('update:modelValue', res.url)
     justUploaded.value = true
     setTimeout(() => { justUploaded.value = false }, 2500)

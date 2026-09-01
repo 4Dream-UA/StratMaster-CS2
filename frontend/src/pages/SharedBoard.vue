@@ -17,15 +17,15 @@
         <section class="page-header">
           <span class="eyebrow">Shared board</span>
           <h1>{{ board.title }}</h1>
-          <p class="page-sub">{{ board.map_name }} — shared by a StratMaster player</p>
+          <p class="page-sub">Shared by a StratMaster player</p>
         </section>
 
-        <div v-if="!board.map_cover_image_url" class="no-image">
-          This board's map has no cover image set yet.
+        <div v-if="!board.image_url" class="no-image">
+          This board has no map image set yet.
         </div>
         <TacticsPlayer
           v-else
-          :image-url="board.map_cover_image_url"
+          :image-url="board.image_url"
           :grenades="board.grenades"
           :player-paths="board.paths"
           :annotations="board.annotations"

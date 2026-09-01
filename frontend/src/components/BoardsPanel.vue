@@ -30,11 +30,13 @@
         <div v-else-if="!boards.length" class="empty">No boards yet — create your first one.</div>
         <div v-else class="board-grid">
           <div v-for="b in boards" :key="b.id" class="board-card" @click="openEdit(b)">
-            <div class="board-card-body">
-              <h3>{{ b.title }}</h3>
-              <p class="board-card-map">{{ mapName(b.map_id) }}</p>
+            <img v-if="b.image_url" :src="b.image_url" alt="" class="board-card-thumb" loading="lazy" />
+            <div class="board-card-foot">
+              <div class="board-card-body">
+                <h3>{{ b.title }}</h3>
+              </div>
+              <button class="mini-btn danger" @click.stop="remove(b)">Delete</button>
             </div>
-            <button class="mini-btn danger" @click.stop="remove(b)">Delete</button>
           </div>
         </div>
       </section>
@@ -50,11 +52,13 @@
         <div v-if="sharedLoading" class="loading-row">Loading…</div>
         <div v-else class="board-grid">
           <div v-for="b in sharedBoards" :key="b.id" class="board-card" @click="openEdit(b)">
-            <div class="board-card-body">
-              <h3>{{ b.title }}</h3>
-              <p class="board-card-map">{{ mapName(b.map_id) }}</p>
+            <img v-if="b.image_url" :src="b.image_url" alt="" class="board-card-thumb" loading="lazy" />
+            <div class="board-card-foot">
+              <div class="board-card-body">
+                <h3>{{ b.title }}</h3>
+              </div>
+              <span class="shared-badge">Shared</span>
             </div>
-            <span class="shared-badge">Shared</span>
           </div>
         </div>
       </section>
@@ -70,16 +74,19 @@
 
       <section class="form-card">
         <div class="form-grid">
-          <label class="field">
-            <span>Map</span>
-            <select v-model.number="form.map_id">
-              <option v-for="m in maps" :key="m.id" :value="m.id">{{ m.name }}</option>
-            </select>
-          </label>
           <label class="field wide">
             <span>Title</span>
             <input v-model="form.title" type="text" placeholder="e.g. My A Site Practice" />
           </label>
+          <!-- Required. A board used to borrow whichever map you picked from
+               the catalog, which meant no cover uploaded = nothing to draw
+               on, and no way to use a callout map, a radar image or a
+               screenshot of your own. -->
+          <div class="field wide">
+            <span>Map image <em class="req">required</em></span>
+            <ImageUploadField v-model="form.image_url" variant="board" placeholder="Paste an image URL, or upload one" />
+            <p class="field-hint">Any map picture works — a radar, a callout map, or a screenshot. This is what you'll draw on.</p>
+          </div>
         </div>
 
         <!-- Grenades -->
@@ -97,8 +104,8 @@
           <button type="button" class="mini-btn" @click="form.grenades.push({ grenade_type: 'Smoke', target: '', order: form.grenades.length, from_x: null, from_y: null, to_x: null, to_y: null })">+ Add grenade</button>
         </div>
 
-        <div v-if="!selectedMapImage" class="te-no-image">
-          This map doesn't have a cover image yet — ask an admin to add one before you can place points on it.
+        <div v-if="!form.image_url" class="te-no-image">
+          Add a map image above — that's the picture you'll place paths and grenades on.
         </div>
         <template v-else>
           <div class="preview-toggle-row">
@@ -108,14 +115,14 @@
           </div>
           <TacticsPlayer
             v-if="previewMode"
-            :image-url="selectedMapImage"
+            :image-url="form.image_url"
             :grenades="form.grenades"
             :player-paths="form.paths"
             :annotations="form.annotations"
           />
           <TacticsEditor
             v-else
-            :image-url="selectedMapImage"
+            :image-url="form.image_url"
             :grenades="form.grenades"
             :player-paths="form.paths"
             :annotations="form.annotations"
@@ -176,11 +183,11 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '../store/user'
 import { boardsAPI } from '../api/boards'
-import { strategiesAPI } from '../api/strategies'
 import { botDeepLink } from '../config'
 import Pagination from './Pagination.vue'
 import TacticsEditor from './TacticsEditor.vue'
 import TacticsPlayer from './TacticsPlayer.vue'
+import ImageUploadField from './ImageUploadField.vue'
 import { grenadeTypeLabel } from '../utils/grenadeLabels'
 
 const { user, wallet } = storeToRefs(useUserStore())
@@ -203,7 +210,6 @@ const loading = ref(true)
 const saving = ref(false)
 const errorMsg = ref('')
 
-const maps = ref([])
 const boards = ref([])
 const editingId = ref(null)
 
@@ -229,22 +235,15 @@ const collabError = ref('')
 const shareLinkUrl = computed(() => shareToken.value ? botDeepLink(`board_${shareToken.value}`) : '')
 
 function blankForm() {
-  return { map_id: null, title: '', paths: [], grenades: [], annotations: { drawings: [], notes: [], bomb: null } }
+  return { image_url: '', title: '', paths: [], grenades: [], annotations: { drawings: [], notes: [], bomb: null } }
 }
 const form = reactive(blankForm())
 let pathKeySeq = 0
 
-function mapName(id) {
-  return maps.value.find(m => m.id === id)?.name ?? '—'
-}
-
-const selectedMapImage = computed(() => maps.value.find(m => m.id === form.map_id)?.cover_image_url || null)
-const canSave = computed(() => form.map_id && form.title.trim().length > 0)
-
-async function loadMaps() {
-  const res = await strategiesAPI.getMaps({ limit: 100 })
-  maps.value = res.maps
-}
+// A board can't be saved without a backdrop — there'd be nothing for its
+// paths and grenades to sit on, and their coordinates are percentages of an
+// image that wouldn't exist.
+const canSave = computed(() => !!form.image_url.trim() && form.title.trim().length > 0)
 
 async function loadBoards() {
   loading.value = true
@@ -280,7 +279,6 @@ function onSharedPageChange(p) {
 
 function openCreate() {
   Object.assign(form, blankForm())
-  form.map_id = maps.value[0]?.id ?? null
   editingId.value = null
   errorMsg.value = ''
   previewMode.value = false
@@ -295,7 +293,7 @@ async function openEdit(boardPreview) {
   // board before populating the form.
   const board = await boardsAPI.get(boardPreview.id)
   Object.assign(form, {
-    map_id: board.map_id,
+    image_url: board.image_url || '',
     title: board.title,
     grenades: (board.grenades || []).map(g => ({
       grenade_type: g.grenade_type, target: g.target, order: g.order,
@@ -371,7 +369,7 @@ async function save() {
   errorMsg.value = ''
   try {
     const payload = {
-      map_id: form.map_id,
+      image_url: form.image_url.trim(),
       title: form.title.trim(),
       grenades: form.grenades.filter(g => g.target?.trim()),
       paths: form.paths
@@ -402,7 +400,6 @@ async function remove(board) {
 
 onMounted(async () => {
   if (!hasActiveAccess.value) return
-  await loadMaps()
   await loadBoards()
   await loadSharedBoards()
 })
@@ -452,14 +449,26 @@ onMounted(async () => {
 .loading-row, .empty { padding: 24px; text-align: center; color: var(--text-dim); font-size: 13px; }
 
 .board-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+/* Stacked, not a row: the card leads with the board's own map image now, so
+   the title and the Delete/Shared control sit under it rather than being
+   squeezed alongside a picture. */
 .board-card {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  display: flex; flex-direction: column; align-items: stretch; gap: 10px;
   background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
-  padding: 14px 16px; cursor: pointer; transition: border-color .15s;
+  padding: 12px; cursor: pointer; transition: border-color .15s;
 }
 .board-card:hover { border-color: var(--accent); }
-.board-card-body h3 { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 3px; }
-.board-card-map { font-size: 12px; color: var(--text-dim); }
+.board-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.board-card-body { min-width: 0; }
+.board-card-body h3 {
+  font-size: 14px; font-weight: 700; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.board-card-thumb {
+  width: 100%; aspect-ratio: 16 / 9; object-fit: cover;
+  border-radius: 8px; border: 1px solid var(--line);
+  display: block; background: var(--bg-elevated);
+}
 
 .mini-btn {
   background: linear-gradient(160deg, var(--bg-elevated), var(--bg)); border: 1px solid var(--line); color: var(--text-dim);
@@ -530,6 +539,12 @@ onMounted(async () => {
   font-size: 12.5px; color: var(--text-dim); background: var(--bg);
   border: 1px dashed var(--line); border-radius: 12px; padding: 16px; margin-bottom: 20px;
 }
+
+.field .req {
+  font-style: normal; font-size: 10px; font-weight: 800; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--accent); margin-left: 6px;
+}
+.field-hint { font-size: 11.5px; color: var(--text-dim); margin-top: 6px; line-height: 1.45; }
 
 .form-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .err { color: var(--danger); font-size: 12.5px; font-weight: 600; margin: 0; width: 100%; }

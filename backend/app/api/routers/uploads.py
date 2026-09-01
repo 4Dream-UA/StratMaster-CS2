@@ -44,3 +44,11 @@ async def upload_forum_image(user: PremiumUser, file: UploadFile = File(...)):
     image to a forum post, but only to a forum post (this endpoint's URL
     isn't wired into any admin content field)."""
     return {"url": await _save_upload(file)}
+
+
+@router.post("/boards/uploads", status_code=status.HTTP_201_CREATED)
+async def upload_board_image(user: PremiumUser, file: UploadFile = File(...)):
+    """The backdrop for a personal tactics board. Its own route rather than
+    reusing the forum one purely so the permission each endpoint grants stays
+    readable from its URL."""
+    return {"url": await _save_upload(file)}

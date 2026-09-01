@@ -414,7 +414,10 @@ class PersonalBoardModel(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    map_id: Mapped[int] = mapped_column(Integer, ForeignKey("maps.id", ondelete="CASCADE"), nullable=False)
+    # The board's own backdrop — a URL the creator supplied or uploaded,
+    # rather than a row in `maps`. Nullable only for boards created before
+    # 0036 whose map had no cover to backfill from; the API requires it.
+    image_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     title: Mapped[str] = mapped_column(String(64), nullable=False)
     # Set only once the owner taps "Copy public link" — null means no public
     # link has ever been generated (or it was revoked by clearing this).
@@ -427,7 +430,6 @@ class PersonalBoardModel(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
-    map: Mapped["MapModel"] = relationship("MapModel")
     paths: Mapped[list["PersonalBoardPathModel"]] = relationship(
         "PersonalBoardPathModel", back_populates="board", cascade="all, delete-orphan", order_by="PersonalBoardPathModel.order"
     )

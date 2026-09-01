@@ -6,7 +6,6 @@ from sqlalchemy.orm import selectinload
 
 from backend.app.api.deps import DBSession, PremiumUser
 from backend.app.db.models import (
-    MapModel,
     PersonalBoardGrenadeModel,
     PersonalBoardModel,
     PersonalBoardPathModel,
@@ -106,22 +105,14 @@ async def get_shared_board(share_token: str, db: DBSession):
     if board is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This share link is invalid or was revoked")
 
-    map_ = await db.get(MapModel, board.map_id)
-    detail = SharedBoardResponse.model_validate(board)
-    detail.map_name = map_.name if map_ else "Unknown map"
-    detail.map_cover_image_url = map_.cover_image_url if map_ else None
-    return detail
+    return SharedBoardResponse.model_validate(board)
 
 
 @router.post("/boards", response_model=PersonalBoardDetail, status_code=status.HTTP_201_CREATED)
 async def create_board(payload: PersonalBoardCreate, db: DBSession, user: PremiumUser):
-    map_ = await db.get(MapModel, payload.map_id)
-    if map_ is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="map_id does not exist")
-
     board = PersonalBoardModel(
         user_id=user.id,
-        map_id=payload.map_id,
+        image_url=payload.image_url,
         title=payload.title,
         paths=[PersonalBoardPathModel(**p.model_dump()) for p in payload.paths],
         grenades=[PersonalBoardGrenadeModel(**g.model_dump()) for g in payload.grenades],
@@ -142,11 +133,7 @@ async def get_board(board_id: uuid.UUID, db: DBSession, user: PremiumUser):
 async def update_board(board_id: uuid.UUID, payload: BoardUpdate, db: DBSession, user: PremiumUser):
     board = await _get_accessible_board(db, user, board_id)
 
-    map_ = await db.get(MapModel, payload.map_id)
-    if map_ is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="map_id does not exist")
-
-    board.map_id = payload.map_id
+    board.image_url = payload.image_url
     board.title = payload.title
     # Reassigning the collections triggers delete-orphan cleanup on the rows
     # that dropped out, and inserts the new ones — a full replace per submit,
