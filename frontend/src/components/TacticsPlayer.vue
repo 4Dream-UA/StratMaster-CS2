@@ -11,8 +11,8 @@
         <g v-for="(g, i) in trajectoryGrenades" :key="'land'+i">
           <ellipse
             v-if="grenadeState(g, currentTime) === 'landed'"
-            :cx="g.to_x" :cy="g.to_y" :rx="rx(0.9)" ry="0.9" :fill="grenadeColor(g.grenade_type)"
-            stroke="#111213" stroke-width="0.25"
+            :cx="landingPoint(g).x" :cy="landingPoint(g).y" :rx="rx(0.9)" ry="0.9"
+            :fill="grenadeColor(g.grenade_type)" stroke="#111213" stroke-width="0.25"
           />
         </g>
 
@@ -51,8 +51,15 @@
           <text v-if="n.text" :x="n.x" :y="n.y - 2.4" class="tp-note-text" text-anchor="middle">{{ n.text }}</text>
         </g>
 
-        <!-- C4 marker -->
-        <g v-if="annotations.bomb" :transform="`translate(${annotations.bomb.x},${annotations.bomb.y})`">
+        <!-- C4 marker — only from the second it's planted. A bomb sitting on
+             the site from the start of the replay is wrong for every
+             strategy that isn't already a post-plant. A marker with no time
+             is one authored before the field existed, so it shows
+             throughout, as it always did. -->
+        <g
+          v-if="annotations.bomb && (bombTime === null || currentTime >= bombTime)"
+          :transform="`translate(${annotations.bomb.x},${annotations.bomb.y})`"
+        >
           <ellipse :rx="rx(1.9)" ry="1.9" fill="#ff3b3b" />
           <text text-anchor="middle" dominant-baseline="central" class="tp-bomb-label">C4</text>
         </g>
@@ -71,10 +78,21 @@
         <svg v-else viewBox="0 0 20 20" width="16" height="16" fill="currentColor"><rect x="5" y="4" width="4" height="12"/><rect x="11" y="4" width="4" height="12"/></svg>
       </button>
 
-      <input
-        type="range" class="tp-scrubber" min="0" :max="totalDuration" step="0.05"
-        :value="currentTime" @input="onScrub"
-      />
+      <div class="tp-scrub-wrap">
+        <input
+          type="range" class="tp-scrubber" min="0" :max="totalDuration" step="0.05"
+          :value="currentTime" @input="onScrub"
+        />
+        <!-- One tick per event, positioned by time. pointer-events:none so
+             they never steal a drag from the scrubber underneath. -->
+        <div class="tp-marks" aria-hidden="true">
+          <span
+            v-for="(m, mi) in timelineMarkers" :key="'mark'+mi"
+            class="tp-mark" :style="{ left: (m.t / totalDuration * 100) + '%', background: m.color }"
+            :title="`${formatTime(m.t)} — ${m.label}`"
+          ></span>
+        </div>
+      </div>
 
       <span class="tp-time mono">{{ formatTime(currentTime) }} / {{ formatTime(totalDuration) }}</span>
 
@@ -183,11 +201,13 @@ async function exportImage() {
   }
 }
 
-const FLIGHT_DURATION = 1.2
+// Only used for grenades authored before throw_at/lands_at existed, where
+// the label is the single time we have and the flight length is a guess.
+const FALLBACK_FLIGHT = 1.2
 const TAIL_BUFFER = 2
 
 const trajectoryGrenades = computed(() =>
-  props.grenades.filter(g => g.from_x != null && g.from_y != null && g.to_x != null && g.to_y != null)
+  props.grenades.filter(g => flightPath(g).length >= 2)
 )
 
 function parseTiming(t) {
@@ -198,15 +218,51 @@ function parseTiming(t) {
   return Number.isNaN(n) ? 0 : n
 }
 
+// The points a grenade travels through. An explicit trajectory can have any
+// number of them, so a throw can bank off a wall; without one we fall back
+// to the old two-point from_/to_ pair.
+function flightPath(g) {
+  if (Array.isArray(g.trajectory) && g.trajectory.length >= 2) return g.trajectory
+  if (g.from_x != null && g.from_y != null && g.to_x != null && g.to_y != null) {
+    return [{ x: g.from_x, y: g.from_y }, { x: g.to_x, y: g.to_y }]
+  }
+  return []
+}
+
+function throwTime(g) {
+  return g.throw_at != null ? g.throw_at : parseTiming(g.timing)
+}
+function landTime(g) {
+  // A lands_at that isn't actually after the throw would make the flight
+  // instantaneous or run backwards — treat it as unset.
+  if (g.lands_at != null && g.lands_at > throwTime(g)) return g.lands_at
+  return throwTime(g) + FALLBACK_FLIGHT
+}
+
+const bombTime = computed(() => props.annotations?.bomb?.t ?? null)
+
 const totalDuration = computed(() => {
   let max = 0
   for (const p of props.playerPaths) {
     for (const w of p.waypoints) max = Math.max(max, w.t)
   }
-  for (const g of trajectoryGrenades.value) {
-    max = Math.max(max, parseTiming(g.timing) + FLIGHT_DURATION)
-  }
+  for (const g of trajectoryGrenades.value) max = Math.max(max, landTime(g))
+  if (bombTime.value != null) max = Math.max(max, bombTime.value)
   return Math.max(5, max + TAIL_BUFFER)
+})
+
+// Everything that happens at a specific second, for the ticks under the
+// scrubber — the point is to see when things happen instead of reading a
+// list and counting.
+const timelineMarkers = computed(() => {
+  const marks = []
+  for (const g of trajectoryGrenades.value) {
+    marks.push({ t: throwTime(g), color: grenadeColor(g.grenade_type), label: `${g.grenade_type} → ${g.target}` })
+  }
+  if (bombTime.value != null) {
+    marks.push({ t: bombTime.value, color: '#ff3b3b', label: 'C4 planted' })
+  }
+  return marks.filter(m => m.t > 0 && m.t <= totalDuration.value)
 })
 
 function positionAt(waypoints, t) {
@@ -232,20 +288,57 @@ function trailPoints(path, t) {
 }
 
 function grenadeState(g, t) {
-  const start = parseTiming(g.timing)
-  if (t < start) return 'hidden'
-  if (t < start + FLIGHT_DURATION) return 'flying'
+  if (t < throwTime(g)) return 'hidden'
+  if (t < landTime(g)) return 'flying'
   return 'landed'
 }
 
+function landingPoint(g) {
+  const path = flightPath(g)
+  return path[path.length - 1] || { x: 0, y: 0 }
+}
+
+// Walks the flight path at a constant speed, so a throw that bounces spends
+// proportionally longer on its longer legs instead of jumping between
+// bends. A two-point path still arcs, which is what a direct throw looks
+// like; a path with bends is drawn as straight legs, which is what a bounce
+// actually is.
 function grenadeFlightPos(g, t) {
-  const start = parseTiming(g.timing)
-  const frac = Math.min(1, Math.max(0, (t - start) / FLIGHT_DURATION))
-  const mx = (g.from_x + g.to_x) / 2
-  const my = (g.from_y + g.to_y) / 2 - 14
-  const x = (1 - frac) ** 2 * g.from_x + 2 * (1 - frac) * frac * mx + frac ** 2 * g.to_x
-  const y = (1 - frac) ** 2 * g.from_y + 2 * (1 - frac) * frac * my + frac ** 2 * g.to_y
-  return { x, y }
+  const path = flightPath(g)
+  const start = throwTime(g)
+  const frac = Math.min(1, Math.max(0, (t - start) / (landTime(g) - start)))
+
+  if (path.length === 2) {
+    const [a, b] = path
+    const mx = (a.x + b.x) / 2
+    const my = (a.y + b.y) / 2 - 14
+    return {
+      x: (1 - frac) ** 2 * a.x + 2 * (1 - frac) * frac * mx + frac ** 2 * b.x,
+      y: (1 - frac) ** 2 * a.y + 2 * (1 - frac) * frac * my + frac ** 2 * b.y,
+    }
+  }
+
+  const legs = []
+  let total = 0
+  for (let i = 0; i < path.length - 1; i++) {
+    const len = Math.hypot(path[i + 1].x - path[i].x, path[i + 1].y - path[i].y)
+    legs.push(len)
+    total += len
+  }
+  if (total === 0) return path[0]
+
+  let travelled = frac * total
+  for (let i = 0; i < legs.length; i++) {
+    if (travelled <= legs[i] || i === legs.length - 1) {
+      const f = legs[i] > 0 ? Math.min(1, travelled / legs[i]) : 1
+      return {
+        x: path[i].x + (path[i + 1].x - path[i].x) * f,
+        y: path[i].y + (path[i + 1].y - path[i].y) * f,
+      }
+    }
+    travelled -= legs[i]
+  }
+  return path[path.length - 1]
 }
 
 function formatTime(t) {
@@ -363,4 +456,12 @@ onUnmounted(() => { if (rafId) cancelAnimationFrame(rafId) })
   .tp-controls { flex-wrap: wrap; }
   .tp-scrubber { order: 3; flex-basis: 100%; }
 }
+.tp-scrub-wrap { position: relative; flex: 1; min-width: 80px; display: flex; align-items: center; }
+.tp-scrub-wrap .tp-scrubber { flex: 1; }
+.tp-marks { position: absolute; left: 0; right: 0; bottom: -1px; height: 6px; pointer-events: none; }
+.tp-mark {
+  position: absolute; top: 0; width: 2px; height: 6px; border-radius: 1px;
+  transform: translateX(-1px);
+}
+
 </style>

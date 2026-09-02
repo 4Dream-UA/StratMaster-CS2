@@ -31,6 +31,12 @@ class ImageOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TrajectoryPoint(BaseModel):
+    """One bend in a grenade's flight, as a percentage of the map image."""
+    x: float = Field(..., ge=0, le=100)
+    y: float = Field(..., ge=0, le=100)
+
+
 class GrenadeOut(BaseModel):
     id: uuid.UUID
     grenade_type: GrenadeTypeEnum
@@ -42,6 +48,13 @@ class GrenadeOut(BaseModel):
     from_y: float | None = None
     to_x: float | None = None
     to_y: float | None = None
+    # Seconds from round start. Null falls back to parsing `timing` with a
+    # fixed flight time, so grenades authored before these existed still play.
+    throw_at: float | None = Field(None, ge=0)
+    lands_at: float | None = Field(None, ge=0)
+    # Two or more points lets a throw bank off a wall; null arcs straight
+    # from from_/to_ as before.
+    trajectory: list[TrajectoryPoint] | None = Field(None, min_length=2)
     model_config = {"from_attributes": True}
 
 
@@ -110,6 +123,13 @@ class GrenadeCreate(BaseModel):
     from_y: float | None = Field(None, ge=0, le=100)
     to_x: float | None = Field(None, ge=0, le=100)
     to_y: float | None = Field(None, ge=0, le=100)
+    # Seconds from round start. Null falls back to parsing `timing` with a
+    # fixed flight time, so grenades authored before these existed still play.
+    throw_at: float | None = Field(None, ge=0)
+    lands_at: float | None = Field(None, ge=0)
+    # Two or more points lets a throw bank off a wall; null arcs straight
+    # from from_/to_ as before.
+    trajectory: list[TrajectoryPoint] | None = Field(None, min_length=2)
 
 
 class ImageCreate(BaseModel):

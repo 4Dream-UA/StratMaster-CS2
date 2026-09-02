@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from backend.app.db.models import GrenadeTypeEnum
 from backend.app.schemas.annotations import Annotations
-from backend.app.schemas.strategy import Waypoint
+from backend.app.schemas.strategy import TrajectoryPoint, Waypoint
 
 
 class BoardGrenadeCreate(BaseModel):
@@ -16,6 +16,10 @@ class BoardGrenadeCreate(BaseModel):
     from_y: float | None = Field(None, ge=0, le=100)
     to_x: float | None = Field(None, ge=0, le=100)
     to_y: float | None = Field(None, ge=0, le=100)
+    # Same meaning as on a strategy's grenade — see GrenadeCreate.
+    throw_at: float | None = Field(None, ge=0)
+    lands_at: float | None = Field(None, ge=0)
+    trajectory: list[TrajectoryPoint] | None = Field(None, min_length=2)
 
 
 class BoardGrenadeOut(BoardGrenadeCreate):

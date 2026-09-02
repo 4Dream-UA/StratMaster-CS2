@@ -51,7 +51,7 @@ async def test_strategy_annotations_round_trip(client, db_session, auth_as):
     annotations = {
         "drawings": [{"points": [{"x": 10, "y": 10}, {"x": 20, "y": 20}], "color": "#ff0000"}],
         "notes": [{"x": 50, "y": 50, "text": "Rotate here after 20s"}],
-        "bomb": {"x": 75, "y": 75},
+        "bomb": {"x": 75, "y": 75, "t": 45},
     }
     payload = {
         "map_id": map_.id, "title": "B Default", "side": "T_side", "plant": "B", "speed": "medium",

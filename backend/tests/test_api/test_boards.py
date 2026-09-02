@@ -27,7 +27,7 @@ async def test_board_annotations_round_trip(client, db_session, auth_as):
     annotations = {
         "drawings": [{"points": [{"x": 5, "y": 5}, {"x": 40, "y": 40}], "color": "#00ff00"}],
         "notes": [{"x": 60, "y": 20, "text": "Fake here"}],
-        "bomb": {"x": 30, "y": 80},
+        "bomb": {"x": 30, "y": 80, "t": 45},
     }
     payload = {**_payload(), "annotations": annotations}
     create = await client.post("/api/boards", json=payload)

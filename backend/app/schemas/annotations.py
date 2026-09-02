@@ -20,6 +20,11 @@ class MapNote(BaseModel):
 class BombMarker(BaseModel):
     x: float = Field(..., ge=0, le=100)
     y: float = Field(..., ge=0, le=100)
+    # When the bomb is planted, in seconds from round start. Null means it
+    # was authored before this field existed and shows for the whole replay;
+    # a C4 sitting on the site from second zero is wrong for every strategy
+    # that isn't a post-plant.
+    t: float | None = Field(None, ge=0)
 
 
 class Annotations(BaseModel):

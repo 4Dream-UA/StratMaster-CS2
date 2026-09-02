@@ -371,6 +371,17 @@ class GrenadeModel(Base):
     to_x: Mapped[float | None] = mapped_column(Float, nullable=True)
     to_y: Mapped[float | None] = mapped_column(Float, nullable=True)
 
+    # When it leaves the hand and when it arrives, in seconds from round
+    # start. Null falls back to parsing the free-text `timing` label with a
+    # fixed flight time, which is how every grenade authored before 0037
+    # still plays.
+    throw_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lands_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # [{"x": .., "y": ..}, ...] — two or more points, so a throw can bank
+    # off a wall instead of arcing straight at the target. Null means use
+    # from_/to_ as a single arc.
+    trajectory: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+
     # Relationship
     strategy: Mapped["StrategyModel"] = relationship("StrategyModel", back_populates="grenades")
 
@@ -471,6 +482,17 @@ class PersonalBoardGrenadeModel(Base):
     from_y: Mapped[float | None] = mapped_column(Float, nullable=True)
     to_x: Mapped[float | None] = mapped_column(Float, nullable=True)
     to_y: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # When it leaves the hand and when it arrives, in seconds from round
+    # start. Null falls back to parsing the free-text `timing` label with a
+    # fixed flight time, which is how every grenade authored before 0037
+    # still plays.
+    throw_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lands_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # [{"x": .., "y": ..}, ...] — two or more points, so a throw can bank
+    # off a wall instead of arcing straight at the target. Null means use
+    # from_/to_ as a single arc.
+    trajectory: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     board: Mapped["PersonalBoardModel"] = relationship("PersonalBoardModel", back_populates="grenades")
 

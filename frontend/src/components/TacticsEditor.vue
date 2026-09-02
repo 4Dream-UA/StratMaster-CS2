@@ -31,33 +31,36 @@
         </button>
       </div>
 
-      <p class="te-hint-drag">Drag a point to move it. Click a point (without dragging) to delete it.</p>
+      <p class="te-hint-drag">
+        Drag a point to move it. Remove points from the list below — a click on the map
+        always adds, so two lines can share a point.
+      </p>
 
       <div class="te-canvas-wrap">
         <img
           :src="imageUrl" alt="" class="te-image" ref="imgRef" draggable="false"
           @click="onImageClick" @pointerdown="onImagePointerDown" @load="onImageLoad" @dragstart.prevent
         />
-        <svg class="te-overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <svg class="te-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" :class="{ placing }">
           <!-- existing grenade trajectories -->
+          <!-- A polyline, not a single line: a throw can bank off walls, so
+               it has as many segments as it has points. Every point is its
+               own draggable handle. -->
           <g v-for="(g, i) in grenades" :key="'g'+i">
-            <line
-              v-if="hasTrajectory(g)"
-              :x1="g.from_x" :y1="g.from_y" :x2="g.to_x" :y2="g.to_y"
-              :stroke="i === activeGrenadeIdx ? '#ffcc44' : 'rgba(255,154,0,0.8)'" stroke-width="0.6"
-              marker-end="url(#te-arrow)"
+            <polyline
+              v-if="trajectoryOf(g).length >= 2"
+              :points="pointsAttr(trajectoryOf(g))"
+              fill="none" :stroke="i === activeGrenadeIdx ? '#ffcc44' : 'rgba(255,154,0,0.8)'"
+              stroke-width="0.6" stroke-linejoin="round" marker-end="url(#te-arrow)"
             />
             <ellipse
-              v-if="hasTrajectory(g)" :cx="g.from_x" :cy="g.from_y" :rx="rx(1.3)" ry="1.3" fill="#ff9a00"
-              class="te-handle" @pointerdown="startGrenadeDrag($event, g, 'from')"
-            />
-            <ellipse
-              v-if="hasTrajectory(g)" :cx="g.to_x" :cy="g.to_y" :rx="rx(1.1)" ry="1.1" :fill="grenadeColor(g.grenade_type)"
-              class="te-handle" @pointerdown="startGrenadeDrag($event, g, 'to')"
+              v-for="(pt, pi) in trajectoryOf(g)" :key="'gp'+pi"
+              :cx="pt.x" :cy="pt.y"
+              :rx="rx(pi === 0 ? 1.3 : 1.1)" :ry="pi === 0 ? 1.3 : 1.1"
+              :fill="pi === 0 ? '#ff9a00' : pi === trajectoryOf(g).length - 1 ? grenadeColor(g.grenade_type) : '#ffcc44'"
+              class="te-handle" @pointerdown="startGrenadeDrag($event, g, pi)"
             />
           </g>
-          <!-- pending grenade placement -->
-          <ellipse v-if="pendingFrom" :cx="pendingFrom.x" :cy="pendingFrom.y" :rx="rx(1.3)" ry="1.3" fill="#ffcc44" />
 
           <!-- player paths -->
           <g v-for="p in playerPaths" :key="p._key">
@@ -107,15 +110,41 @@
       <!-- ═══ GRENADE TRAJECTORIES ═══ -->
       <div v-if="mode === 'grenades'" class="te-panel">
         <p v-if="!grenades.length" class="te-hint">Add a grenade card above first.</p>
-        <div v-for="(g, i) in grenades" :key="i" class="te-grenade-row">
-          <span class="te-grenade-label">{{ g.grenade_type ? grenadeTypeLabel(g.grenade_type) : 'Grenade' }} → {{ g.target || '?' }}</span>
-          <span v-if="hasTrajectory(g)" class="te-grenade-status">placed</span>
-          <button
-            type="button" class="te-mini-btn"
-            :class="{ active: activeGrenadeIdx === i }"
-            @click="startGrenadePlacement(i)"
-          >{{ activeGrenadeIdx === i ? (pendingFrom ? 'Click the landing spot…' : 'Click the throw spot…') : (hasTrajectory(g) ? 'Redo' : 'Set trajectory') }}</button>
-          <button v-if="hasTrajectory(g)" type="button" class="te-mini-btn danger" @click="clearTrajectory(g)">Clear</button>
+        <div v-for="(g, i) in grenades" :key="i" class="te-path-card">
+          <div class="te-path-head">
+            <span class="te-grenade-label">{{ g.grenade_type ? grenadeTypeLabel(g.grenade_type) : 'Grenade' }} → {{ g.target || '?' }}</span>
+            <button
+              type="button" class="te-mini-btn" :class="{ active: activeGrenadeIdx === i }"
+              @click="startGrenadePlacement(i)"
+            >{{ activeGrenadeIdx === i ? 'Click the map…' : (trajectoryOf(g).length ? 'Add points' : 'Set trajectory') }}</button>
+            <button v-if="trajectoryOf(g).length" type="button" class="te-mini-btn danger" @click="clearTrajectory(g)">Clear</button>
+          </div>
+
+          <!-- Two separate times, not one label plus a fixed 1.2s flight —
+               a lineup that hangs in the air for three seconds and one that
+               lands instantly are different calls. -->
+          <div class="te-time-row">
+            <label class="te-time-field">
+              <span>Thrown at</span>
+              <input v-model.number="g.throw_at" type="number" min="0" step="0.5" class="te-input" placeholder="sec" />
+            </label>
+            <label class="te-time-field">
+              <span>Lands at</span>
+              <input v-model.number="g.lands_at" type="number" min="0" step="0.5" class="te-input" placeholder="sec" />
+            </label>
+          </div>
+          <p v-if="badTiming(g)" class="te-warn">Lands before it's thrown — the replay will ignore this and use a default flight.</p>
+
+          <div v-if="trajectoryOf(g).length" class="te-waypoints">
+            <div v-for="(pt, pi) in trajectoryOf(g)" :key="pi" class="te-waypoint-row">
+              <span class="te-waypoint-idx">{{ pi + 1 }}</span>
+              <span class="te-waypoint-unit">
+                {{ pi === 0 ? 'throw' : pi === trajectoryOf(g).length - 1 ? 'lands' : 'bounce' }}
+              </span>
+              <button type="button" class="te-waypoint-remove" @click="removeTrajectoryPoint(g, pi)">✕</button>
+            </div>
+          </div>
+          <p v-else class="te-hint">No trajectory yet. Click "Set trajectory", then click the throw spot, any walls it banks off, and the landing spot.</p>
         </div>
       </div>
 
@@ -160,10 +189,11 @@
 
       <!-- ═══ NOTES ═══ -->
       <div v-else-if="mode === 'notes'" class="te-panel">
-        <p class="te-hint">Click the map to drop a note. Drag to move it, click it again (no drag) to delete.</p>
+        <p class="te-hint">Click the map to drop a note. Drag to move it.</p>
         <p v-if="!annotations.notes.length" class="te-hint">No notes yet.</p>
-        <div v-for="(n, ni) in annotations.notes" :key="ni" class="te-path-card">
+        <div v-for="(n, ni) in annotations.notes" :key="ni" class="te-path-head">
           <input v-model="n.text" type="text" placeholder="Note text…" class="te-input te-path-label" />
+          <button type="button" class="te-mini-btn danger" @click="annotations.notes.splice(ni, 1)">Remove</button>
         </div>
       </div>
 
@@ -171,14 +201,23 @@
       <div v-else-if="mode === 'bomb'" class="te-panel">
         <p class="te-hint">Click the map to place the C4 marker — placing again just moves it.</p>
         <p v-if="!annotations.bomb" class="te-hint">Not placed yet.</p>
-        <button v-else type="button" class="te-mini-btn danger" @click="annotations.bomb = null">Remove C4 marker</button>
+        <template v-else>
+          <!-- Without a time the bomb sits on the site from second zero,
+               which is wrong for anything that isn't already a post-plant. -->
+          <label class="te-time-field te-bomb-time">
+            <span>Planted at</span>
+            <input v-model.number="annotations.bomb.t" type="number" min="0" step="0.5" class="te-input" placeholder="sec" />
+          </label>
+          <p class="te-hint">Leave blank and it shows for the whole replay.</p>
+          <button type="button" class="te-mini-btn danger" @click="annotations.bomb = null">Remove C4 marker</button>
+        </template>
       </div>
     </template>
   </div>
 </template>
 
 <script setup>
-import { ref, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, computed, onBeforeUnmount, watch, nextTick } from 'vue'
 import { grenadeTypeLabel, grenadeColor } from '../utils/grenadeLabels'
 
 const props = defineProps({
@@ -214,26 +253,77 @@ watch(() => props.imageUrl, () => {
   nextTick(() => { if (imgRef.value?.complete) onImageLoad() })
 }, { immediate: true })
 
+// While a placing mode is armed the handles are made click-through (see the
+// .placing rule in the stylesheet), so the click reaches the image and adds
+// a point wherever the pointer is — including exactly on top of a point that
+// already exists.
+const placing = computed(() =>
+  mode.value === 'draw'
+  || (mode.value === 'paths' && activePathKey.value !== null)
+  || (mode.value === 'grenades' && activeGrenadeIdx.value >= 0)
+)
+
 function setMode(m) {
   mode.value = m
   activeGrenadeIdx.value = -1
-  pendingFrom.value = null
   activePathKey.value = null
 }
 
 // ── Grenade trajectories ─────────────────────────────
 const activeGrenadeIdx = ref(-1)
-const pendingFrom = ref(null)
 
 function hasTrajectory(g) {
-  return g.from_x != null && g.from_y != null && g.to_x != null && g.to_y != null
+  return trajectoryOf(g).length >= 2
 }
+
+// The points a grenade flies through. `trajectory` is the real store; the
+// old from_/to_ pair is read as a two-point path so anything authored before
+// bounces existed still shows and stays editable.
+function trajectoryOf(g) {
+  if (Array.isArray(g.trajectory) && g.trajectory.length) return g.trajectory
+  if (g.from_x != null && g.from_y != null && g.to_x != null && g.to_y != null) {
+    return [{ x: g.from_x, y: g.from_y }, { x: g.to_x, y: g.to_y }]
+  }
+  return []
+}
+
+// from_/to_ stay in sync with the ends of the trajectory: the strategy page's
+// grenade list and anything else still reading the old pair keeps working.
+function syncTrajectoryEnds(g) {
+  const pts = Array.isArray(g.trajectory) ? g.trajectory : []
+  if (pts.length >= 2) {
+    g.from_x = pts[0].x; g.from_y = pts[0].y
+    g.to_x = pts[pts.length - 1].x; g.to_y = pts[pts.length - 1].y
+  } else {
+    g.from_x = g.from_y = g.to_x = g.to_y = null
+  }
+}
+
 function startGrenadePlacement(i) {
-  activeGrenadeIdx.value = i
-  pendingFrom.value = null
+  const g = props.grenades[i]
+  // Materialise a legacy from_/to_ pair into a real trajectory the first
+  // time it's edited, so adding a bounce to an existing grenade works.
+  if (!Array.isArray(g.trajectory) || !g.trajectory.length) {
+    const existing = trajectoryOf(g)
+    g.trajectory = existing.length ? existing.map(pt => ({ x: pt.x, y: pt.y })) : []
+  }
+  activeGrenadeIdx.value = activeGrenadeIdx.value === i ? -1 : i
 }
+
 function clearTrajectory(g) {
-  g.from_x = g.from_y = g.to_x = g.to_y = null
+  g.trajectory = []
+  syncTrajectoryEnds(g)
+  activeGrenadeIdx.value = -1
+}
+
+function removeTrajectoryPoint(g, index) {
+  if (!Array.isArray(g.trajectory)) g.trajectory = trajectoryOf(g).map(pt => ({ x: pt.x, y: pt.y }))
+  g.trajectory.splice(index, 1)
+  syncTrajectoryEnds(g)
+}
+
+function badTiming(g) {
+  return g.throw_at != null && g.lands_at != null && g.lands_at <= g.throw_at
 }
 
 // ── Player paths ──────────────────────────────────────
@@ -283,9 +373,9 @@ function startWaypointDrag(event, path, index) {
   window.addEventListener('pointerup', onDragEnd)
 }
 
-function startGrenadeDrag(event, grenade, end) {
+function startGrenadeDrag(event, grenade, index) {
   event.stopPropagation()
-  drag.value = { kind: 'grenade', grenade, end }
+  drag.value = { kind: 'grenade', grenade, index }
   dragMoved = false
   dragStartClient = { x: event.clientX, y: event.clientY }
   window.addEventListener('pointermove', onDragMove)
@@ -328,8 +418,12 @@ function onDragMove(event) {
     wp.x = x
     wp.y = y
   } else if (d.kind === 'grenade') {
-    if (d.end === 'from') { d.grenade.from_x = x; d.grenade.from_y = y }
-    else { d.grenade.to_x = x; d.grenade.to_y = y }
+    if (!Array.isArray(d.grenade.trajectory) || !d.grenade.trajectory.length) {
+      d.grenade.trajectory = trajectoryOf(d.grenade).map(pt => ({ x: pt.x, y: pt.y }))
+    }
+    const pt = d.grenade.trajectory[d.index]
+    if (pt) { pt.x = x; pt.y = y }
+    syncTrajectoryEnds(d.grenade)
   } else if (d.kind === 'note') {
     d.note.x = x
     d.note.y = y
@@ -346,13 +440,11 @@ function onDragEnd() {
   drag.value = null
   if (!d) return
 
-  if (!dragMoved) {
-    // A plain click (no drag) on an existing point — delete it.
-    if (d.kind === 'waypoint') d.path.waypoints.splice(d.index, 1)
-    else if (d.kind === 'grenade') clearTrajectory(d.grenade)
-    else if (d.kind === 'note') removeNote(d.note)
-    else if (d.kind === 'bomb') props.annotations.bomb = null
-  }
+  // A click that didn't move used to delete whatever was under it. That
+  // made it impossible to run two lines through one point — the click landed
+  // on the existing handle and destroyed it — and cost people work every
+  // time they mis-clicked. Removal now lives on explicit buttons in the
+  // panels below, where it can't happen by accident.
 }
 
 onBeforeUnmount(() => {
@@ -423,16 +515,12 @@ function onImageClick(event) {
 
   if (mode.value === 'grenades' && activeGrenadeIdx.value !== -1) {
     const g = props.grenades[activeGrenadeIdx.value]
-    if (!pendingFrom.value) {
-      pendingFrom.value = { x: clampedX, y: clampedY }
-    } else {
-      g.from_x = pendingFrom.value.x
-      g.from_y = pendingFrom.value.y
-      g.to_x = clampedX
-      g.to_y = clampedY
-      pendingFrom.value = null
-      activeGrenadeIdx.value = -1
-    }
+    // Every click appends another point, so a throw can bank off as many
+    // walls as it needs. It used to take exactly two clicks and then close
+    // itself, which made a bounce impossible to express.
+    if (!Array.isArray(g.trajectory)) g.trajectory = []
+    g.trajectory.push({ x: clampedX, y: clampedY })
+    syncTrajectoryEnds(g)
     return
   }
 
@@ -482,6 +570,16 @@ function onImageClick(event) {
   -webkit-user-drag: none; user-drag: none;
 }
 .te-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+/* Handles must not swallow the click while a placing mode is armed —
+   that is what let a new point be dropped on top of an existing one. */
+.te-overlay.placing .te-time-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.te-time-field { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-dim); }
+.te-time-field input { width: 68px; }
+.te-bomb-time { margin: 8px 0; }
+.te-warn { font-size: 11.5px; color: var(--danger); margin-top: 6px; }
+
+.te-handle { pointer-events: none; }
+
 .te-handle {
   pointer-events: all; cursor: grab; touch-action: none;
   /* Transparent stroke widens the hit area well past the visible dot —
