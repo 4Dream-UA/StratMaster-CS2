@@ -16,7 +16,7 @@
         </section>
 
         <div class="admin-search-wrap">
-          <input v-model="listSearch" type="text" class="admin-search" placeholder="Search strategies by title…" />
+          <input v-model="listSearch" type="text" class="admin-search" placeholder="Search by title or ID…" />
           <button v-if="listSearch" class="search-clear" @click="listSearch = ''">✕</button>
         </div>
 
@@ -161,7 +161,7 @@
                 <button type="button" class="row-remove" @click="form.grenades.splice(i, 1)">✕</button>
               </div>
             </div>
-            <button type="button" class="mini-btn" @click="form.grenades.push({ grenade_type: 'Smoke', target: '', timing: '', video_url: '', order: form.grenades.length, from_x: null, from_y: null, to_x: null, to_y: null })">+ Add grenade</button>
+            <button type="button" class="mini-btn" @click="form.grenades.push({ grenade_type: 'Smoke', target: '', timing: '', video_url: '', order: form.grenades.length, from_x: null, from_y: null, to_x: null, to_y: null, throw_at: null, lands_at: null, trajectory: null, effect_radius: null })">+ Add grenade</button>
           </div>
 
           <TacticsEditor
@@ -199,7 +199,7 @@ import Breadcrumbs from '../components/Breadcrumbs.vue'
 import Pagination from '../components/Pagination.vue'
 import ImageUploadField from '../components/ImageUploadField.vue'
 import TacticsEditor from '../components/TacticsEditor.vue'
-import { grenadeTypeLabel } from '../utils/grenadeLabels'
+import { grenadeTypeLabel, normalizeGrenades } from '../utils/grenadeLabels'
 import { DIFFICULTY_LEVELS, snapDifficulty } from '../utils/difficulty'
 
 const router = useRouter()
@@ -328,6 +328,9 @@ function openEdit(strategy) {
       grenade_type: g.grenade_type, target: g.target, timing: g.timing,
       video_url: g.video_url || '', order: g.order,
       from_x: g.from_x ?? null, from_y: g.from_y ?? null, to_x: g.to_x ?? null, to_y: g.to_y ?? null,
+      throw_at: g.throw_at ?? null, lands_at: g.lands_at ?? null,
+      trajectory: g.trajectory ? g.trajectory.map(pt => ({ x: pt.x, y: pt.y })) : null,
+      effect_radius: g.effect_radius ?? null,
     })),
     player_paths: (strategy.player_paths || []).map(p => ({
       _key: ++pathKeySeq, label: p.label, color: p.color,
@@ -358,7 +361,7 @@ async function save() {
       roles_description: form.roles_description?.trim() || null,
       timings_description: form.timings_description?.trim() || null,
       images: form.images.filter(i => i.image_url?.trim()),
-      grenades: form.grenades.filter(g => g.target?.trim()),
+      grenades: normalizeGrenades(form.grenades.filter(g => g.target?.trim())),
       player_paths: form.player_paths
         .filter(p => p.label?.trim() && p.waypoints.length >= 2)
         .map(({ _key, ...p }) => p),

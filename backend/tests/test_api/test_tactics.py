@@ -198,3 +198,81 @@ async def test_the_c4_can_carry_a_plant_time(client, db_session, auth_as):
     payload["annotations"]["bomb"] = {"x": 50, "y": 50}
     other = (await client.post("/api/admin/strategies", json=payload)).json()
     assert other["annotations"]["bomb"]["t"] is None
+
+
+async def test_a_grenade_can_carry_its_own_arrival_circle(client, db_session, auth_as):
+    """The radius is per grenade and off by default — a hard-coded per-type
+    one was tried and covered a fifth of the map."""
+    admin = await make_user(db_session, is_admin=True)
+    map_ = await make_map(db_session)
+    auth_as(admin)
+
+    payload = {
+        "map_id": map_.id, "title": "Circle", "side": "T_side", "plant": "A",
+        "speed": "fast", "difficulty_stars": 3, "success_rate": 70, "is_free": True,
+        "buy_tag_ids": [], "images": [], "player_paths": [],
+        "grenades": [
+            {"grenade_type": "Smoke", "target": "CT", "timing": "0:08", "order": 0,
+             "from_x": 10, "from_y": 90, "to_x": 60, "to_y": 30, "effect_radius": 6},
+            {"grenade_type": "HE", "target": "Site", "timing": "0:10", "order": 1,
+             "from_x": 10, "from_y": 90, "to_x": 55, "to_y": 35},
+        ],
+    }
+    grenades = (await client.post("/api/admin/strategies", json=payload)).json()["grenades"]
+    by_type = {g["grenade_type"]: g for g in grenades}
+    assert by_type["Smoke"]["effect_radius"] == 6
+    assert by_type["HE"]["effect_radius"] is None
+
+
+async def test_an_absurd_arrival_circle_is_rejected(client, db_session, auth_as):
+    admin = await make_user(db_session, is_admin=True)
+    map_ = await make_map(db_session)
+    auth_as(admin)
+
+    payload = {
+        "map_id": map_.id, "title": "Too big", "side": "T_side", "plant": "A",
+        "speed": "fast", "difficulty_stars": 3, "success_rate": 70, "is_free": True,
+        "buy_tag_ids": [], "images": [], "player_paths": [],
+        "grenades": [{"grenade_type": "Smoke", "target": "CT", "timing": "0:08", "order": 0,
+                      "effect_radius": 80}],
+    }
+    assert (await client.post("/api/admin/strategies", json=payload)).status_code == 422
+
+
+async def test_admin_can_find_a_strategy_by_its_id(client, db_session, auth_as):
+    admin = await make_user(db_session, is_admin=True)
+    map_ = await make_map(db_session)
+    auth_as(admin)
+
+    base = {
+        "map_id": map_.id, "side": "T_side", "plant": "A", "speed": "fast",
+        "difficulty_stars": 3, "success_rate": 70, "is_free": True,
+        "buy_tag_ids": [], "images": [], "grenades": [], "player_paths": [],
+    }
+    wanted = (await client.post("/api/admin/strategies", json={**base, "title": "Needle"})).json()
+    await client.post("/api/admin/strategies", json={**base, "title": "Haystack"})
+
+    by_id = (await client.get(f"/api/admin/strategies?search={wanted['id']}")).json()
+    assert [s["title"] for s in by_id["strategies"]] == ["Needle"]
+
+    # A fragment works too — an id copied out of a URL is often partial.
+    by_fragment = (await client.get(f"/api/admin/strategies?search={wanted['id'][:8]}")).json()
+    assert [s["title"] for s in by_fragment["strategies"]] == ["Needle"]
+
+    by_title = (await client.get("/api/admin/strategies?search=Haystack")).json()
+    assert [s["title"] for s in by_title["strategies"]] == ["Haystack"]
+
+
+async def test_admin_can_find_a_user_by_telegram_id_or_uuid(client, db_session, auth_as):
+    admin = await make_user(db_session, is_admin=True)
+    target = await make_user(db_session, telegram_id=555000111)
+    auth_as(admin)
+
+    by_tg = (await client.get("/api/admin/users?search=555000111")).json()
+    assert [u["id"] for u in by_tg["users"]] == [str(target.id)]
+
+    by_uuid = (await client.get(f"/api/admin/users?search={target.id}")).json()
+    assert [u["id"] for u in by_uuid["users"]] == [str(target.id)]
+
+    by_name = (await client.get(f"/api/admin/users?search={target.username}")).json()
+    assert [u["id"] for u in by_name["users"]] == [str(target.id)]

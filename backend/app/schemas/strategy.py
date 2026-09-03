@@ -55,6 +55,8 @@ class GrenadeOut(BaseModel):
     # Two or more points lets a throw bank off a wall; null arcs straight
     # from from_/to_ as before.
     trajectory: list[TrajectoryPoint] | None = Field(None, min_length=2)
+    # Percent of the image; null draws no circle at all.
+    effect_radius: float | None = Field(None, ge=0, le=40)
     model_config = {"from_attributes": True}
 
 
@@ -130,6 +132,8 @@ class GrenadeCreate(BaseModel):
     # Two or more points lets a throw bank off a wall; null arcs straight
     # from from_/to_ as before.
     trajectory: list[TrajectoryPoint] | None = Field(None, min_length=2)
+    # Percent of the image; null draws no circle at all.
+    effect_radius: float | None = Field(None, ge=0, le=40)
 
 
 class ImageCreate(BaseModel):

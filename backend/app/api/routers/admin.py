@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import Text, cast, func, or_, select
 from sqlalchemy.orm import selectinload
 
 from backend.app.api.deps import AdminUser, DBSession
@@ -138,7 +138,7 @@ async def get_admin_stats(db: DBSession, admin_user: AdminUser) -> dict:
 async def admin_list_maps(
     db: DBSession,
     admin_user: AdminUser,
-    search: str | None = Query(None),
+    search: str | None = Query(None, description="Matches map name"),
     limit: int = Query(5, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
@@ -216,7 +216,7 @@ async def admin_list_strategies(
     db: DBSession,
     admin_user: AdminUser,
     map_id: int | None = Query(None),
-    search: str | None = Query(None),
+    search: str | None = Query(None, description="Matches title or strategy ID"),
     limit: int = Query(5, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
@@ -227,8 +227,14 @@ async def admin_list_strategies(
         query = query.where(StrategyModel.map_id == map_id)
         count_query = count_query.where(StrategyModel.map_id == map_id)
     if search:
-        query = query.where(StrategyModel.title.ilike(f"%{search}%"))
-        count_query = count_query.where(StrategyModel.title.ilike(f"%{search}%"))
+        # Matching the id as text means a pasted UUID finds its strategy, and
+        # so does a fragment of one — which is what you actually have to hand
+        # when something references a strategy by id (a log line, a URL, a
+        # bug report) and the title isn't in front of you.
+        term = f"%{search.strip()}%"
+        condition = or_(StrategyModel.title.ilike(term), cast(StrategyModel.id, Text).ilike(term))
+        query = query.where(condition)
+        count_query = count_query.where(condition)
 
     total = (await db.execute(count_query)).scalar() or 0
     result = await db.execute(query.limit(limit).offset(offset))
@@ -414,7 +420,7 @@ async def admin_toggle_promo_code(promo_id: uuid.UUID, payload: PromoCodeToggle,
 async def admin_list_users(
     db: DBSession,
     admin_user: AdminUser,
-    search: str | None = Query(None, description="Matches username or wallet ID"),
+    search: str | None = Query(None, description="Matches username, nickname, wallet ID, Telegram ID or user ID"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
@@ -422,12 +428,19 @@ async def admin_list_users(
     count_query = select(func.count()).select_from(UserModel)
 
     if search:
-        query = query.join(UserModel.wallet).where(
-            or_(UserModel.username.ilike(f"%{search}%"), WalletModel.wallet_id.ilike(f"%{search}%"))
+        # Whatever identifier you happen to be holding: a @username, the
+        # wallet ID from a transaction, the Telegram ID from a support
+        # ticket, or the internal UUID from a log line.
+        term = f"%{search.strip()}%"
+        condition = or_(
+            UserModel.username.ilike(term),
+            UserModel.display_name.ilike(term),
+            WalletModel.wallet_id.ilike(term),
+            cast(UserModel.telegram_id, Text).ilike(term),
+            cast(UserModel.id, Text).ilike(term),
         )
-        count_query = count_query.join(UserModel.wallet).where(
-            or_(UserModel.username.ilike(f"%{search}%"), WalletModel.wallet_id.ilike(f"%{search}%"))
-        )
+        query = query.join(UserModel.wallet).where(condition)
+        count_query = count_query.join(UserModel.wallet).where(condition)
 
     total = (await db.execute(count_query)).scalar() or 0
     result = await db.execute(query.limit(limit).offset(offset))

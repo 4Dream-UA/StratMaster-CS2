@@ -20,6 +20,8 @@ class BoardGrenadeCreate(BaseModel):
     throw_at: float | None = Field(None, ge=0)
     lands_at: float | None = Field(None, ge=0)
     trajectory: list[TrajectoryPoint] | None = Field(None, min_length=2)
+    # Percent of the image; null draws no circle at all.
+    effect_radius: float | None = Field(None, ge=0, le=40)
 
 
 class BoardGrenadeOut(BoardGrenadeCreate):

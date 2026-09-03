@@ -8,9 +8,22 @@
              was a fifth of the map wide for a smoke, which buried the map
              it was drawn on instead of telling you anything the landing
              point doesn't. The flight is the only animation now. -->
-        <g v-for="(g, i) in trajectoryGrenades" :key="'land'+i">
+        <g
+          v-for="(g, i) in trajectoryGrenades" :key="'land'+i"
+          v-show="grenadeState(g, currentTime) === 'landed'"
+          :opacity="landedOpacity(g, currentTime)"
+        >
+          <!-- The arrival circle, only when the author gave this grenade a
+               radius. It opens up on impact rather than popping in at full
+               size. -->
           <ellipse
-            v-if="grenadeState(g, currentTime) === 'landed'"
+            v-if="effectRadiusAt(g, currentTime) > 0"
+            :cx="landingPoint(g).x" :cy="landingPoint(g).y"
+            :rx="rx(effectRadiusAt(g, currentTime))" :ry="effectRadiusAt(g, currentTime)"
+            :fill="grenadeColor(g.grenade_type)" fill-opacity="0.2"
+            :stroke="grenadeColor(g.grenade_type)" stroke-width="0.35"
+          />
+          <ellipse
             :cx="landingPoint(g).x" :cy="landingPoint(g).y" :rx="rx(0.9)" ry="0.9"
             :fill="grenadeColor(g.grenade_type)" stroke="#111213" stroke-width="0.25"
           />
@@ -33,7 +46,7 @@
         </g>
 
         <!-- player dots -->
-        <g v-for="p in playerPaths" :key="'dot'+p.label" :transform="`translate(${positionAt(p.waypoints, currentTime).x},${positionAt(p.waypoints, currentTime).y})`">
+        <g v-for="p in playerPaths" :key="'dot'+p.label" :transform="`translate(${pathPosition(p, currentTime).x},${pathPosition(p, currentTime).y})`">
           <ellipse :rx="rx(1.8)" ry="1.8" :fill="p.color" stroke="#111213" stroke-width="0.3" />
         </g>
 
@@ -201,10 +214,27 @@ async function exportImage() {
   }
 }
 
-// Only used for grenades authored before throw_at/lands_at existed, where
-// the label is the single time we have and the flight length is a guess.
-const FALLBACK_FLIGHT = 1.2
 const TAIL_BUFFER = 2
+
+// How long a grenade stays on the map after it lands, roughly matching what
+// each does in game. Without this every throw of the round is still sitting
+// there at the end, which says nothing about what is actually active at any
+// given moment.
+const EFFECT_DURATION = {
+  Smoke: 18, Molotov: 7, Decoy: 15, Flashbang: 1.5, HE: 1.5,
+}
+const DEFAULT_EFFECT_DURATION = 5
+// How long the arrival circle takes to open up, and how long the marker
+// takes to fade once its effect is over.
+const BLOOM = 0.45
+const FADE = 1
+
+function effectDuration(g) {
+  return EFFECT_DURATION[g.grenade_type] ?? DEFAULT_EFFECT_DURATION
+}
+function expiryTime(g) {
+  return landTime(g) + effectDuration(g)
+}
 
 const trajectoryGrenades = computed(() =>
   props.grenades.filter(g => flightPath(g).length >= 2)
@@ -232,11 +262,23 @@ function flightPath(g) {
 function throwTime(g) {
   return g.throw_at != null ? g.throw_at : parseTiming(g.timing)
 }
+function pathLength(g) {
+  const path = flightPath(g)
+  let len = 0
+  for (let i = 0; i < path.length - 1; i++) {
+    len += Math.hypot(path[i + 1].x - path[i].x, path[i + 1].y - path[i].y)
+  }
+  return len
+}
+
 function landTime(g) {
   // A lands_at that isn't actually after the throw would make the flight
   // instantaneous or run backwards — treat it as unset.
   if (g.lands_at != null && g.lands_at > throwTime(g)) return g.lands_at
-  return throwTime(g) + FALLBACK_FLIGHT
+  // Otherwise estimate from distance rather than using one fixed number:
+  // a smoke lobbed across the map and one dropped at your feet used to
+  // arrive after exactly the same 1.2 seconds.
+  return throwTime(g) + 0.4 + pathLength(g) * 0.035
 }
 
 const bombTime = computed(() => props.annotations?.bomb?.t ?? null)
@@ -246,7 +288,7 @@ const totalDuration = computed(() => {
   for (const p of props.playerPaths) {
     for (const w of p.waypoints) max = Math.max(max, w.t)
   }
-  for (const g of trajectoryGrenades.value) max = Math.max(max, landTime(g))
+  for (const g of trajectoryGrenades.value) max = Math.max(max, expiryTime(g) + FADE)
   if (bombTime.value != null) max = Math.max(max, bombTime.value)
   return Math.max(5, max + TAIL_BUFFER)
 })
@@ -265,6 +307,21 @@ const timelineMarkers = computed(() => {
   return marks.filter(m => m.t > 0 && m.t <= totalDuration.value)
 })
 
+// Waypoint times are typed in by hand, one box per point, so they very
+// easily end up out of order — point 3 at 0:04 above point 2 at 0:09.
+// Interpolating an unsorted list finds no pair bracketing the current time
+// and falls through to the last point, so the marker jumps to the end of the
+// route and back again a moment later. Sorting first is what stops that;
+// cached per path so it isn't redone on every animation frame.
+const sortedWaypoints = new WeakMap()
+function orderedWaypoints(path) {
+  const cached = sortedWaypoints.get(path)
+  if (cached && cached.src === path.waypoints) return cached.list
+  const list = [...path.waypoints].sort((a, b) => a.t - b.t)
+  sortedWaypoints.set(path, { src: path.waypoints, list })
+  return list
+}
+
 function positionAt(waypoints, t) {
   if (!waypoints.length) return { x: 0, y: 0 }
   if (t <= waypoints[0].t) return { x: waypoints[0].x, y: waypoints[0].y }
@@ -280,9 +337,14 @@ function positionAt(waypoints, t) {
   return { x: last.x, y: last.y }
 }
 
+function pathPosition(path, t) {
+  return positionAt(orderedWaypoints(path), t)
+}
+
 function trailPoints(path, t) {
-  const pts = path.waypoints.filter(w => w.t <= t).map(w => `${w.x},${w.y}`)
-  const cur = positionAt(path.waypoints, t)
+  const ordered = orderedWaypoints(path)
+  const pts = ordered.filter(w => w.t <= t).map(w => `${w.x},${w.y}`)
+  const cur = positionAt(ordered, t)
   pts.push(`${cur.x},${cur.y}`)
   return pts.join(' ')
 }
@@ -290,7 +352,24 @@ function trailPoints(path, t) {
 function grenadeState(g, t) {
   if (t < throwTime(g)) return 'hidden'
   if (t < landTime(g)) return 'flying'
-  return 'landed'
+  if (t < expiryTime(g) + FADE) return 'landed'
+  return 'gone'
+}
+
+// 1 while the effect is live, easing to 0 across the fade at the end.
+function landedOpacity(g, t) {
+  const over = t - expiryTime(g)
+  if (over <= 0) return 1
+  return Math.max(0, 1 - over / FADE)
+}
+
+// The arrival circle opens up over BLOOM seconds instead of appearing at
+// full size — that moment is the whole point of watching the replay.
+function effectRadiusAt(g, t) {
+  if (!g.effect_radius) return 0
+  const since = t - landTime(g)
+  if (since < 0) return 0
+  return g.effect_radius * Math.min(1, since / BLOOM)
 }
 
 function landingPoint(g) {

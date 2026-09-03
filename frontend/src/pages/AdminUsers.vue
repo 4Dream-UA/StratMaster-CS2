@@ -11,7 +11,7 @@
       </section>
 
       <div class="search-wrap">
-        <input v-model="search" type="text" placeholder="Search by username or wallet ID…" @input="debouncedSearch" />
+        <input v-model="search" type="text" placeholder="Search by name, wallet ID, Telegram ID or user ID…" @input="debouncedSearch" />
       </div>
 
       <section class="list-card">

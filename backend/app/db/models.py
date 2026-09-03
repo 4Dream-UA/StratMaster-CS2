@@ -381,6 +381,10 @@ class GrenadeModel(Base):
     # off a wall instead of arcing straight at the target. Null means use
     # from_/to_ as a single arc.
     trajectory: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # Radius of the circle drawn where it lands, as a percent of the image.
+    # Null = draw none, which is the default: a hard-coded per-type radius
+    # was tried once and covered a fifth of the map.
+    effect_radius: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Relationship
     strategy: Mapped["StrategyModel"] = relationship("StrategyModel", back_populates="grenades")
@@ -493,6 +497,10 @@ class PersonalBoardGrenadeModel(Base):
     # off a wall instead of arcing straight at the target. Null means use
     # from_/to_ as a single arc.
     trajectory: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # Radius of the circle drawn where it lands, as a percent of the image.
+    # Null = draw none, which is the default: a hard-coded per-type radius
+    # was tried once and covered a fifth of the map.
+    effect_radius: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     board: Mapped["PersonalBoardModel"] = relationship("PersonalBoardModel", back_populates="grenades")
 

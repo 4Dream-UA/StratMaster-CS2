@@ -54,6 +54,15 @@
               stroke-width="0.6" stroke-linejoin="round" marker-end="url(#te-arrow)"
             />
             <ellipse
+              v-if="g.effect_radius && trajectoryOf(g).length >= 2"
+              :cx="trajectoryOf(g)[trajectoryOf(g).length - 1].x"
+              :cy="trajectoryOf(g)[trajectoryOf(g).length - 1].y"
+              :rx="rx(g.effect_radius)" :ry="g.effect_radius"
+              :fill="grenadeColor(g.grenade_type)" fill-opacity="0.16"
+              :stroke="grenadeColor(g.grenade_type)" stroke-width="0.3"
+              style="pointer-events: none"
+            />
+            <ellipse
               v-for="(pt, pi) in trajectoryOf(g)" :key="'gp'+pi"
               :cx="pt.x" :cy="pt.y"
               :rx="rx(pi === 0 ? 1.3 : 1.1)" :ry="pi === 0 ? 1.3 : 1.1"
@@ -132,7 +141,12 @@
               <span>Lands at</span>
               <input v-model.number="g.lands_at" type="number" min="0" step="0.5" class="te-input" placeholder="sec" />
             </label>
+            <label class="te-time-field">
+              <span>Arrival circle</span>
+              <input v-model.number="g.effect_radius" type="number" min="0" max="40" step="0.5" class="te-input" placeholder="off" />
+            </label>
           </div>
+          <p class="te-hint">Leave the circle blank for none. It's drawn on the map as you type, so you can size it against the callouts.</p>
           <p v-if="badTiming(g)" class="te-warn">Lands before it's thrown — the replay will ignore this and use a default flight.</p>
 
           <div v-if="trajectoryOf(g).length" class="te-waypoints">

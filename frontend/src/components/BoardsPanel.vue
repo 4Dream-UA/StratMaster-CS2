@@ -101,7 +101,7 @@
               <button type="button" class="row-remove" @click="form.grenades.splice(i, 1)">✕</button>
             </div>
           </div>
-          <button type="button" class="mini-btn" @click="form.grenades.push({ grenade_type: 'Smoke', target: '', order: form.grenades.length, from_x: null, from_y: null, to_x: null, to_y: null })">+ Add grenade</button>
+          <button type="button" class="mini-btn" @click="form.grenades.push({ grenade_type: 'Smoke', target: '', order: form.grenades.length, from_x: null, from_y: null, to_x: null, to_y: null, throw_at: null, lands_at: null, trajectory: null, effect_radius: null })">+ Add grenade</button>
         </div>
 
         <div v-if="!form.image_url" class="te-no-image">
@@ -188,7 +188,7 @@ import Pagination from './Pagination.vue'
 import TacticsEditor from './TacticsEditor.vue'
 import TacticsPlayer from './TacticsPlayer.vue'
 import ImageUploadField from './ImageUploadField.vue'
-import { grenadeTypeLabel } from '../utils/grenadeLabels'
+import { grenadeTypeLabel, normalizeGrenades } from '../utils/grenadeLabels'
 
 const { user, wallet } = storeToRefs(useUserStore())
 
@@ -298,6 +298,9 @@ async function openEdit(boardPreview) {
     grenades: (board.grenades || []).map(g => ({
       grenade_type: g.grenade_type, target: g.target, order: g.order,
       from_x: g.from_x ?? null, from_y: g.from_y ?? null, to_x: g.to_x ?? null, to_y: g.to_y ?? null,
+      throw_at: g.throw_at ?? null, lands_at: g.lands_at ?? null,
+      trajectory: g.trajectory ? g.trajectory.map(pt => ({ x: pt.x, y: pt.y })) : null,
+      effect_radius: g.effect_radius ?? null,
     })),
     paths: (board.paths || []).map(p => ({
       _key: ++pathKeySeq, label: p.label, color: p.color,
@@ -371,7 +374,7 @@ async function save() {
     const payload = {
       image_url: form.image_url.trim(),
       title: form.title.trim(),
-      grenades: form.grenades.filter(g => g.target?.trim()),
+      grenades: normalizeGrenades(form.grenades.filter(g => g.target?.trim())),
       paths: form.paths
         .filter(p => p.label?.trim() && p.waypoints.length >= 2)
         .map(({ _key, ...p }) => p),
