@@ -199,7 +199,7 @@ import Breadcrumbs from '../components/Breadcrumbs.vue'
 import Pagination from '../components/Pagination.vue'
 import ImageUploadField from '../components/ImageUploadField.vue'
 import TacticsEditor from '../components/TacticsEditor.vue'
-import { grenadeTypeLabel, normalizeGrenades } from '../utils/grenadeLabels'
+import { grenadeTypeLabel, normalizeAnnotations, normalizeGrenades } from '../utils/grenadeLabels'
 import { DIFFICULTY_LEVELS, snapDifficulty } from '../utils/difficulty'
 
 const router = useRouter()
@@ -362,6 +362,7 @@ async function save() {
       timings_description: form.timings_description?.trim() || null,
       images: form.images.filter(i => i.image_url?.trim()),
       grenades: normalizeGrenades(form.grenades.filter(g => g.target?.trim())),
+      annotations: normalizeAnnotations(form.annotations),
       player_paths: form.player_paths
         .filter(p => p.label?.trim() && p.waypoints.length >= 2)
         .map(({ _key, ...p }) => p),

@@ -44,3 +44,10 @@ export function normalizeGrenades(grenades) {
       : null,
   }))
 }
+
+// A cleared "Planted at" box comes back as '' from v-model.number, which
+// the API rejects — send null (shown for the whole replay) instead.
+export function normalizeAnnotations(a) {
+  if (!a?.bomb) return a
+  return { ...a, bomb: { ...a.bomb, t: orNull(a.bomb.t) } }
+}

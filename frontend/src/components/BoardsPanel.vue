@@ -188,7 +188,7 @@ import Pagination from './Pagination.vue'
 import TacticsEditor from './TacticsEditor.vue'
 import TacticsPlayer from './TacticsPlayer.vue'
 import ImageUploadField from './ImageUploadField.vue'
-import { grenadeTypeLabel, normalizeGrenades } from '../utils/grenadeLabels'
+import { grenadeTypeLabel, normalizeAnnotations, normalizeGrenades } from '../utils/grenadeLabels'
 
 const { user, wallet } = storeToRefs(useUserStore())
 
@@ -378,7 +378,7 @@ async function save() {
       paths: form.paths
         .filter(p => p.label?.trim() && p.waypoints.length >= 2)
         .map(({ _key, ...p }) => p),
-      annotations: form.annotations,
+      annotations: normalizeAnnotations(form.annotations),
     }
     if (editingId.value) {
       await boardsAPI.update(editingId.value, payload)

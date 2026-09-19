@@ -31,9 +31,9 @@
 
         <!-- player paths already walked (trail) -->
         <polyline
-          v-for="p in playerPaths" :key="'trail'+p.label"
+          v-for="(p, pi) in playerPaths" :key="'trail'+pi"
           :points="trailPoints(p, currentTime)"
-          fill="none" :stroke="p.color" stroke-width="0.5" stroke-opacity="0.55"
+          fill="none" :stroke="playerColors[pi]" stroke-width="0.5" stroke-opacity="0.55"
         />
 
         <!-- flying grenades -->
@@ -46,8 +46,21 @@
         </g>
 
         <!-- player dots -->
-        <g v-for="p in playerPaths" :key="'dot'+p.label" :transform="`translate(${pathPosition(p, currentTime).x},${pathPosition(p, currentTime).y})`">
-          <ellipse :rx="rx(1.8)" ry="1.8" :fill="p.color" stroke="#111213" stroke-width="0.3" />
+        <!-- Drawn in a group scaled back to square, so the ring and the
+             number inside stay round and upright on any map aspect. Styling
+             is inline rather than in CSS so an exported PNG, which never
+             sees the stylesheet, looks the same as the page. -->
+        <g
+          v-for="(p, pi) in playerPaths" :key="'dot'+pi"
+          :transform="markerTransform(pathPosition(p, currentTime))"
+        >
+          <circle r="2.35" fill="#000" fill-opacity="0.35" />
+          <circle r="1.85" :fill="playerColors[pi]" stroke="#ffffff" stroke-width="0.32" />
+          <text
+            text-anchor="middle" dominant-baseline="central" y="0.08"
+            font-size="1.9" font-weight="800" font-family="Inter, Arial, sans-serif"
+            :fill="badgeTextColor(playerColors[pi])"
+          >{{ playerBadge(p.label, pi) }}</text>
         </g>
 
         <!-- freehand drawings -->
@@ -61,7 +74,11 @@
         <!-- text notes -->
         <g v-for="(n, ni) in annotations.notes" :key="'note'+ni">
           <ellipse :cx="n.x" :cy="n.y" :rx="rx(1.4)" ry="1.4" fill="#ffd23f" />
-          <text v-if="n.text" :x="n.x" :y="n.y - 2.4" class="tp-note-text" text-anchor="middle">{{ n.text }}</text>
+          <text
+            v-if="n.text" :x="n.x" :y="n.y - 2.4" text-anchor="middle"
+            font-size="2.6" font-weight="700" font-family="Inter, Arial, sans-serif" fill="#ffd23f"
+            stroke="#14140f" stroke-width="0.5" paint-order="stroke"
+          >{{ n.text }}</text>
         </g>
 
         <!-- C4 marker — only from the second it's planted. A bomb sitting on
@@ -71,16 +88,22 @@
              throughout, as it always did. -->
         <g
           v-if="annotations.bomb && (bombTime === null || currentTime >= bombTime)"
-          :transform="`translate(${annotations.bomb.x},${annotations.bomb.y})`"
+          :transform="markerTransform(annotations.bomb)"
         >
-          <ellipse :rx="rx(1.9)" ry="1.9" fill="#ff3b3b" />
-          <text text-anchor="middle" dominant-baseline="central" class="tp-bomb-label">C4</text>
+          <rect x="-1.7" y="-1.05" width="3.4" height="2.1" rx="0.45" fill="#e5484d" stroke="#ffffff" stroke-width="0.25" />
+          <text
+            text-anchor="middle" dominant-baseline="central" y="0.05"
+            font-size="1.25" font-weight="800" font-family="Inter, Arial, sans-serif" fill="#ffffff"
+          >C4</text>
         </g>
       </svg>
 
       <div v-if="playerPaths.length" class="tp-legend">
-        <span v-for="p in playerPaths" :key="'lg'+p.label" class="tp-legend-item">
-          <span class="tp-legend-dot" :style="{ background: p.color }"></span>{{ p.label }}
+        <span v-for="(p, pi) in playerPaths" :key="'lg'+pi" class="tp-legend-item">
+          <span
+            class="tp-legend-dot"
+            :style="{ background: playerColors[pi], color: badgeTextColor(playerColors[pi]) }"
+          >{{ playerBadge(p.label, pi) }}</span>{{ p.label }}
         </span>
       </div>
     </div>
@@ -131,6 +154,7 @@
 <script setup>
 import { ref, computed, onUnmounted, watch, nextTick } from 'vue'
 import { grenadeColor } from '../utils/grenadeLabels'
+import { badgeTextColor, distinctPlayerColors, playerBadge } from '../utils/playerColors'
 
 const props = defineProps({
   imageUrl: { type: String, required: true },
@@ -155,6 +179,13 @@ function onImageLoad() {
 function rx(r) {
   return r / imgAspect.value
 }
+// For markers drawn in their own unit space: undo the horizontal stretch so
+// a circle is a circle and text isn't squashed.
+function markerTransform(pt) {
+  return `translate(${pt.x},${pt.y}) scale(${1 / imgAspect.value},1)`
+}
+
+const playerColors = computed(() => distinctPlayerColors(props.playerPaths.map(p => p.color)))
 // The @load listener can miss an already-cached image — this catches that.
 watch(() => props.imageUrl, () => {
   nextTick(() => { if (imgRef.value?.complete) onImageLoad() })
@@ -479,13 +510,13 @@ onUnmounted(() => { if (rafId) cancelAnimationFrame(rafId) })
   border-radius: 8px; padding: 6px 10px;
 }
 .tp-legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: #fff; }
-.tp-legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-
-.tp-note-text {
-  font-size: 2.6px; font-weight: 700; fill: #ffd23f; font-family: inherit;
-  paint-order: stroke; stroke: #14140f; stroke-width: 0.5px;
+.tp-legend-dot {
+  width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 9.5px; font-weight: 800; line-height: 1;
+  box-shadow: 0 0 0 1.5px #fff;
 }
-.tp-bomb-label { font-size: 1.6px; font-weight: 800; fill: #fff; font-family: inherit; }
+
 
 .tp-controls {
   display: flex; align-items: center; gap: 12px;

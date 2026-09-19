@@ -82,8 +82,14 @@
 
           <div class="glance-card">
             <span class="glance-label">Execute</span>
-            <span class="glance-value">{{ executeLength }}</span>
-            <span class="glance-sub">{{ timings.length ? `${timings.length} ${timings.length === 1 ? 'step' : 'steps'}` : 'no timeline' }}</span>
+            <template v-if="executeWindow">
+              <span class="glance-value">{{ executeWindow.seconds }}s</span>
+              <span class="glance-sub mono">{{ executeWindow.from }} → {{ executeWindow.to }}</span>
+            </template>
+            <template v-else>
+              <span class="glance-value">{{ timings.length || '—' }}</span>
+              <span class="glance-sub">{{ timings.length === 1 ? 'timing' : 'timings' }}</span>
+            </template>
           </div>
         </div>
 
@@ -214,19 +220,37 @@
                  with a dozen lineups would otherwise start a dozen looping
                  videos on page load, all of them behind a collapsed panel. -->
             <div v-if="openGrenades[i]" class="spoiler-content grenade-content">
+              <!-- The URL is free text, so it can be a video file, a GIF or
+                   image, a YouTube link, or a page that is none of those.
+                   Anything that can't go in a tag, or a file that fails to
+                   load, becomes a link instead of a broken-image icon with
+                   the alt text beside it. -->
+              <iframe
+                v-if="mediaKind(g) === 'youtube'"
+                :src="youtubeEmbed(g.video_url)"
+                class="grenade-media grenade-embed"
+                allow="autoplay; encrypted-media; picture-in-picture"
+                allowfullscreen
+              ></iframe>
               <video
-                v-if="g.video_url && isVideo(g.video_url)"
+                v-else-if="mediaKind(g) === 'video'"
                 :src="g.video_url"
                 class="grenade-media"
                 autoplay loop muted playsinline
+                @error="markBroken(g)"
               />
               <img
-                v-else-if="g.video_url"
+                v-else-if="mediaKind(g) === 'image'"
                 :src="g.video_url"
-                :alt="`${g.grenade_type} to ${g.target}`"
+                alt=""
                 class="grenade-media"
-                loading="lazy"
+                @error="markBroken(g)"
               />
+              <a
+                v-else-if="mediaKind(g) === 'link'"
+                :href="g.video_url" target="_blank" rel="noopener noreferrer"
+                class="grenade-media-link"
+              >Open lineup video ↗</a>
               <p v-else class="grenade-no-media">No lineup video available yet.</p>
             </div>
           </div>
@@ -236,7 +260,17 @@
       <!-- ═══ ROLES / NOTES ════════════════════════ -->
       <section v-if="strategy.roles_description" id="roles" class="roles-section">
         <h2 class="section-title">Roles & Notes</h2>
-        <p class="roles-text">{{ strategy.roles_description }}</p>
+        <!-- One row per player when the text is written that way
+             ("Player 1: …"), which it almost always is; otherwise the
+             author's own line breaks, which used to be collapsed into one
+             run-on paragraph. -->
+        <ul v-if="roleRows.length" class="roles-list">
+          <li v-for="(r, ri) in roleRows" :key="ri" class="role-row">
+            <span class="role-who">{{ r.who }}</span>
+            <span class="role-what">{{ r.what }}</span>
+          </li>
+        </ul>
+        <p v-else class="roles-text">{{ strategy.roles_description }}</p>
       </section>
 
     </div>
@@ -257,6 +291,7 @@ import TacticsPlayer from '../components/TacticsPlayer.vue'
 import { grenadeTypeLabel } from '../utils/grenadeLabels'
 import { difficultyKey, difficultyLabel } from '../utils/difficulty'
 import { botDeepLink } from '../config'
+import { parseRoles } from '../utils/roles'
 
 const route  = useRoute()
 const router = useRouter()
@@ -329,17 +364,28 @@ function timeToSeconds(mmss) {
   const m = /^(\d{1,2}):(\d{2})$/.exec(mmss || '')
   return m ? Number(m[1]) * 60 + Number(m[2]) : null
 }
-function formatSeconds(total) {
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
-}
 
-// How long the whole execute runs, from the first timing to the last —
-// null when the timings aren't all mm:ss (they're free text on the admin
-// side, so a strategy can legitimately have labels we can't do maths on).
-const executeLength = computed(() => {
-  const seconds = timings.value.map(t => timeToSeconds(t.time)).filter(s => s != null)
-  if (seconds.length < 2) return '—'
-  return formatSeconds(Math.max(...seconds) - Math.min(...seconds))
+// How long the execute takes, as a duration in seconds plus the round
+// clock it runs between. It used to print the gap as "0:12", which reads as
+// a moment on the round timer rather than a length, next to a count of
+// timeline rows labelled "steps". Falls back to the grenade timings when
+// the strategy has no timeline, and to null when there aren't two clock
+// values to measure between (timings are free text on the admin side).
+const executeWindow = computed(() => {
+  let clocks = timings.value.map(t => t.time)
+  if (clocks.filter(c => timeToSeconds(c) != null).length < 2) {
+    clocks = [...(strategy.value?.grenades || [])]
+      .sort((a, b) => a.order - b.order)
+      .map(g => g.timing)
+  }
+  clocks = clocks.filter(c => timeToSeconds(c) != null)
+  if (clocks.length < 2) return null
+  const values = clocks.map(timeToSeconds)
+  const seconds = Math.max(...values) - Math.min(...values)
+  if (!seconds) return null
+  // CS counts the round clock down, but some authors write elapsed time.
+  // Whichever it is, list order says which end came first.
+  return { seconds, from: clocks[0], to: clocks[clocks.length - 1] }
 })
 
 // Gap between this step and the next one, so the timeline shows pace and
@@ -358,6 +404,9 @@ const grenadeCounts = computed(() => {
   }
   return [...counts].map(([type, count]) => ({ type, count }))
 })
+
+// ── Roles ──────────────────────────────────────────────────────
+const roleRows = computed(() => parseRoles(strategy.value?.roles_description))
 
 // Side display label
 const sideLabel = computed(() => {
@@ -441,8 +490,30 @@ const defaultGrenadeIcon = '<svg viewBox="0 0 20 20" fill="none" width="16" heig
 function grenadeIcon(type) {
   return grenadeIcons[type] ?? defaultGrenadeIcon
 }
-function isVideo(url) {
-  return /\.(mp4|webm|mov|gif)(\?|$)/i.test(url)
+// ── Lineup media ───────────────────────────────────────────────
+// GIFs used to be handed to <video>, which can't play them.
+const brokenMedia = ref(new Set())
+function markBroken(g) {
+  brokenMedia.value = new Set(brokenMedia.value).add(g.id)
+}
+function youtubeId(url) {
+  const m = /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]{11})/i.exec(url || '')
+  return m ? m[1] : null
+}
+function youtubeEmbed(url) {
+  return `https://www.youtube-nocookie.com/embed/${youtubeId(url)}?rel=0`
+}
+function isWebLink(url) {
+  return /^https?:\/\//i.test(url)
+}
+function mediaKind(g) {
+  const url = (g.video_url || '').trim()
+  if (!url) return 'none'
+  if (youtubeId(url)) return 'youtube'
+  if (brokenMedia.value.has(g.id)) return isWebLink(url) ? 'link' : 'none'
+  if (/\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(url)) return 'video'
+  if (/\.(gif|png|jpe?g|webp|avif)(\?|#|$)/i.test(url) || url.startsWith('/uploads/')) return 'image'
+  return isWebLink(url) ? 'link' : 'none'
 }
 
 // ── Fetch ──────────────────────────────────────────────────────
@@ -862,7 +933,33 @@ onMounted(async () => {
 
 /* ── Roles ────────────────────────────────── */
 .roles-section { margin-bottom: 56px; }
+.roles-list {
+  list-style: none; margin: 0; padding: 0;
+  background: var(--bg-elevated); border: 1px solid var(--line); border-radius: 12px;
+  overflow: hidden;
+}
+.role-row {
+  display: flex; gap: 14px; align-items: baseline;
+  padding: 13px 20px; font-size: 14.5px; line-height: 1.55;
+}
+.role-row + .role-row { border-top: 1px solid var(--line); }
+.role-who {
+  flex: 0 0 auto; min-width: 96px;
+  font-weight: 700; color: var(--accent); font-size: 13px;
+}
+.role-what { color: var(--text); }
+@media (max-width: 480px) {
+  .role-row { flex-direction: column; gap: 3px; padding: 12px 16px; }
+  .role-who { min-width: 0; }
+}
+.grenade-embed { aspect-ratio: 16 / 9; border: 0; }
+.grenade-media-link {
+  display: inline-block; padding: 10px 0; font-size: 14px; font-weight: 600;
+  color: var(--accent); text-decoration: none;
+}
+.grenade-media-link:hover { text-decoration: underline; }
 .roles-text {
+  white-space: pre-line;
   color: var(--text-dim);
   font-size: 15px;
   line-height: 1.8;

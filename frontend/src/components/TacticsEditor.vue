@@ -104,8 +104,13 @@
 
           <!-- C4 marker -->
           <g v-if="annotations.bomb" :transform="`translate(${annotations.bomb.x},${annotations.bomb.y})`">
-            <ellipse :rx="rx(1.9)" ry="1.9" fill="#ff3b3b" class="te-handle" @pointerdown="startBombDrag($event)" />
-            <text text-anchor="middle" dominant-baseline="central" class="te-bomb-label">C4</text>
+            <g :transform="`scale(${1 / imgAspect},1)`">
+              <rect
+                x="-1.7" y="-1.05" width="3.4" height="2.1" rx="0.45" fill="#e5484d"
+                class="te-handle te-bomb-handle" @pointerdown="startBombDrag($event)"
+              />
+              <text text-anchor="middle" dominant-baseline="central" y="0.05" class="te-bomb-label">C4</text>
+            </g>
           </g>
 
           <defs>
@@ -233,6 +238,7 @@
 <script setup>
 import { ref, computed, onBeforeUnmount, watch, nextTick } from 'vue'
 import { grenadeTypeLabel, grenadeColor } from '../utils/grenadeLabels'
+import { defaultPlayerColor } from '../utils/playerColors'
 
 const props = defineProps({
   imageUrl: { type: String, default: null },
@@ -346,7 +352,7 @@ const activePathKey = ref(null)
 
 function addPath() {
   const key = ++pathKeySeq
-  props.playerPaths.push({ _key: key, label: `Player ${props.playerPaths.length + 1}`, color: '#ff9a00', waypoints: [], order: props.playerPaths.length })
+  props.playerPaths.push({ _key: key, label: `Player ${props.playerPaths.length + 1}`, color: defaultPlayerColor(props.playerPaths.length), waypoints: [], order: props.playerPaths.length })
   activePathKey.value = key
 }
 function removePath(p) {
@@ -447,12 +453,17 @@ function onDragMove(event) {
   }
 }
 
-function onDragEnd() {
+function onDragEnd(event) {
   window.removeEventListener('pointermove', onDragMove)
   window.removeEventListener('pointerup', onDragEnd)
   const d = drag.value
   drag.value = null
   if (!d) return
+
+  // A tap on a handle that didn't move it counts as a tap on the map at that
+  // spot — so a note or the C4 can go exactly where something else already
+  // sits, instead of the handle eating the click.
+  if (!dragMoved && event) onImageClick(event)
 
   // A click that didn't move used to delete whatever was under it. That
   // made it impossible to run two lines through one point — the click landed
@@ -523,7 +534,8 @@ function onImageClick(event) {
     return
   }
   if (mode.value === 'bomb') {
-    props.annotations.bomb = { x: clampedX, y: clampedY }
+    // Moving the marker keeps its plant time.
+    props.annotations.bomb = { x: clampedX, y: clampedY, t: props.annotations.bomb?.t ?? null }
     return
   }
 
@@ -584,15 +596,11 @@ function onImageClick(event) {
   -webkit-user-drag: none; user-drag: none;
 }
 .te-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-/* Handles must not swallow the click while a placing mode is armed —
-   that is what let a new point be dropped on top of an existing one. */
-.te-overlay.placing .te-time-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.te-time-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
 .te-time-field { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-dim); }
 .te-time-field input { width: 68px; }
 .te-bomb-time { margin: 8px 0; }
 .te-warn { font-size: 11.5px; color: var(--danger); margin-top: 6px; }
-
-.te-handle { pointer-events: none; }
 
 .te-handle {
   pointer-events: all; cursor: grab; touch-action: none;
@@ -602,6 +610,11 @@ function onImageClick(event) {
   stroke: transparent; stroke-width: 3.5;
 }
 .te-handle:active { cursor: grabbing; }
+/* Handles must not swallow the click while a placing mode is armed, or a
+   new point can't go on top of (or right next to) an existing one — the
+   widened hit area above covers several percent of the map. This rule used
+   to be fused into the one before it by a bad edit and never applied. */
+.te-overlay.placing .te-handle { pointer-events: none; }
 .te-point-num {
   pointer-events: none; font-size: 2.1px; font-weight: 700; fill: #14140f;
   font-family: inherit; user-select: none;
@@ -611,8 +624,9 @@ function onImageClick(event) {
   font-family: inherit; user-select: none; paint-order: stroke;
   stroke: #14140f; stroke-width: 0.5px;
 }
+.te-bomb-handle { stroke: #fff; stroke-width: 0.25; }
 .te-bomb-label {
-  pointer-events: none; font-size: 1.6px; font-weight: 800; fill: #fff;
+  pointer-events: none; font-size: 1.25px; font-weight: 800; fill: #fff;
   font-family: inherit; user-select: none;
 }
 
