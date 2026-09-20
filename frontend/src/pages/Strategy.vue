@@ -360,6 +360,13 @@ const winRateKey = computed(() => {
   return rate >= 50 ? 'mid' : 'low'
 })
 
+// A CS2 round is 1:55 on the clock, counting down.
+const ROUND_SECONDS = 115
+function formatClock(total) {
+  const t = Math.max(0, Math.round(total))
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`
+}
+
 function timeToSeconds(mmss) {
   const m = /^(\d{1,2}):(\d{2})$/.exec(mmss || '')
   return m ? Number(m[1]) * 60 + Number(m[2]) : null
@@ -372,6 +379,17 @@ function timeToSeconds(mmss) {
 // the strategy has no timeline, and to null when there aren't two clock
 // values to measure between (timings are free text on the admin side).
 const executeWindow = computed(() => {
+  // A strategy with a C4 marker has a definite end: the plant. Measure from
+  // the top of the round to it, so the card reads the same whatever times
+  // the author typed into the timeline.
+  const plant = strategy.value?.annotations?.bomb?.t
+  if (plant != null && plant > 0) {
+    return {
+      seconds: Math.round(plant),
+      from: formatClock(ROUND_SECONDS),
+      to: formatClock(ROUND_SECONDS - plant),
+    }
+  }
   let clocks = timings.value.map(t => t.time)
   if (clocks.filter(c => timeToSeconds(c) != null).length < 2) {
     clocks = [...(strategy.value?.grenades || [])]

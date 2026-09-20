@@ -246,6 +246,8 @@ async function exportImage() {
 }
 
 const TAIL_BUFFER = 2
+// How long the replay holds on the plant before it ends.
+const PLANT_TAIL = 1
 
 // How long a grenade stays on the map after it lands, roughly matching what
 // each does in game. Without this every throw of the round is still sitting
@@ -315,12 +317,15 @@ function landTime(g) {
 const bombTime = computed(() => props.annotations?.bomb?.t ?? null)
 
 const totalDuration = computed(() => {
+  // The plant ends the execute, so the replay stops a second after it
+  // rather than running on through smokes burning out with nothing left to
+  // watch. Without a plant time it runs to the last thing that happens.
+  if (bombTime.value) return bombTime.value + PLANT_TAIL
   let max = 0
   for (const p of props.playerPaths) {
     for (const w of p.waypoints) max = Math.max(max, w.t)
   }
   for (const g of trajectoryGrenades.value) max = Math.max(max, expiryTime(g) + FADE)
-  if (bombTime.value != null) max = Math.max(max, bombTime.value)
   return Math.max(5, max + TAIL_BUFFER)
 })
 
