@@ -194,6 +194,9 @@ Application errors are also written to the database and readable in the
 admin panel under **Errors (24h)** — that catches frontend crashes too,
 which never reach these logs.
 
+Moving production to a different box or AWS account is its own runbook:
+[MIGRATION.md](MIGRATION.md).
+
 ---
 
 ## 3. Staging (ngrok)
