@@ -1,363 +1,332 @@
-# Moving production to another AWS account
+# Standing production up again on a new AWS account
 
-Rebuilds the production box on a new account and carries the live data
-across: the database, uploaded images, the TLS certificate and `.env`.
-The domain, the bot token and the CryptoPay webhook URL do **not** change,
-so nothing outside AWS needs reconfiguring — only the DNS records at
-nic.ua, which move to the new Elastic IP.
+The previous production box is gone: its AWS account is suspended, so there
+is no SSH to it and nothing can be copied off it. This is a clean deploy of
+the same application on a new account, usually by someone other than the
+owner, from their own machine and IP.
 
-Read [DEPLOY.md](DEPLOY.md) first if the current box is unfamiliar; this
-document only covers the move.
+What that changes, compared with a planned move:
 
-**The single rule that matters:** the bot must never run on both boxes at
-once. Telegram hands each update to whichever poller asks first, so two
-pollers on one token silently split real players' messages between a live
-server and a half-tested one. Every step below keeps exactly one running.
-
----
-
-## What actually has to move
-
-| What | Where it lives | How it travels |
+| | Planned move | This |
 |---|---|---|
-| Database | `stratmaster-cs2_postgres_data` volume | `pg_dump` → gzip file |
-| Uploaded images | `stratmaster-cs2_uploads_data` volume | `tar` of the volume |
-| TLS certificate | `stratmaster-cs2_certbot_conf` volume | `tar` of the volume |
-| Secrets | `~/StratMaster-CS2/.env` | copied as a file |
-| Code | GitHub | `git clone` on the new box |
+| Database | copied as a dump | restored from an off-server backup, or starts empty |
+| Uploaded images | copied from the volume | gone unless a `uploads.tar.gz` survives elsewhere |
+| TLS certificate | copied, no downtime | issued fresh — **DNS must point here first** |
+| Secrets | copied from the old `.env` | handed over by the owner, some regenerated |
+| Cutover | old box turned off first | nothing to turn off; the domain is already dark |
 
-Carrying the certificate over is worth the extra step: the new box serves
-HTTPS the moment it starts, the cutover doesn't wait on DNS propagation,
-and no Let's Encrypt issuance is spent (5 per domain per week, and a failed
-run counts).
+Read [DEPLOY.md](DEPLOY.md) for what the stack is made of. This document is
+the sequence.
 
-Volume names are `<project>_<volume>`, where the project is the checkout
-directory lowercased. Confirm with `docker volume ls` before trusting them.
-
----
-
-## 1. On the new AWS account, before touching the old box
-
-1. **Region.** Use the same one as today — `eu-central-1` (Frankfurt).
-   Different region means different latency for the same players.
-2. **Budget alarm.** Billing → Budgets → a monthly cost budget with an
-   email alert. A new account is exactly where a surprise bill happens.
-3. **Key pair.** EC2 → Key pairs → Create: RSA, `.pem`, named
-   `stratmaster-prod`. It downloads once. On Windows, put it in
-   `C:\Users\<you>\.ssh\` and lock it down — OpenSSH refuses a key that
-   other users can read:
-
-   ```powershell
-   icacls "$env:USERPROFILE\.ssh\stratmaster-prod.pem" /inheritance:r /grant:r "$($env:USERNAME):R"
-   ```
-
-The old account's key does **not** work on the new box, and vice versa.
+**Before anything else:** if the old account can still be reinstated (an
+unpaid bill usually can be settled), do that first and take a dump — AWS
+keeps a suspended account's volumes for a limited window and then deletes
+them for good. Everything below works either way, but a real dump is worth
+more than any amount of rebuilding by hand.
 
 ---
 
-## 2. Take everything off the old box
+## 1. What the person doing this needs
 
-On the old server. Nothing here stops the service — it stays live.
+Collect all of it before touching AWS; each missing item stops the work
+halfway.
 
-```bash
-cd ~/StratMaster-CS2
-export COMPOSE_FILE=docker-compose.prod.yml
+- **New AWS account** with access to EC2 in `eu-central-1`.
+- **GitHub access** to `4Dream-UA/StratMaster-CS2` (a personal access token
+  if the repository is private).
+- **DNS panel** for `stratmaster.fun` (nic.ua), or the owner on standby to
+  change two records.
+- **Secrets**, from the owner — see the table in step 4. Never over plain
+  chat: a password-protected archive, a password manager share, or typed
+  straight into `nano .env` over the owner's shoulder.
+- **A database dump** (`stratmaster_*.sql.gz`), if one exists anywhere off
+  the old server. Optional — step 7 covers both cases.
+- **`uploads.tar.gz`**, same deal, if one exists.
 
-# Database
-./scripts/backup_db.sh                       # writes ./backups/stratmaster_<ts>.sql.gz
+### Fill these in first
 
-# Uploaded images and the certificate
-docker run --rm -v stratmaster-cs2_uploads_data:/v -v $(pwd):/out alpine \
-  tar czf /out/uploads.tar.gz -C /v .
-docker run --rm -v stratmaster-cs2_certbot_conf:/v -v $(pwd):/out alpine \
-  tar czf /out/letsencrypt.tar.gz -C /v .
-
-ls -lh uploads.tar.gz letsencrypt.tar.gz backups/ | tail -5
-```
-
-Pull them to your own machine (PowerShell, from any directory):
-
-```powershell
-scp -i $env:USERPROFILE\.ssh\<old-key>.pem ubuntu@<OLD_IP>:~/StratMaster-CS2/uploads.tar.gz .
-scp -i $env:USERPROFILE\.ssh\<old-key>.pem ubuntu@<OLD_IP>:~/StratMaster-CS2/letsencrypt.tar.gz .
-scp -i $env:USERPROFILE\.ssh\<old-key>.pem ubuntu@<OLD_IP>:~/StratMaster-CS2/backups/stratmaster_*.sql.gz .
-scp -i $env:USERPROFILE\.ssh\<old-key>.pem ubuntu@<OLD_IP>:~/StratMaster-CS2/.env .
-```
-
-`.env` is secrets — keep it out of the repo (it is gitignored) and delete
-the local copy once the move is done.
+| Placeholder | Value | Where it comes from |
+|---|---|---|
+| `<NEW_IP>` | | the Elastic IP, after step 2 |
+| `<KEY>` | | the `.pem` key pair created in step 2 |
+| `<DUMP>` | | e.g. `stratmaster_20260831_210722.sql.gz`, if there is one |
 
 ---
 
-## 3. Create the new box
+## 2. The box
 
 EC2 → Instances → Launch an instance:
 
-- **Name:** `stratmaster-prod`
-- **AMI:** Ubuntu Server 24.04 LTS (64-bit x86)
-- **Type:** `t3.small`. Postgres, Redis, two uvicorn workers, the bot and
-  nginx share this box; `t3.micro` (1 GB) swaps hard during a frontend
-  image build and the whole app crawls.
-- **Key pair:** `stratmaster-prod` from step 1.
-- **Network → security group**, create new, inbound only:
+- **Name** `stratmaster-prod`
+- **AMI** Ubuntu Server 24.04 LTS (64-bit x86)
+- **Type** `t3.small`. Not `t3.micro` — 1 GB swaps hard during the frontend
+  image build and the whole app crawls; that was a real incident on the old
+  box.
+- **Key pair** → Create new, RSA, `.pem`, downloaded once. On Windows:
+
+  ```powershell
+  icacls "$env:USERPROFILE\.ssh\stratmaster-prod.pem" /inheritance:r /grant:r "$($env:USERNAME):R"
+  ```
+
+- **Security group**, new, inbound only:
 
   | Type | Port | Source |
   |---|---|---|
-  | SSH | 22 | My IP |
-  | HTTP | 80 | Anywhere (0.0.0.0/0, ::/0) |
+  | SSH | 22 | **My IP** — the IP of whoever is doing this |
+  | HTTP | 80 | Anywhere |
   | HTTPS | 443 | Anywhere |
 
-  Nothing else. Not 5432, not 6379 — the production compose deliberately
-  keeps both off the host.
-- **Storage:** 20 GB gp3.
+  Not 5432, not 6379. The production compose keeps both off the host.
+- **Storage** 20 GB gp3.
 
-Then EC2 → Elastic IPs → **Allocate**, select it → Actions → **Associate**
-→ the new instance. Without an Elastic IP the public address changes on
-every stop/start and the DNS records go stale silently.
+Then EC2 → Elastic IPs → **Allocate**, then Actions → **Associate** → this
+instance. Without it the address changes on every stop/start and the DNS
+records go stale while looking perfectly correct.
 
-Install Docker:
+Also worth doing on a fresh account: Billing → Budgets → a monthly budget
+with an email alert. A frozen account is what put this document here.
 
 ```bash
-ssh -i ~/.ssh/stratmaster-prod.pem ubuntu@<NEW_ELASTIC_IP>
-
+ssh -i ~/.ssh/<KEY>.pem ubuntu@<NEW_IP>
 sudo apt update && sudo apt install -y docker.io docker-compose-v2 git
 sudo usermod -aG docker ubuntu
-exit          # log back in for the group to take effect
+exit          # log back in for the group to apply
 ```
 
 ---
 
-## 4. Code and secrets on the new box
-
-Upload `.env` and the three data files from your machine:
-
-```powershell
-scp -i $env:USERPROFILE\.ssh\stratmaster-prod.pem `
-  .env uploads.tar.gz letsencrypt.tar.gz stratmaster_*.sql.gz `
-  ubuntu@<NEW_ELASTIC_IP>:~/
-```
-
-Then on the new box:
+## 3. Code
 
 ```bash
 git clone https://github.com/4Dream-UA/StratMaster-CS2.git
 cd StratMaster-CS2
-mv ~/.env .
-mkdir -p backups && mv ~/stratmaster_*.sql.gz backups/
-export COMPOSE_FILE=docker-compose.prod.yml
+export COMPOSE_FILE=docker-compose.prod.yml     # re-run after every reconnect
 ```
 
-`.env` carries over unchanged — same domain, same bot, same keys. Worth
-re-reading once:
-
-```bash
-grep -E 'WEBAPP_URL|ENVIRONMENT|DEBUG' .env
-# WEBAPP_URL=https://stratmaster.fun
-# DEBUG=False
-# ENVIRONMENT=production
-```
+`backup_db.sh` and `restore_db.sh` call plain `docker compose`, which would
+otherwise pick the dev file.
 
 ---
 
-## 5. Restore the data
-
-Volumes have to exist before anything can be unpacked into them, and the
-database has to be running before a dump can go in. **Without the bot** —
-the old one is still live and holds the token:
+## 4. Secrets
 
 ```bash
-docker compose up -d --build db redis
-docker compose ps        # wait until db is (healthy)
+cp .env.sample .env
+nano .env
 ```
 
-Images and certificate into their volumes:
+| Key | Where it comes from |
+|---|---|
+| `BOT_TOKEN` | @BotFather → the production bot. **Not** the dev bot's token |
+| `CRYPTOPAY_TOKEN` | @CryptoBot → Crypto Pay → My Apps |
+| `OPENAI_API_KEY` | the owner's OpenAI account — blank disables the support assistant |
+| `POSTGRES_PASSWORD` | generate a new one: `openssl rand -hex 24` |
+| `DATABASE_URL` | must repeat that same password |
+| `SECRET_KEY` | generate: `openssl rand -hex 32` |
+| `WEBAPP_URL` | `https://stratmaster.fun` |
+| `DEBUG` | `False` |
+| `ENVIRONMENT` | `production` |
+| `NGROK_*` | leave blank — that's the dev tunnel |
+
+`POSTGRES_PASSWORD` and `SECRET_KEY` are new on purpose: nothing outside this
+box depends on them, and the old values are on a machine nobody controls any
+more. The same goes the other way — if any key was ever pasted into a chat,
+rotate it at the source rather than carrying it over.
+
+---
+
+## 5. DNS
+
+The domain still points at the dead box, and Let's Encrypt validates over
+public DNS, so this has to happen **before** the certificate.
+
+At nic.ua, in the `stratmaster.fun` records:
+
+| Type | Name | Value |
+|---|---|---|
+| A | `@` | `<NEW_IP>` |
+| A | `www` | `<NEW_IP>` |
+
+Set TTL to 300 while you work. Then wait for it:
 
 ```bash
+dig +short stratmaster.fun          # must return <NEW_IP>, not the old one
+```
+
+Do not continue until it does. A certificate attempt against stale DNS fails
+and counts against the limit of five per domain per week.
+
+---
+
+## 6. Certificate, then the stack
+
+nginx will not start without a certificate, and certbot needs port 80 free,
+so the certificate comes first and standalone:
+
+```bash
+sudo docker run --rm -p 80:80 \
+  -v stratmaster-cs2_certbot_conf:/etc/letsencrypt \
+  -v stratmaster-cs2_certbot_www:/var/www/certbot \
+  certbot/certbot certonly --standalone \
+  -d stratmaster.fun -d www.stratmaster.fun \
+  --email <owner's email> --agree-tos --no-eff-email
+```
+
+Volume names are `<project>_<volume>`, the project being the checkout
+directory lowercased; confirm with `docker volume ls` if the paths look
+wrong.
+
+Now bring everything up:
+
+```bash
+docker compose up -d --build
+docker compose ps
+docker compose logs -f backend      # wait for "Application startup complete"
+```
+
+Migrations run on backend start. On an empty database they also seed the
+maps, the cases and the two forum categories, so the app is usable
+immediately — just without content.
+
+---
+
+## 7. Data
+
+### A — there is a dump
+
+```bash
+# from the machine holding it
+scp -i ~/.ssh/<KEY>.pem <DUMP> uploads.tar.gz ubuntu@<NEW_IP>:~/
+```
+
+```bash
+mkdir -p backups && mv ~/<DUMP> backups/
+FORCE=1 ./scripts/restore_db.sh backups/<DUMP>
 docker run --rm -v stratmaster-cs2_uploads_data:/v -v ~:/in alpine \
   tar xzf /in/uploads.tar.gz -C /v
-docker run --rm -v stratmaster-cs2_certbot_conf:/v -v ~:/in alpine \
-  tar xzf /in/letsencrypt.tar.gz -C /v
-
-docker run --rm -v stratmaster-cs2_certbot_conf:/v alpine \
-  ls /v/live/stratmaster.fun        # fullchain.pem, privkey.pem must be here
+docker compose restart backend
 ```
 
-Database:
+A dump from an older schema is fine — the backend migrates it on start.
 
-```bash
-FORCE=1 ./scripts/restore_db.sh backups/stratmaster_<timestamp>.sql.gz
-```
+### B — there is no dump
 
-Then the rest of the stack, still without the bot:
+The database is empty apart from what the migrations seed. What has to be
+rebuilt, in this order:
 
-```bash
-docker compose up -d --build backend frontend certbot
-docker compose logs -f backend      # "Application startup complete"
-```
+1. **An admin.** The owner opens the Mini App once so the account exists,
+   then:
 
-Migrations run on backend start, so a dump from an older schema is brought
-up to date automatically.
+   ```bash
+   docker compose exec -T db psql -U stratmaster -d stratmaster_db \
+     -c "UPDATE users SET is_admin = true WHERE username = '<owner's telegram handle>';"
+   ```
+
+2. **Map images.** Admin → Maps → upload a cover for each seeded map.
+   Uploads go to the `uploads_data` volume, so they survive redeploys.
+3. **Strategies.** Admin → Strategies → New. The tactical editor is where
+   the paths, grenade trajectories and timings are drawn.
+4. **Paid users.** This is the part that cannot be recovered from the app:
+   balances, premium and inventory lived only in the lost database.
+   @CryptoBot → Crypto Pay → My Apps → the payment history lists every paid
+   invoice with its amount and date. Matching those against the people who
+   complain, premium can be granted by hand:
+
+   ```bash
+   docker compose exec -T db psql -U stratmaster -d stratmaster_db -c \
+     "UPDATE wallets SET subscription_expires_at = now() + interval '30 days' \
+      WHERE user_id = (SELECT id FROM users WHERE username = '<handle>');"
+   ```
+
+   `reconcile_invoices.py` does **not** help here — it works from invoice
+   rows that this database no longer has.
+
+Either way, expect to tell users plainly that accounts were restored from a
+backup of a given date, or rebuilt. That is cheaper than a week of support
+tickets asking why premium disappeared.
 
 ---
 
-## 6. Test before touching DNS
+## 8. Telegram and payments
 
-The domain still points at the old box, so ask curl to use the new IP for
-this one request. The copied certificate makes this a real HTTPS check,
-not an insecure one:
+Nothing changed domain-side, but verify, because a dead server leaves
+half-configured integrations behind:
 
-```bash
-curl -I --resolve stratmaster.fun:443:<NEW_ELASTIC_IP> https://stratmaster.fun
-curl -s --resolve stratmaster.fun:443:<NEW_ELASTIC_IP> https://stratmaster.fun/api/settings
-curl -I --resolve stratmaster.fun:443:<NEW_ELASTIC_IP> https://stratmaster.fun/uploads/<some-known-image>
-```
+- @BotFather → `/setmenubutton` → the production bot → `https://stratmaster.fun`
+- @BotFather → `/setdomain` → `stratmaster.fun`
+- @CryptoBot → Crypto Pay → My Apps → **Webhooks** →
+  `https://stratmaster.fun/api/webhooks/cryptopay`
 
-Expect `200` and a valid certificate on all three. Row counts should match
-the old box:
-
-```bash
-docker compose exec -T db psql -U stratmaster -d stratmaster_db \
-  -c "SELECT (SELECT count(*) FROM users) users, (SELECT count(*) FROM strategies) strategies;"
-```
-
-If anything is off, fix it now — the old server is still serving players.
+The webhook is the only path that credits a wallet. If it points anywhere
+else, money is taken and nothing arrives.
 
 ---
 
-## 7. Cutover
-
-Roughly five minutes of downtime, most of it DNS.
-
-1. **Lower the TTL** on the `@` and `www` A records at nic.ua to 300
-   seconds. Ideally an hour or more before the cutover, so the old TTL has
-   expired everywhere by the time the change lands.
-
-2. **Stop the old box** (on the old server). This is the moment the bot
-   frees the token:
-
-   ```bash
-   cd ~/StratMaster-CS2 && docker compose -f docker-compose.prod.yml down
-   ```
-
-3. **Final dump from the old box** — everything players did since step 2.
-   Postgres is stopped, so bring just it back up for the dump:
-
-   ```bash
-   docker compose -f docker-compose.prod.yml up -d db
-   COMPOSE_FILE=docker-compose.prod.yml ./scripts/backup_db.sh
-   docker compose -f docker-compose.prod.yml down
-   ```
-
-   Copy the new dump (and, if images were uploaded meanwhile, a fresh
-   `uploads.tar.gz`) to the new box, then restore over the top exactly as
-   in step 5. The dump is `--clean --if-exists`, so it replaces rather
-   than merges.
-
-4. **Switch DNS** at nic.ua:
-
-   | Type | Name | Value |
-   |---|---|---|
-   | A | `@` | `<NEW_ELASTIC_IP>` |
-   | A | `www` | `<NEW_ELASTIC_IP>` |
-
-   Wait for it:
-
-   ```bash
-   dig +short stratmaster.fun          # must return the new IP
-   ```
-
-5. **Start everything on the new box, bot included:**
-
-   ```bash
-   cd ~/StratMaster-CS2
-   docker compose -f docker-compose.prod.yml up -d --build
-   docker compose -f docker-compose.prod.yml ps      # all Up
-   ```
-
----
-
-## 8. Verify
+## 9. Verify
 
 ```bash
-curl -I https://stratmaster.fun                       # 200, valid cert
+curl -I https://stratmaster.fun                        # 200, valid certificate
 curl -s https://stratmaster.fun/api/settings
-curl -I https://stratmaster.fun/api/webhooks/cryptopay  # 401 — endpoint alive, rejects unsigned
+curl -I https://stratmaster.fun/api/webhooks/cryptopay  # 401 — alive, rejects unsigned
 ```
 
-Then by hand:
-
-- Open the Mini App from the bot. It should load over `stratmaster.fun`.
-- Log in as yourself — the account, balance, premium and inventory are all
-  from the restored dump.
-- Open a strategy with images: uploads came across if they render.
-- Admin panel → Errors (24h) should be empty apart from anything you
-  triggered on purpose.
-- Send the bot `/start` — a reply proves exactly one poller holds the
-  token.
-
-Nothing changes in BotFather or CryptoPay: the domain is the same, so the
-menu button, `/setdomain` and the webhook URL all still point at the right
-place.
+Then by hand: open the Mini App from the bot, sign in, check that an image
+loads, send the bot `/start`, and make one small real payment to confirm the
+balance moves.
 
 ---
 
-## 9. Cron on the new box
+## 10. Backups, properly this time
 
-These do not travel with the data — they live in the old box's crontab.
+The lesson of this document is that a backup living on the server it backs up
+is not a backup. Set the schedule, then get the dumps off the box.
 
 ```bash
 crontab -e
 ```
 
 ```cron
-# Nightly database backup, 14 days of history
 0 3 * * * cd /home/ubuntu/StratMaster-CS2 && COMPOSE_FILE=docker-compose.prod.yml ./scripts/backup_db.sh >> backup.log 2>&1
-
-# Weekly nginx reload, so renewed certificates are actually served
 0 4 * * 1 cd /home/ubuntu/StratMaster-CS2 && docker compose -f docker-compose.prod.yml exec -T frontend nginx -s reload
 ```
 
-The certificate renews itself in the `certbot` container; it just can't
-signal nginx across containers, hence the reload.
+The first is the nightly dump (14 days kept), the second reloads nginx so
+renewed certificates are actually served — certbot renews in its own
+container and cannot signal nginx across containers.
 
----
+Then, weekly, off the server — to a laptop, S3 in a *different* account, or
+anywhere that does not die with this box:
 
-## 10. Shut the old account down
+```bash
+scp -i ~/.ssh/<KEY>.pem ubuntu@<NEW_IP>:~/StratMaster-CS2/backups/stratmaster_*.sql.gz .
+```
 
-Only once the new box has served real traffic for a day or two — a
-terminated instance and a released Elastic IP are not recoverable.
-
-1. Keep a copy of the last dump, `uploads.tar.gz` and `.env` somewhere off
-   both servers.
-2. EC2 → Instances → the old one → Instance state → **Terminate**.
-3. EC2 → Elastic IPs → the old address → **Release**. An Elastic IP that
-   isn't attached to a running instance is billed by the hour.
-4. EC2 → Volumes and Snapshots: delete anything left behind. Terminating
-   an instance doesn't always take its volumes.
-5. Billing → check next month's forecast is zero before closing the
-   account.
+```bash
+docker run --rm -v stratmaster-cs2_uploads_data:/v -v $(pwd):/out alpine \
+  tar czf /out/uploads.tar.gz -C /v .
+```
 
 ---
 
 ## What goes wrong
 
-**Two bots on one token.** The symptom is that roughly half of every
-player's messages get no answer, and it never appears in either box's
-logs. Only one box may run the `bot` service; the steps above start the
-new stack without it until the old one is down.
+**Certificate fails with a DNS error.** The A records haven't propagated.
+Check with `dig +short stratmaster.fun` and wait — retrying burns the weekly
+quota of five.
+
+**nginx won't start.** No certificate in `certbot_conf`. Check:
+`docker run --rm -v stratmaster-cs2_certbot_conf:/v alpine ls /v/live/stratmaster.fun`
+
+**502 Bad Gateway.** nginx resolved the backend before it was up:
+`docker compose restart frontend`.
+
+**Images referenced but missing.** The database was restored but
+`uploads.tar.gz` wasn't — the strategies are intact, their pictures aren't.
+
+**The bot answers every other message.** Two pollers on one token. The dev
+stand on someone's laptop must use the dev bot's token, never production's.
 
 **`docker compose down -v` deletes the database.** `-v` removes named
-volumes, `postgres_data` included. Plain `down` is what step 7 uses.
+volumes, `postgres_data` included. Use plain `down`.
 
-**Uploads are a volume, not a directory.** In production nothing
-bind-mounts the source tree, so `backend/uploads` exists only inside the
-container. A migration that forgets `uploads_data` loses every image ever
-uploaded while the database still references them.
-
-**The scripts default to the dev compose file.** `backup_db.sh` and
-`restore_db.sh` call plain `docker compose`; on the production box export
-`COMPOSE_FILE=docker-compose.prod.yml` first, as every snippet here does.
-
-**No Elastic IP.** Restarting the instance then changes the public IP, and
-the site goes down the next time the box stops — with DNS records that
-look perfectly correct.
+**Permission denied on docker.** Log out and back in after `usermod`.
